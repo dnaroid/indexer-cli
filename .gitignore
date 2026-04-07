@@ -12,3 +12,4 @@ yarn-error.log*
 /.opencode/
 /.idea/
 /dist/
+.indexer-cli/
