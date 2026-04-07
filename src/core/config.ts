@@ -20,8 +20,8 @@ const DEFAULT_CONFIG: IndexerConfig = {
 	vectorSize: 768,
 	ollamaBaseUrl: "http://127.0.0.1:11434",
 	ollamaNumCtx: 512,
-	indexConcurrency: 1,
-	indexBatchSize: 1,
+	indexConcurrency: 2,
+	indexBatchSize: 8,
 	logLevel: "error",
 };
 
