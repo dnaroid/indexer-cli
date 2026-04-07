@@ -5,12 +5,14 @@ import { registerSearchCommand } from "./commands/search.js";
 import { registerStructureCommand } from "./commands/structure.js";
 import { registerArchitectureCommand } from "./commands/architecture.js";
 import { registerUninstallCommand } from "./commands/uninstall.js";
+import { registerSetupCommand } from "./commands/setup.js";
 
 program
 	.name("indexer")
 	.description("Lightweight project indexer with semantic search")
 	.version("0.1.0")
 	.exitOverride();
+registerSetupCommand(program);
 registerInitCommand(program);
 registerIndexCommand(program);
 registerSearchCommand(program);
