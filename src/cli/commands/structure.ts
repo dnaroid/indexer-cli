@@ -1,8 +1,9 @@
 import path from "node:path";
 import type { Command } from "commander";
 import { setLogLevel } from "../../core/logger.js";
-import type { Project, SymbolRecord } from "../../core/types.js";
+import { DEFAULT_PROJECT_ID, type SymbolRecord } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
+import { ensureIndexed } from "./ensure-indexed.js";
 
 type TreeNode = {
 	files: Set<string>;
@@ -17,23 +18,6 @@ type CliColors = {
 
 async function loadChalk(): Promise<CliColors> {
 	return (await import("chalk")).default as unknown as CliColors;
-}
-
-async function loadProject(
-	metadata: SqliteMetadataStore,
-	repoRoot: string,
-): Promise<Project> {
-	const project = (await metadata.listProjects()).find(
-		(entry) =>
-			path.resolve(entry.workdir) === repoRoot ||
-			path.resolve(entry.repoRoot) === repoRoot,
-	);
-
-	if (!project) {
-		throw new Error("Project not initialized. Run `indexer init` first.");
-	}
-
-	return project;
 }
 
 function createNode(): TreeNode {
@@ -104,19 +88,26 @@ export function registerStructureCommand(program: Command): void {
 
 			try {
 				await metadata.initialize();
-				const project = await loadProject(metadata, resolvedProjectPath);
-				const snapshot = await metadata.getLatestCompletedSnapshot(project.id);
-
+				await ensureIndexed(metadata, resolvedProjectPath, chalk);
+				const snapshot =
+					await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 				if (!snapshot) {
 					throw new Error(
-						"No completed snapshot found. Run `indexer index` first.",
+						"Auto-indexing did not produce a completed snapshot.",
 					);
 				}
 
-				const files = await metadata.listFiles(project.id, snapshot.id, {
-					pathPrefix: options?.pathPrefix,
-				});
-				const allSymbols = await metadata.listSymbols(project.id, snapshot.id);
+				const files = await metadata.listFiles(
+					DEFAULT_PROJECT_ID,
+					snapshot.id,
+					{
+						pathPrefix: options?.pathPrefix,
+					},
+				);
+				const allSymbols = await metadata.listSymbols(
+					DEFAULT_PROJECT_ID,
+					snapshot.id,
+				);
 				const symbolsByFile = new Map<string, SymbolRecord[]>();
 
 				for (const symbol of allSymbols) {

@@ -1,451 +1,361 @@
-import Database from 'better-sqlite3';
-import { AsyncLocalStorage } from 'node:async_hooks';
-import { randomUUID } from 'node:crypto';
+import Database from "better-sqlite3";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { randomUUID } from "node:crypto";
 import type {
-  ArtifactRecord,
-  ChunkRecord,
-  DependencyRecord,
-  FileMetricsRecord,
-  FileRecord,
-  MetadataStore,
-  Project,
-  ProjectId,
-  Snapshot,
-  SnapshotId,
-  SnapshotMeta,
-  SnapshotStatus,
-  SymbolRecord,
-} from '../core/types.js';
-import { SystemLogger } from '../core/logger.js';
+	ArtifactRecord,
+	ChunkRecord,
+	DependencyRecord,
+	FileMetricsRecord,
+	FileRecord,
+	MetadataStore,
+	ProjectId,
+	Snapshot,
+	SnapshotId,
+	SnapshotMeta,
+	SnapshotStatus,
+	SymbolRecord,
+} from "../core/types.js";
+import { SystemLogger } from "../core/logger.js";
 
-const logger = new SystemLogger('storage-sqlite');
+const logger = new SystemLogger("storage-sqlite");
 
 type TxCtx = { depth: number; spSeq: number };
 const txCtx = new AsyncLocalStorage<TxCtx>();
 
 type Migration = {
-  version: number;
-  name: string;
-  up: (db: Database.Database) => void;
+	version: number;
+	name: string;
+	up: (db: Database.Database) => void;
 };
 
 const migrations: Migration[] = [
-  {
-    version: 1,
-    name: 'add_symbol_metadata_json',
-    up: (db) => {
-      const columns = db.prepare('PRAGMA table_info(symbols)').all() as Array<{ name: string }>;
-      const hasMetadataColumn = columns.some((column) => column.name === 'metadata_json');
+	{
+		version: 1,
+		name: "add_symbol_metadata_json",
+		up: (db) => {
+			const columns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{
+				name: string;
+			}>;
+			const hasMetadataColumn = columns.some(
+				(column) => column.name === "metadata_json",
+			);
 
-      if (!hasMetadataColumn) {
-        db.exec('ALTER TABLE symbols ADD COLUMN metadata_json TEXT');
-      }
-    },
-  },
-  {
-    version: 2,
-    name: 'add_project_track_file_changes',
-    up: (db) => {
-      const columns = db.prepare('PRAGMA table_info(projects)').all() as Array<{ name: string }>;
-      const hasTrackFileChanges = columns.some((column) => column.name === 'track_file_changes');
-
-      if (!hasTrackFileChanges) {
-        db.exec('ALTER TABLE projects ADD COLUMN track_file_changes INTEGER NOT NULL DEFAULT 1');
-      }
-    },
-  },
+			if (!hasMetadataColumn) {
+				db.exec("ALTER TABLE symbols ADD COLUMN metadata_json TEXT");
+			}
+		},
+	},
 ];
 
 export class SqliteMetadataStore implements MetadataStore {
-  private db: Database.Database;
+	private db: Database.Database;
 
-  constructor(private readonly dbPath: string) {
-    this.db = new Database(this.dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('busy_timeout = 5000');
-  }
+	constructor(private readonly dbPath: string) {
+		this.db = new Database(this.dbPath);
+		this.db.pragma("journal_mode = WAL");
+		this.db.pragma("busy_timeout = 5000");
+	}
 
-  async initialize(): Promise<void> {
-    logger.info('[SqliteMetadataStore] Initializing database at:', this.dbPath);
-    this.db.pragma('foreign_keys = ON');
-    this.createSchema();
-    await this.runMigrations();
-  }
+	async initialize(): Promise<void> {
+		logger.info("[SqliteMetadataStore] Initializing database at:", this.dbPath);
+		this.db.pragma("foreign_keys = ON");
+		this.createSchema();
+		await this.runMigrations();
+	}
 
-  async close(): Promise<void> {
-    this.db.close();
-  }
+	async close(): Promise<void> {
+		this.db.close();
+	}
 
-  async transaction<T>(callback: () => Promise<T>): Promise<T> {
-    const ctx = txCtx.getStore();
+	async transaction<T>(callback: () => Promise<T>): Promise<T> {
+		const ctx = txCtx.getStore();
 
-    if (ctx) {
-      const spName = `sp_${ctx.depth}_${++ctx.spSeq}`;
-      ctx.depth += 1;
+		if (ctx) {
+			const spName = `sp_${ctx.depth}_${++ctx.spSeq}`;
+			ctx.depth += 1;
 
-      this.db.prepare(`SAVEPOINT ${spName}`).run();
-      try {
-        const result = await callback();
-        this.db.prepare(`RELEASE ${spName}`).run();
-        return result;
-      } catch (error) {
-        this.db.prepare(`ROLLBACK TO ${spName}`).run();
-        this.db.prepare(`RELEASE ${spName}`).run();
-        throw error;
-      } finally {
-        ctx.depth -= 1;
-      }
-    }
+			this.db.prepare(`SAVEPOINT ${spName}`).run();
+			try {
+				const result = await callback();
+				this.db.prepare(`RELEASE ${spName}`).run();
+				return result;
+			} catch (error) {
+				this.db.prepare(`ROLLBACK TO ${spName}`).run();
+				this.db.prepare(`RELEASE ${spName}`).run();
+				throw error;
+			} finally {
+				ctx.depth -= 1;
+			}
+		}
 
-    return txCtx.run({ depth: 1, spSeq: 0 }, async () => {
-      this.db.prepare('BEGIN IMMEDIATE').run();
-      try {
-        const result = await callback();
-        this.db.prepare('COMMIT').run();
-        return result;
-      } catch (error) {
-        this.db.prepare('ROLLBACK').run();
-        throw error;
-      }
-    });
-  }
+		return txCtx.run({ depth: 1, spSeq: 0 }, async () => {
+			this.db.prepare("BEGIN IMMEDIATE").run();
+			try {
+				const result = await callback();
+				this.db.prepare("COMMIT").run();
+				return result;
+			} catch (error) {
+				this.db.prepare("ROLLBACK").run();
+				throw error;
+			}
+		});
+	}
 
-  async createProject(
-    project: Omit<Project, 'id' | 'createdAt' | 'trackFileChanges'> & {
-      trackFileChanges?: boolean;
-    }
-  ): Promise<Project> {
-    return this.transaction(async () => {
-      const id = randomUUID();
-      const createdAt = Date.now();
-      const trackFileChanges = project.trackFileChanges !== false;
+	async createSnapshot(
+		projectId: ProjectId,
+		meta: SnapshotMeta,
+	): Promise<Snapshot> {
+		return this.transaction(async () => {
+			const id = randomUUID();
+			const createdAt = Date.now();
 
-      this.db
-        .prepare(
-          'INSERT INTO projects (id, name, repo_url, source_type, source_path, track_file_changes, origin_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
-        )
-        .run(
-          id,
-          project.name,
-          project.repoRoot,
-          project.sourceType,
-          project.workdir,
-          trackFileChanges ? 1 : 0,
-          project.originUrl ?? null,
-          createdAt
-        );
+			this.db
+				.prepare(
+					"INSERT INTO snapshots (id, project_id, git_ref, status, created_at, failure_reason) VALUES (?, ?, ?, ?, ?, ?)",
+				)
+				.run(id, projectId, meta.headCommit ?? "", "indexing", createdAt, null);
 
-      return {
-        id,
-        name: project.name,
-        sourceType: project.sourceType,
-        repoRoot: project.repoRoot,
-        workdir: project.workdir,
-        trackFileChanges,
-        originUrl: project.originUrl,
-        createdAt,
-      };
-    });
-  }
+			return {
+				id,
+				projectId,
+				status: "indexing",
+				createdAt,
+				meta: {
+					...meta,
+					indexedAt: createdAt,
+				},
+			};
+		});
+	}
 
-  async getProject(id: ProjectId): Promise<Project | null> {
-    const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as
-      | {
-          id: string;
-          name: string;
-          source_type: Project['sourceType'];
-          repo_url: string;
-          source_path: string;
-          track_file_changes: number;
-          origin_url: string | null;
-          created_at: number;
-        }
-      | undefined;
+	async getSnapshot(id: SnapshotId): Promise<Snapshot | null> {
+		const row = this.db
+			.prepare("SELECT * FROM snapshots WHERE id = ?")
+			.get(id) as
+			| {
+					id: string;
+					project_id: string;
+					status: string;
+					created_at: number;
+					git_ref: string | null;
+					processed_files: number | null;
+					total_files: number | null;
+					failure_reason: string | null;
+			  }
+			| undefined;
 
-    if (!row) {
-      return null;
-    }
+		return row ? this.mapSnapshotRow(row) : null;
+	}
 
-    return {
-      id: row.id,
-      name: row.name,
-      sourceType: row.source_type,
-      repoRoot: row.repo_url,
-      workdir: row.source_path,
-      trackFileChanges: row.track_file_changes === 1,
-      originUrl: row.origin_url ?? undefined,
-      createdAt: row.created_at,
-    };
-  }
+	async getLatestSnapshot(projectId: ProjectId): Promise<Snapshot | null> {
+		const row = this.db
+			.prepare(
+				"SELECT * FROM snapshots WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+			)
+			.get(projectId) as
+			| {
+					id: string;
+					project_id: string;
+					status: string;
+					created_at: number;
+					git_ref: string | null;
+					processed_files: number | null;
+					total_files: number | null;
+					failure_reason: string | null;
+			  }
+			| undefined;
 
-  async listProjects(): Promise<Project[]> {
-    const rows = this.db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as Array<{
-      id: string;
-      name: string;
-      source_type: Project['sourceType'];
-      repo_url: string;
-      source_path: string;
-      track_file_changes: number;
-      origin_url: string | null;
-      created_at: number;
-    }>;
+		return row ? this.mapSnapshotRow(row) : null;
+	}
 
-    return rows.map((row) => ({
-      id: row.id,
-      name: row.name,
-      sourceType: row.source_type,
-      repoRoot: row.repo_url,
-      workdir: row.source_path,
-      trackFileChanges: row.track_file_changes === 1,
-      originUrl: row.origin_url ?? undefined,
-      createdAt: row.created_at,
-    }));
-  }
+	async getLatestCompletedSnapshot(
+		projectId: ProjectId,
+	): Promise<Snapshot | null> {
+		const row = this.db
+			.prepare(
+				"SELECT * FROM snapshots WHERE project_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1",
+			)
+			.get(projectId, this.mapToDbStatus("completed")) as
+			| {
+					id: string;
+					project_id: string;
+					status: string;
+					created_at: number;
+					git_ref: string | null;
+					processed_files: number | null;
+					total_files: number | null;
+					failure_reason: string | null;
+			  }
+			| undefined;
 
-  async deleteProject(id: ProjectId): Promise<void> {
-    await this.transaction(async () => {
-      this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
-    });
-  }
+		return row ? this.mapSnapshotRow(row) : null;
+	}
 
-  async createSnapshot(projectId: ProjectId, meta: SnapshotMeta): Promise<Snapshot> {
-    return this.transaction(async () => {
-      const id = randomUUID();
-      const createdAt = Date.now();
+	async listSnapshots(
+		projectId: ProjectId,
+		options?: { limit?: number; offset?: number },
+	): Promise<Snapshot[]> {
+		const limit = options?.limit ?? 25;
+		const offset = options?.offset ?? 0;
+		const rows = this.db
+			.prepare(
+				"SELECT * FROM snapshots WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+			)
+			.all(projectId, limit, offset) as Array<{
+			id: string;
+			project_id: string;
+			status: string;
+			created_at: number;
+			git_ref: string | null;
+			processed_files: number | null;
+			total_files: number | null;
+			failure_reason: string | null;
+		}>;
 
-      this.db
-        .prepare(
-          'INSERT INTO snapshots (id, project_id, git_ref, status, created_at, failure_reason) VALUES (?, ?, ?, ?, ?, ?)'
-        )
-        .run(id, projectId, meta.headCommit ?? '', 'indexing', createdAt, null);
+		return rows.map((row) => this.mapSnapshotRow(row));
+	}
 
-      return {
-        id,
-        projectId,
-        status: 'indexing',
-        createdAt,
-        meta: {
-          ...meta,
-          indexedAt: createdAt,
-        },
-      };
-    });
-  }
+	async updateSnapshotStatus(
+		id: SnapshotId,
+		status: SnapshotStatus,
+		error?: string,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					"UPDATE snapshots SET status = ?, failure_reason = ? WHERE id = ?",
+				)
+				.run(this.mapToDbStatus(status), error ?? null, id);
+		});
+	}
 
-  async getSnapshot(id: SnapshotId): Promise<Snapshot | null> {
-    const row = this.db.prepare('SELECT * FROM snapshots WHERE id = ?').get(id) as
-      | {
-          id: string;
-          project_id: string;
-          status: string;
-          created_at: number;
-          git_ref: string | null;
-          processed_files: number | null;
-          total_files: number | null;
-          failure_reason: string | null;
-        }
-      | undefined;
+	async updateSnapshotProgress(
+		id: SnapshotId,
+		processedFiles: number,
+		totalFiles: number,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					"UPDATE snapshots SET processed_files = ?, total_files = ? WHERE id = ?",
+				)
+				.run(processedFiles, totalFiles, id);
+		});
+	}
 
-    return row ? this.mapSnapshotRow(row) : null;
-  }
-
-  async getLatestSnapshot(projectId: ProjectId): Promise<Snapshot | null> {
-    const row = this.db
-      .prepare('SELECT * FROM snapshots WHERE project_id = ? ORDER BY created_at DESC LIMIT 1')
-      .get(projectId) as
-      | {
-          id: string;
-          project_id: string;
-          status: string;
-          created_at: number;
-          git_ref: string | null;
-          processed_files: number | null;
-          total_files: number | null;
-          failure_reason: string | null;
-        }
-      | undefined;
-
-    return row ? this.mapSnapshotRow(row) : null;
-  }
-
-  async getLatestCompletedSnapshot(projectId: ProjectId): Promise<Snapshot | null> {
-    const row = this.db
-      .prepare(
-        'SELECT * FROM snapshots WHERE project_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1'
-      )
-      .get(projectId, this.mapToDbStatus('completed')) as
-      | {
-          id: string;
-          project_id: string;
-          status: string;
-          created_at: number;
-          git_ref: string | null;
-          processed_files: number | null;
-          total_files: number | null;
-          failure_reason: string | null;
-        }
-      | undefined;
-
-    return row ? this.mapSnapshotRow(row) : null;
-  }
-
-  async listSnapshots(
-    projectId: ProjectId,
-    options?: { limit?: number; offset?: number }
-  ): Promise<Snapshot[]> {
-    const limit = options?.limit ?? 25;
-    const offset = options?.offset ?? 0;
-    const rows = this.db
-      .prepare(
-        'SELECT * FROM snapshots WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?'
-      )
-      .all(projectId, limit, offset) as Array<{
-      id: string;
-      project_id: string;
-      status: string;
-      created_at: number;
-      git_ref: string | null;
-      processed_files: number | null;
-      total_files: number | null;
-      failure_reason: string | null;
-    }>;
-
-    return rows.map((row) => this.mapSnapshotRow(row));
-  }
-
-  async updateSnapshotStatus(
-    id: SnapshotId,
-    status: SnapshotStatus,
-    error?: string
-  ): Promise<void> {
-    await this.transaction(async () => {
-      this.db
-        .prepare('UPDATE snapshots SET status = ?, failure_reason = ? WHERE id = ?')
-        .run(this.mapToDbStatus(status), error ?? null, id);
-    });
-  }
-
-  async updateSnapshotProgress(
-    id: SnapshotId,
-    processedFiles: number,
-    totalFiles: number
-  ): Promise<void> {
-    await this.transaction(async () => {
-      this.db
-        .prepare('UPDATE snapshots SET processed_files = ?, total_files = ? WHERE id = ?')
-        .run(processedFiles, totalFiles, id);
-    });
-  }
-
-  async upsertFile(projectId: ProjectId, file: FileRecord): Promise<void> {
-    await this.transaction(async () => {
-      this.db
-        .prepare(
-          `INSERT INTO files (project_id, sha256, mtime_ms, size, path, snapshot_id, language_id)
+	async upsertFile(projectId: ProjectId, file: FileRecord): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					`INSERT INTO files (project_id, sha256, mtime_ms, size, path, snapshot_id, language_id)
            VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(project_id, snapshot_id, path) DO UPDATE SET
              sha256 = excluded.sha256,
              mtime_ms = excluded.mtime_ms,
              size = excluded.size,
-             language_id = excluded.language_id`
-        )
-        .run(
-          projectId,
-          file.sha256,
-          file.mtimeMs,
-          file.size,
-          file.path,
-          file.snapshotId,
-          file.languageId
-        );
-    });
-  }
+             language_id = excluded.language_id`,
+				)
+				.run(
+					projectId,
+					file.sha256,
+					file.mtimeMs,
+					file.size,
+					file.path,
+					file.snapshotId,
+					file.languageId,
+				);
+		});
+	}
 
-  async listFiles(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    options?: { pathPrefix?: string }
-  ): Promise<FileRecord[]> {
-    let sql = 'SELECT * FROM files WHERE project_id = ? AND snapshot_id = ?';
-    const params: Array<string | number> = [projectId, snapshotId];
-    const pathPrefix = options?.pathPrefix?.replace(/\/+$/, '');
+	async listFiles(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		options?: { pathPrefix?: string },
+	): Promise<FileRecord[]> {
+		let sql = "SELECT * FROM files WHERE project_id = ? AND snapshot_id = ?";
+		const params: Array<string | number> = [projectId, snapshotId];
+		const pathPrefix = options?.pathPrefix?.replace(/\/+$/, "");
 
-    if (pathPrefix) {
-      sql += ' AND (path = ? OR path LIKE ?)';
-      params.push(pathPrefix, `${pathPrefix}/%`);
-    }
+		if (pathPrefix) {
+			sql += " AND (path = ? OR path LIKE ?)";
+			params.push(pathPrefix, `${pathPrefix}/%`);
+		}
 
-    sql += ' ORDER BY path';
+		sql += " ORDER BY path";
 
-    const rows = this.db.prepare(sql).all(...params) as Array<{
-      snapshot_id: string;
-      path: string;
-      sha256: string;
-      mtime_ms: number;
-      size: number;
-      language_id: string;
-    }>;
+		const rows = this.db.prepare(sql).all(...params) as Array<{
+			snapshot_id: string;
+			path: string;
+			sha256: string;
+			mtime_ms: number;
+			size: number;
+			language_id: string;
+		}>;
 
-    return rows.map((row) => ({
-      snapshotId: row.snapshot_id,
-      path: row.path,
-      sha256: row.sha256,
-      mtimeMs: row.mtime_ms,
-      size: row.size,
-      languageId: row.language_id,
-    }));
-  }
+		return rows.map((row) => ({
+			snapshotId: row.snapshot_id,
+			path: row.path,
+			sha256: row.sha256,
+			mtimeMs: row.mtime_ms,
+			size: row.size,
+			languageId: row.language_id,
+		}));
+	}
 
-  async getFile(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    path: string
-  ): Promise<FileRecord | null> {
-    const row = this.db
-      .prepare('SELECT * FROM files WHERE project_id = ? AND snapshot_id = ? AND path = ?')
-      .get(projectId, snapshotId, path) as
-      | {
-          snapshot_id: string;
-          path: string;
-          sha256: string;
-          mtime_ms: number;
-          size: number;
-          language_id: string;
-        }
-      | undefined;
+	async getFile(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		path: string,
+	): Promise<FileRecord | null> {
+		const row = this.db
+			.prepare(
+				"SELECT * FROM files WHERE project_id = ? AND snapshot_id = ? AND path = ?",
+			)
+			.get(projectId, snapshotId, path) as
+			| {
+					snapshot_id: string;
+					path: string;
+					sha256: string;
+					mtime_ms: number;
+					size: number;
+					language_id: string;
+			  }
+			| undefined;
 
-    if (!row) {
-      return null;
-    }
+		if (!row) {
+			return null;
+		}
 
-    return {
-      snapshotId: row.snapshot_id,
-      path: row.path,
-      sha256: row.sha256,
-      mtimeMs: row.mtime_ms,
-      size: row.size,
-      languageId: row.language_id,
-    };
-  }
+		return {
+			snapshotId: row.snapshot_id,
+			path: row.path,
+			sha256: row.sha256,
+			mtimeMs: row.mtime_ms,
+			size: row.size,
+			languageId: row.language_id,
+		};
+	}
 
-  async replaceChunks(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    filePath: string,
-    chunks: Omit<ChunkRecord, 'snapshotId' | 'filePath'>[]
-  ): Promise<void> {
-    const transaction = this.db.transaction(
-      (nextChunks: Omit<ChunkRecord, 'snapshotId' | 'filePath'>[]) => {
-        this.db
-          .prepare('DELETE FROM chunks WHERE project_id = ? AND snapshot_id = ? AND file_path = ?')
-          .run(projectId, snapshotId, filePath);
+	async replaceChunks(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath: string,
+		chunks: Omit<ChunkRecord, "snapshotId" | "filePath">[],
+	): Promise<void> {
+		const transaction = this.db.transaction(
+			(nextChunks: Omit<ChunkRecord, "snapshotId" | "filePath">[]) => {
+				this.db
+					.prepare(
+						"DELETE FROM chunks WHERE project_id = ? AND snapshot_id = ? AND file_path = ?",
+					)
+					.run(projectId, snapshotId, filePath);
 
-        if (nextChunks.length === 0) {
-          return;
-        }
+				if (nextChunks.length === 0) {
+					return;
+				}
 
-        const insertStmt = this.db.prepare(
-          `INSERT INTO chunks (
+				const insertStmt = this.db.prepare(
+					`INSERT INTO chunks (
           project_id,
           chunk_id,
           file_path,
@@ -457,429 +367,450 @@ export class SqliteMetadataStore implements MetadataStore {
           chunk_type,
           primary_symbol,
           has_overlap
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        );
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				);
 
-        for (const chunk of nextChunks) {
-          insertStmt.run(
-            projectId,
-            chunk.chunkId,
-            filePath,
-            snapshotId,
-            chunk.startLine,
-            chunk.endLine,
-            chunk.contentHash,
-            chunk.tokenEstimate,
-            chunk.chunkType ?? 'full_file',
-            chunk.primarySymbol ?? null,
-            chunk.hasOverlap ? 1 : 0
-          );
-        }
-      }
-    );
+				for (const chunk of nextChunks) {
+					insertStmt.run(
+						projectId,
+						chunk.chunkId,
+						filePath,
+						snapshotId,
+						chunk.startLine,
+						chunk.endLine,
+						chunk.contentHash,
+						chunk.tokenEstimate,
+						chunk.chunkType ?? "full_file",
+						chunk.primarySymbol ?? null,
+						chunk.hasOverlap ? 1 : 0,
+					);
+				}
+			},
+		);
 
-    transaction(chunks);
-  }
+		transaction(chunks);
+	}
 
-  async listChunks(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    filePath?: string
-  ): Promise<ChunkRecord[]> {
-    let sql = 'SELECT * FROM chunks WHERE project_id = ? AND snapshot_id = ?';
-    const params: Array<string | number> = [projectId, snapshotId];
+	async listChunks(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath?: string,
+	): Promise<ChunkRecord[]> {
+		let sql = "SELECT * FROM chunks WHERE project_id = ? AND snapshot_id = ?";
+		const params: Array<string | number> = [projectId, snapshotId];
 
-    if (filePath) {
-      sql += ' AND file_path = ?';
-      params.push(filePath);
-    }
+		if (filePath) {
+			sql += " AND file_path = ?";
+			params.push(filePath);
+		}
 
-    sql += ' ORDER BY file_path, start_line';
+		sql += " ORDER BY file_path, start_line";
 
-    const rows = this.db.prepare(sql).all(...params) as Array<{
-      snapshot_id: string;
-      chunk_id: string;
-      file_path: string;
-      start_line: number;
-      end_line: number;
-      content_hash: string;
-      token_estimate: number;
-      chunk_type: ChunkRecord['chunkType'] | null;
-      primary_symbol: string | null;
-      has_overlap: number | null;
-    }>;
+		const rows = this.db.prepare(sql).all(...params) as Array<{
+			snapshot_id: string;
+			chunk_id: string;
+			file_path: string;
+			start_line: number;
+			end_line: number;
+			content_hash: string;
+			token_estimate: number;
+			chunk_type: ChunkRecord["chunkType"] | null;
+			primary_symbol: string | null;
+			has_overlap: number | null;
+		}>;
 
-    return rows.map((row) => ({
-      snapshotId: row.snapshot_id,
-      chunkId: row.chunk_id,
-      filePath: row.file_path,
-      startLine: row.start_line,
-      endLine: row.end_line,
-      contentHash: row.content_hash,
-      tokenEstimate: row.token_estimate,
-      chunkType: row.chunk_type ?? 'full_file',
-      primarySymbol: row.primary_symbol ?? undefined,
-      hasOverlap: Boolean(row.has_overlap),
-    }));
-  }
+		return rows.map((row) => ({
+			snapshotId: row.snapshot_id,
+			chunkId: row.chunk_id,
+			filePath: row.file_path,
+			startLine: row.start_line,
+			endLine: row.end_line,
+			contentHash: row.content_hash,
+			tokenEstimate: row.token_estimate,
+			chunkType: row.chunk_type ?? "full_file",
+			primarySymbol: row.primary_symbol ?? undefined,
+			hasOverlap: Boolean(row.has_overlap),
+		}));
+	}
 
-  async getChunk(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    chunkId: string
-  ): Promise<ChunkRecord | null> {
-    const row = this.db
-      .prepare('SELECT * FROM chunks WHERE project_id = ? AND snapshot_id = ? AND chunk_id = ?')
-      .get(projectId, snapshotId, chunkId) as
-      | {
-          snapshot_id: string;
-          chunk_id: string;
-          file_path: string;
-          start_line: number;
-          end_line: number;
-          content_hash: string;
-          token_estimate: number;
-          chunk_type: ChunkRecord['chunkType'] | null;
-          primary_symbol: string | null;
-          has_overlap: number | null;
-        }
-      | undefined;
+	async getChunk(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		chunkId: string,
+	): Promise<ChunkRecord | null> {
+		const row = this.db
+			.prepare(
+				"SELECT * FROM chunks WHERE project_id = ? AND snapshot_id = ? AND chunk_id = ?",
+			)
+			.get(projectId, snapshotId, chunkId) as
+			| {
+					snapshot_id: string;
+					chunk_id: string;
+					file_path: string;
+					start_line: number;
+					end_line: number;
+					content_hash: string;
+					token_estimate: number;
+					chunk_type: ChunkRecord["chunkType"] | null;
+					primary_symbol: string | null;
+					has_overlap: number | null;
+			  }
+			| undefined;
 
-    if (!row) {
-      return null;
-    }
+		if (!row) {
+			return null;
+		}
 
-    return {
-      snapshotId: row.snapshot_id,
-      chunkId: row.chunk_id,
-      filePath: row.file_path,
-      startLine: row.start_line,
-      endLine: row.end_line,
-      contentHash: row.content_hash,
-      tokenEstimate: row.token_estimate,
-      chunkType: row.chunk_type ?? 'full_file',
-      primarySymbol: row.primary_symbol ?? undefined,
-      hasOverlap: Boolean(row.has_overlap),
-    };
-  }
+		return {
+			snapshotId: row.snapshot_id,
+			chunkId: row.chunk_id,
+			filePath: row.file_path,
+			startLine: row.start_line,
+			endLine: row.end_line,
+			contentHash: row.content_hash,
+			tokenEstimate: row.token_estimate,
+			chunkType: row.chunk_type ?? "full_file",
+			primarySymbol: row.primary_symbol ?? undefined,
+			hasOverlap: Boolean(row.has_overlap),
+		};
+	}
 
-  async replaceSymbols(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    filePath: string,
-    symbols: Omit<SymbolRecord, 'snapshotId' | 'filePath'>[]
-  ): Promise<void> {
-    const transaction = this.db.transaction(
-      (nextSymbols: Omit<SymbolRecord, 'snapshotId' | 'filePath'>[]) => {
-        this.db
-          .prepare('DELETE FROM symbols WHERE project_id = ? AND snapshot_id = ? AND file_path = ?')
-          .run(projectId, snapshotId, filePath);
+	async replaceSymbols(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath: string,
+		symbols: Omit<SymbolRecord, "snapshotId" | "filePath">[],
+	): Promise<void> {
+		const transaction = this.db.transaction(
+			(nextSymbols: Omit<SymbolRecord, "snapshotId" | "filePath">[]) => {
+				this.db
+					.prepare(
+						"DELETE FROM symbols WHERE project_id = ? AND snapshot_id = ? AND file_path = ?",
+					)
+					.run(projectId, snapshotId, filePath);
 
-        if (nextSymbols.length === 0) {
-          return;
-        }
+				if (nextSymbols.length === 0) {
+					return;
+				}
 
-        const insertStmt = this.db.prepare(
-          `INSERT INTO symbols (project_id, id, snapshot_id, file_path, kind, name, container_name, exported, range_json, signature, doc_comment, metadata_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        );
+				const insertStmt = this.db.prepare(
+					`INSERT INTO symbols (project_id, id, snapshot_id, file_path, kind, name, container_name, exported, range_json, signature, doc_comment, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				);
 
-        for (const symbol of nextSymbols) {
-          insertStmt.run(
-            projectId,
-            symbol.id,
-            snapshotId,
-            filePath,
-            symbol.kind,
-            symbol.name,
-            symbol.containerName ?? null,
-            symbol.exported ? 1 : 0,
-            JSON.stringify(symbol.range),
-            symbol.signature ?? null,
-            symbol.docComment ?? null,
-            symbol.metadata ? JSON.stringify(symbol.metadata) : null
-          );
-        }
-      }
-    );
+				for (const symbol of nextSymbols) {
+					insertStmt.run(
+						projectId,
+						symbol.id,
+						snapshotId,
+						filePath,
+						symbol.kind,
+						symbol.name,
+						symbol.containerName ?? null,
+						symbol.exported ? 1 : 0,
+						JSON.stringify(symbol.range),
+						symbol.signature ?? null,
+						symbol.docComment ?? null,
+						symbol.metadata ? JSON.stringify(symbol.metadata) : null,
+					);
+				}
+			},
+		);
 
-    transaction(symbols);
-  }
+		transaction(symbols);
+	}
 
-  async listSymbols(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    filePath?: string
-  ): Promise<SymbolRecord[]> {
-    let sql = 'SELECT * FROM symbols WHERE project_id = ? AND snapshot_id = ?';
-    const params: Array<string | number> = [projectId, snapshotId];
+	async listSymbols(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath?: string,
+	): Promise<SymbolRecord[]> {
+		let sql = "SELECT * FROM symbols WHERE project_id = ? AND snapshot_id = ?";
+		const params: Array<string | number> = [projectId, snapshotId];
 
-    if (filePath) {
-      sql += ' AND file_path = ?';
-      params.push(filePath);
-    }
+		if (filePath) {
+			sql += " AND file_path = ?";
+			params.push(filePath);
+		}
 
-    sql += ' ORDER BY file_path, name';
+		sql += " ORDER BY file_path, name";
 
-    const rows = this.db.prepare(sql).all(...params) as Array<{
-      snapshot_id: string;
-      id: string;
-      file_path: string;
-      kind: string;
-      name: string;
-      container_name: string | null;
-      exported: number;
-      range_json: string;
-      signature: string | null;
-      doc_comment: string | null;
-      metadata_json: string | null;
-    }>;
+		const rows = this.db.prepare(sql).all(...params) as Array<{
+			snapshot_id: string;
+			id: string;
+			file_path: string;
+			kind: string;
+			name: string;
+			container_name: string | null;
+			exported: number;
+			range_json: string;
+			signature: string | null;
+			doc_comment: string | null;
+			metadata_json: string | null;
+		}>;
 
-    return rows.map((row) => ({
-      snapshotId: row.snapshot_id,
-      id: row.id,
-      filePath: row.file_path,
-      kind: row.kind,
-      name: row.name,
-      containerName: row.container_name ?? undefined,
-      exported: row.exported === 1,
-      range: JSON.parse(row.range_json),
-      signature: row.signature ?? undefined,
-      docComment: row.doc_comment ?? undefined,
-      metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
-    }));
-  }
+		return rows.map((row) => ({
+			snapshotId: row.snapshot_id,
+			id: row.id,
+			filePath: row.file_path,
+			kind: row.kind,
+			name: row.name,
+			containerName: row.container_name ?? undefined,
+			exported: row.exported === 1,
+			range: JSON.parse(row.range_json),
+			signature: row.signature ?? undefined,
+			docComment: row.doc_comment ?? undefined,
+			metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
+		}));
+	}
 
-  async searchSymbols(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    namePattern: string
-  ): Promise<SymbolRecord[]> {
-    const rows = this.db
-      .prepare(
-        'SELECT * FROM symbols WHERE project_id = ? AND snapshot_id = ? AND name LIKE ? ORDER BY name'
-      )
-      .all(projectId, snapshotId, `%${namePattern}%`) as Array<{
-      snapshot_id: string;
-      id: string;
-      file_path: string;
-      kind: string;
-      name: string;
-      container_name: string | null;
-      exported: number;
-      range_json: string;
-      signature: string | null;
-      doc_comment: string | null;
-      metadata_json: string | null;
-    }>;
+	async searchSymbols(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		namePattern: string,
+	): Promise<SymbolRecord[]> {
+		const rows = this.db
+			.prepare(
+				"SELECT * FROM symbols WHERE project_id = ? AND snapshot_id = ? AND name LIKE ? ORDER BY name",
+			)
+			.all(projectId, snapshotId, `%${namePattern}%`) as Array<{
+			snapshot_id: string;
+			id: string;
+			file_path: string;
+			kind: string;
+			name: string;
+			container_name: string | null;
+			exported: number;
+			range_json: string;
+			signature: string | null;
+			doc_comment: string | null;
+			metadata_json: string | null;
+		}>;
 
-    return rows.map((row) => ({
-      snapshotId: row.snapshot_id,
-      id: row.id,
-      filePath: row.file_path,
-      kind: row.kind,
-      name: row.name,
-      containerName: row.container_name ?? undefined,
-      exported: row.exported === 1,
-      range: JSON.parse(row.range_json),
-      signature: row.signature ?? undefined,
-      docComment: row.doc_comment ?? undefined,
-      metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
-    }));
-  }
+		return rows.map((row) => ({
+			snapshotId: row.snapshot_id,
+			id: row.id,
+			filePath: row.file_path,
+			kind: row.kind,
+			name: row.name,
+			containerName: row.container_name ?? undefined,
+			exported: row.exported === 1,
+			range: JSON.parse(row.range_json),
+			signature: row.signature ?? undefined,
+			docComment: row.doc_comment ?? undefined,
+			metadata: row.metadata_json ? JSON.parse(row.metadata_json) : undefined,
+		}));
+	}
 
-  async replaceDependencies(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    filePath: string,
-    dependencies: Omit<DependencyRecord, 'snapshotId' | 'fromPath'>[]
-  ): Promise<void> {
-    const transaction = this.db.transaction(
-      (nextDependencies: Omit<DependencyRecord, 'snapshotId' | 'fromPath'>[]) => {
-        this.db
-          .prepare(
-            'DELETE FROM dependencies WHERE project_id = ? AND snapshot_id = ? AND from_path = ?'
-          )
-          .run(projectId, snapshotId, filePath);
+	async replaceDependencies(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath: string,
+		dependencies: Omit<DependencyRecord, "snapshotId" | "fromPath">[],
+	): Promise<void> {
+		const transaction = this.db.transaction(
+			(
+				nextDependencies: Omit<DependencyRecord, "snapshotId" | "fromPath">[],
+			) => {
+				this.db
+					.prepare(
+						"DELETE FROM dependencies WHERE project_id = ? AND snapshot_id = ? AND from_path = ?",
+					)
+					.run(projectId, snapshotId, filePath);
 
-        if (nextDependencies.length === 0) {
-          return;
-        }
+				if (nextDependencies.length === 0) {
+					return;
+				}
 
-        const insertStmt = this.db.prepare(
-          `INSERT INTO dependencies (project_id, id, snapshot_id, from_path, to_specifier, to_path, kind, dependency_type)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        );
+				const insertStmt = this.db.prepare(
+					`INSERT INTO dependencies (project_id, id, snapshot_id, from_path, to_specifier, to_path, kind, dependency_type)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+				);
 
-        for (const dependency of nextDependencies) {
-          insertStmt.run(
-            projectId,
-            dependency.id,
-            snapshotId,
-            filePath,
-            dependency.toSpecifier,
-            dependency.toPath ?? null,
-            dependency.kind,
-            dependency.dependencyType ?? 'unresolved'
-          );
-        }
-      }
-    );
+				for (const dependency of nextDependencies) {
+					insertStmt.run(
+						projectId,
+						dependency.id,
+						snapshotId,
+						filePath,
+						dependency.toSpecifier,
+						dependency.toPath ?? null,
+						dependency.kind,
+						dependency.dependencyType ?? "unresolved",
+					);
+				}
+			},
+		);
 
-    transaction(dependencies);
-  }
+		transaction(dependencies);
+	}
 
-  async listDependencies(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    filePath?: string
-  ): Promise<DependencyRecord[]> {
-    let sql = 'SELECT * FROM dependencies WHERE project_id = ? AND snapshot_id = ?';
-    const params: Array<string | number> = [projectId, snapshotId];
+	async listDependencies(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath?: string,
+	): Promise<DependencyRecord[]> {
+		let sql =
+			"SELECT * FROM dependencies WHERE project_id = ? AND snapshot_id = ?";
+		const params: Array<string | number> = [projectId, snapshotId];
 
-    if (filePath) {
-      sql += ' AND from_path = ?';
-      params.push(filePath);
-    }
+		if (filePath) {
+			sql += " AND from_path = ?";
+			params.push(filePath);
+		}
 
-    sql += ' ORDER BY from_path, to_specifier';
+		sql += " ORDER BY from_path, to_specifier";
 
-    const rows = this.db.prepare(sql).all(...params) as Array<{
-      snapshot_id: string;
-      id: string;
-      from_path: string;
-      to_specifier: string;
-      to_path: string | null;
-      kind: DependencyRecord['kind'];
-      dependency_type: DependencyRecord['dependencyType'];
-    }>;
+		const rows = this.db.prepare(sql).all(...params) as Array<{
+			snapshot_id: string;
+			id: string;
+			from_path: string;
+			to_specifier: string;
+			to_path: string | null;
+			kind: DependencyRecord["kind"];
+			dependency_type: DependencyRecord["dependencyType"];
+		}>;
 
-    return rows.map((row) => ({
-      snapshotId: row.snapshot_id,
-      id: row.id,
-      fromPath: row.from_path,
-      toSpecifier: row.to_specifier,
-      toPath: row.to_path ?? undefined,
-      kind: row.kind,
-      dependencyType: row.dependency_type,
-    }));
-  }
+		return rows.map((row) => ({
+			snapshotId: row.snapshot_id,
+			id: row.id,
+			fromPath: row.from_path,
+			toSpecifier: row.to_specifier,
+			toPath: row.to_path ?? undefined,
+			kind: row.kind,
+			dependencyType: row.dependency_type,
+		}));
+	}
 
-  async getDependents(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    targetPath: string
-  ): Promise<DependencyRecord[]> {
-    const rows = this.db
-      .prepare(
-        'SELECT * FROM dependencies WHERE project_id = ? AND snapshot_id = ? AND to_path = ? ORDER BY from_path'
-      )
-      .all(projectId, snapshotId, targetPath) as Array<{
-      snapshot_id: string;
-      id: string;
-      from_path: string;
-      to_specifier: string;
-      to_path: string | null;
-      kind: DependencyRecord['kind'];
-      dependency_type: DependencyRecord['dependencyType'];
-    }>;
+	async getDependents(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		targetPath: string,
+	): Promise<DependencyRecord[]> {
+		const rows = this.db
+			.prepare(
+				"SELECT * FROM dependencies WHERE project_id = ? AND snapshot_id = ? AND to_path = ? ORDER BY from_path",
+			)
+			.all(projectId, snapshotId, targetPath) as Array<{
+			snapshot_id: string;
+			id: string;
+			from_path: string;
+			to_specifier: string;
+			to_path: string | null;
+			kind: DependencyRecord["kind"];
+			dependency_type: DependencyRecord["dependencyType"];
+		}>;
 
-    return rows.map((row) => ({
-      snapshotId: row.snapshot_id,
-      id: row.id,
-      fromPath: row.from_path,
-      toSpecifier: row.to_specifier,
-      toPath: row.to_path ?? undefined,
-      kind: row.kind,
-      dependencyType: row.dependency_type,
-    }));
-  }
+		return rows.map((row) => ({
+			snapshotId: row.snapshot_id,
+			id: row.id,
+			fromPath: row.from_path,
+			toSpecifier: row.to_specifier,
+			toPath: row.to_path ?? undefined,
+			kind: row.kind,
+			dependencyType: row.dependency_type,
+		}));
+	}
 
-  async upsertFileMetrics(projectId: ProjectId, metrics: FileMetricsRecord): Promise<void> {
-    await this.transaction(async () => {
-      this.db
-        .prepare(
-          `INSERT INTO file_metrics (project_id, snapshot_id, file_path, metrics_json, updated_at)
+	async upsertFileMetrics(
+		projectId: ProjectId,
+		metrics: FileMetricsRecord,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					`INSERT INTO file_metrics (project_id, snapshot_id, file_path, metrics_json, updated_at)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(project_id, snapshot_id, file_path) DO UPDATE SET
              metrics_json = excluded.metrics_json,
-             updated_at = excluded.updated_at`
-        )
-        .run(
-          projectId,
-          metrics.snapshotId,
-          metrics.filePath,
-          JSON.stringify(metrics.metrics),
-          Date.now()
-        );
-    });
-  }
+             updated_at = excluded.updated_at`,
+				)
+				.run(
+					projectId,
+					metrics.snapshotId,
+					metrics.filePath,
+					JSON.stringify(metrics.metrics),
+					Date.now(),
+				);
+		});
+	}
 
-  async getFileMetrics(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    filePath: string
-  ): Promise<FileMetricsRecord | null> {
-    const row = this.db
-      .prepare(
-        'SELECT metrics_json FROM file_metrics WHERE project_id = ? AND snapshot_id = ? AND file_path = ?'
-      )
-      .get(projectId, snapshotId, filePath) as { metrics_json: string } | undefined;
+	async getFileMetrics(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath: string,
+	): Promise<FileMetricsRecord | null> {
+		const row = this.db
+			.prepare(
+				"SELECT metrics_json FROM file_metrics WHERE project_id = ? AND snapshot_id = ? AND file_path = ?",
+			)
+			.get(projectId, snapshotId, filePath) as
+			| { metrics_json: string }
+			| undefined;
 
-    if (!row) {
-      return null;
-    }
+		if (!row) {
+			return null;
+		}
 
-    return {
-      snapshotId,
-      filePath,
-      metrics: this.parseMetrics(row.metrics_json),
-    };
-  }
+		return {
+			snapshotId,
+			filePath,
+			metrics: this.parseMetrics(row.metrics_json),
+		};
+	}
 
-  async listFileMetrics(
-    projectId: ProjectId,
-    snapshotId: SnapshotId
-  ): Promise<FileMetricsRecord[]> {
-    const rows = this.db
-      .prepare(
-        'SELECT file_path, metrics_json FROM file_metrics WHERE project_id = ? AND snapshot_id = ?'
-      )
-      .all(projectId, snapshotId) as Array<{ file_path: string; metrics_json: string }>;
+	async listFileMetrics(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+	): Promise<FileMetricsRecord[]> {
+		const rows = this.db
+			.prepare(
+				"SELECT file_path, metrics_json FROM file_metrics WHERE project_id = ? AND snapshot_id = ?",
+			)
+			.all(projectId, snapshotId) as Array<{
+			file_path: string;
+			metrics_json: string;
+		}>;
 
-    return rows.map((row) => ({
-      snapshotId,
-      filePath: row.file_path,
-      metrics: this.parseMetrics(row.metrics_json),
-    }));
-  }
+		return rows.map((row) => ({
+			snapshotId,
+			filePath: row.file_path,
+			metrics: this.parseMetrics(row.metrics_json),
+		}));
+	}
 
-  async copyUnchangedFileData(
-    projectId: ProjectId,
-    fromSnapshotId: SnapshotId,
-    toSnapshotId: SnapshotId,
-    unchangedPaths: string[]
-  ): Promise<void> {
-    if (unchangedPaths.length === 0) {
-      return;
-    }
+	async copyUnchangedFileData(
+		projectId: ProjectId,
+		fromSnapshotId: SnapshotId,
+		toSnapshotId: SnapshotId,
+		unchangedPaths: string[],
+	): Promise<void> {
+		if (unchangedPaths.length === 0) {
+			return;
+		}
 
-    const placeholders = unchangedPaths.map(() => '?').join(',');
-    const params = [projectId, toSnapshotId, projectId, fromSnapshotId, ...unchangedPaths];
+		const placeholders = unchangedPaths.map(() => "?").join(",");
+		const params = [
+			projectId,
+			toSnapshotId,
+			projectId,
+			fromSnapshotId,
+			...unchangedPaths,
+		];
 
-    const transaction = this.db.transaction(() => {
-      this.db
-        .prepare(
-          `INSERT INTO files (project_id, sha256, mtime_ms, size, path, snapshot_id, language_id)
+		const transaction = this.db.transaction(() => {
+			this.db
+				.prepare(
+					`INSERT INTO files (project_id, sha256, mtime_ms, size, path, snapshot_id, language_id)
            SELECT ?, sha256, mtime_ms, size, path, ?, language_id
            FROM files
-           WHERE project_id = ? AND snapshot_id = ? AND path IN (${placeholders})`
-        )
-        .run(...params);
+           WHERE project_id = ? AND snapshot_id = ? AND path IN (${placeholders})`,
+				)
+				.run(...params);
 
-      this.db
-        .prepare(
-          `INSERT INTO chunks (
+			this.db
+				.prepare(
+					`INSERT INTO chunks (
             project_id,
             chunk_id,
             file_path,
@@ -894,208 +825,203 @@ export class SqliteMetadataStore implements MetadataStore {
           )
            SELECT ?, chunk_id, file_path, ?, start_line, end_line, content_hash, token_estimate, chunk_type, primary_symbol, has_overlap
            FROM chunks
-           WHERE project_id = ? AND snapshot_id = ? AND file_path IN (${placeholders})`
-        )
-        .run(...params);
+           WHERE project_id = ? AND snapshot_id = ? AND file_path IN (${placeholders})`,
+				)
+				.run(...params);
 
-      this.db
-        .prepare(
-          `INSERT INTO symbols (project_id, id, snapshot_id, file_path, kind, name, container_name, exported, range_json, signature, doc_comment, metadata_json)
+			this.db
+				.prepare(
+					`INSERT INTO symbols (project_id, id, snapshot_id, file_path, kind, name, container_name, exported, range_json, signature, doc_comment, metadata_json)
            SELECT ?, id, ?, file_path, kind, name, container_name, exported, range_json, signature, doc_comment, metadata_json
            FROM symbols
-           WHERE project_id = ? AND snapshot_id = ? AND file_path IN (${placeholders})`
-        )
-        .run(...params);
+           WHERE project_id = ? AND snapshot_id = ? AND file_path IN (${placeholders})`,
+				)
+				.run(...params);
 
-      this.db
-        .prepare(
-          `INSERT INTO dependencies (project_id, id, snapshot_id, from_path, to_specifier, to_path, kind, dependency_type)
+			this.db
+				.prepare(
+					`INSERT INTO dependencies (project_id, id, snapshot_id, from_path, to_specifier, to_path, kind, dependency_type)
            SELECT ?, id, ?, from_path, to_specifier, to_path, kind, dependency_type
            FROM dependencies
-           WHERE project_id = ? AND snapshot_id = ? AND from_path IN (${placeholders})`
-        )
-        .run(...params);
+           WHERE project_id = ? AND snapshot_id = ? AND from_path IN (${placeholders})`,
+				)
+				.run(...params);
 
-      this.db
-        .prepare(
-          `INSERT INTO file_metrics (project_id, snapshot_id, file_path, metrics_json, updated_at)
+			this.db
+				.prepare(
+					`INSERT INTO file_metrics (project_id, snapshot_id, file_path, metrics_json, updated_at)
            SELECT ?, ?, file_path, metrics_json, updated_at
            FROM file_metrics
-           WHERE project_id = ? AND snapshot_id = ? AND file_path IN (${placeholders})`
-        )
-        .run(...params);
-    });
+           WHERE project_id = ? AND snapshot_id = ? AND file_path IN (${placeholders})`,
+				)
+				.run(...params);
+		});
 
-    transaction();
-  }
+		transaction();
+	}
 
-  async upsertArtifact(
-    projectId: ProjectId,
-    artifact: Omit<ArtifactRecord, 'updatedAt'>
-  ): Promise<void> {
-    await this.transaction(async () => {
-      this.db
-        .prepare(
-          `INSERT INTO artifacts (project_id, snapshot_id, artifact_type, scope, data_json, updated_at)
+	async upsertArtifact(
+		projectId: ProjectId,
+		artifact: Omit<ArtifactRecord, "updatedAt">,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					`INSERT INTO artifacts (project_id, snapshot_id, artifact_type, scope, data_json, updated_at)
            VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(project_id, snapshot_id, artifact_type, scope) DO UPDATE SET
              data_json = excluded.data_json,
-             updated_at = excluded.updated_at`
-        )
-        .run(
-          projectId,
-          artifact.snapshotId,
-          artifact.artifactType,
-          artifact.scope,
-          artifact.dataJson,
-          Date.now()
-        );
-    });
-  }
+             updated_at = excluded.updated_at`,
+				)
+				.run(
+					projectId,
+					artifact.snapshotId,
+					artifact.artifactType,
+					artifact.scope,
+					artifact.dataJson,
+					Date.now(),
+				);
+		});
+	}
 
-  async getArtifact(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    artifactType: string,
-    scope: string
-  ): Promise<ArtifactRecord | null> {
-    const row = this.db
-      .prepare(
-        'SELECT * FROM artifacts WHERE project_id = ? AND snapshot_id = ? AND artifact_type = ? AND scope = ?'
-      )
-      .get(projectId, snapshotId, artifactType, scope) as
-      | {
-          project_id: string;
-          snapshot_id: string;
-          artifact_type: string;
-          scope: string;
-          data_json: string;
-          updated_at: number;
-        }
-      | undefined;
+	async getArtifact(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		artifactType: string,
+		scope: string,
+	): Promise<ArtifactRecord | null> {
+		const row = this.db
+			.prepare(
+				"SELECT * FROM artifacts WHERE project_id = ? AND snapshot_id = ? AND artifact_type = ? AND scope = ?",
+			)
+			.get(projectId, snapshotId, artifactType, scope) as
+			| {
+					project_id: string;
+					snapshot_id: string;
+					artifact_type: string;
+					scope: string;
+					data_json: string;
+					updated_at: number;
+			  }
+			| undefined;
 
-    if (!row) {
-      return null;
-    }
+		if (!row) {
+			return null;
+		}
 
-    return {
-      projectId: row.project_id,
-      snapshotId: row.snapshot_id,
-      artifactType: row.artifact_type,
-      scope: row.scope,
-      dataJson: row.data_json,
-      updatedAt: row.updated_at,
-    };
-  }
+		return {
+			projectId: row.project_id,
+			snapshotId: row.snapshot_id,
+			artifactType: row.artifact_type,
+			scope: row.scope,
+			dataJson: row.data_json,
+			updatedAt: row.updated_at,
+		};
+	}
 
-  async listArtifacts(
-    projectId: ProjectId,
-    snapshotId: SnapshotId,
-    artifactType?: string
-  ): Promise<ArtifactRecord[]> {
-    let sql = 'SELECT * FROM artifacts WHERE project_id = ? AND snapshot_id = ?';
-    const params: Array<string | number> = [projectId, snapshotId];
+	async listArtifacts(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		artifactType?: string,
+	): Promise<ArtifactRecord[]> {
+		let sql =
+			"SELECT * FROM artifacts WHERE project_id = ? AND snapshot_id = ?";
+		const params: Array<string | number> = [projectId, snapshotId];
 
-    if (artifactType) {
-      sql += ' AND artifact_type = ?';
-      params.push(artifactType);
-    }
+		if (artifactType) {
+			sql += " AND artifact_type = ?";
+			params.push(artifactType);
+		}
 
-    const rows = this.db.prepare(sql).all(...params) as Array<{
-      project_id: string;
-      snapshot_id: string;
-      artifact_type: string;
-      scope: string;
-      data_json: string;
-      updated_at: number;
-    }>;
+		const rows = this.db.prepare(sql).all(...params) as Array<{
+			project_id: string;
+			snapshot_id: string;
+			artifact_type: string;
+			scope: string;
+			data_json: string;
+			updated_at: number;
+		}>;
 
-    return rows.map((row) => ({
-      projectId: row.project_id,
-      snapshotId: row.snapshot_id,
-      artifactType: row.artifact_type,
-      scope: row.scope,
-      dataJson: row.data_json,
-      updatedAt: row.updated_at,
-    }));
-  }
+		return rows.map((row) => ({
+			projectId: row.project_id,
+			snapshotId: row.snapshot_id,
+			artifactType: row.artifact_type,
+			scope: row.scope,
+			dataJson: row.data_json,
+			updatedAt: row.updated_at,
+		}));
+	}
 
-  async clearProjectMetadata(projectId: ProjectId, keepSnapshotId?: SnapshotId): Promise<void> {
-    await this.transaction(async () => {
-      let sql = 'DELETE FROM snapshots WHERE project_id = ?';
-      const params: Array<string> = [projectId];
+	async clearProjectMetadata(
+		projectId: ProjectId,
+		keepSnapshotId?: SnapshotId,
+	): Promise<void> {
+		await this.transaction(async () => {
+			let sql = "DELETE FROM snapshots WHERE project_id = ?";
+			const params: Array<string> = [projectId];
 
-      if (keepSnapshotId) {
-        sql += ' AND id != ?';
-        params.push(keepSnapshotId);
-      }
+			if (keepSnapshotId) {
+				sql += " AND id != ?";
+				params.push(keepSnapshotId);
+			}
 
-      this.db.prepare(sql).run(...params);
-    });
-  }
+			this.db.prepare(sql).run(...params);
+		});
+	}
 
-  private parseMetrics(metricsJson: string): FileMetricsRecord['metrics'] {
-    try {
-      const parsed = JSON.parse(metricsJson || '{}') as Partial<FileMetricsRecord['metrics']>;
-      return {
-        complexity: parsed.complexity ?? 0,
-        maintainability: parsed.maintainability ?? 0,
-        churn: parsed.churn ?? 0,
-        testCoverage: parsed.testCoverage,
-      };
-    } catch {
-      return {
-        complexity: 0,
-        maintainability: 0,
-        churn: 0,
-        testCoverage: undefined,
-      };
-    }
-  }
+	private parseMetrics(metricsJson: string): FileMetricsRecord["metrics"] {
+		try {
+			const parsed = JSON.parse(metricsJson || "{}") as Partial<
+				FileMetricsRecord["metrics"]
+			>;
+			return {
+				complexity: parsed.complexity ?? 0,
+				maintainability: parsed.maintainability ?? 0,
+				churn: parsed.churn ?? 0,
+				testCoverage: parsed.testCoverage,
+			};
+		} catch {
+			return {
+				complexity: 0,
+				maintainability: 0,
+				churn: 0,
+				testCoverage: undefined,
+			};
+		}
+	}
 
-  private mapSnapshotRow(row: {
-    id: string;
-    project_id: string;
-    status: string;
-    created_at: number;
-    git_ref: string | null;
-    processed_files: number | null;
-    total_files: number | null;
-    failure_reason: string | null;
-  }): Snapshot {
-    return {
-      id: row.id,
-      projectId: row.project_id,
-      status: this.mapSnapshotStatus(row.status),
-      createdAt: row.created_at,
-      meta: {
-        headCommit: row.git_ref ?? undefined,
-        indexedAt: row.created_at,
-      },
-      processedFiles: row.processed_files ?? undefined,
-      totalFiles: row.total_files ?? undefined,
-      error: row.failure_reason ?? undefined,
-    };
-  }
+	private mapSnapshotRow(row: {
+		id: string;
+		project_id: string;
+		status: string;
+		created_at: number;
+		git_ref: string | null;
+		processed_files: number | null;
+		total_files: number | null;
+		failure_reason: string | null;
+	}): Snapshot {
+		return {
+			id: row.id,
+			projectId: row.project_id,
+			status: this.mapSnapshotStatus(row.status),
+			createdAt: row.created_at,
+			meta: {
+				headCommit: row.git_ref ?? undefined,
+				indexedAt: row.created_at,
+			},
+			processedFiles: row.processed_files ?? undefined,
+			totalFiles: row.total_files ?? undefined,
+			error: row.failure_reason ?? undefined,
+		};
+	}
 
-  private createSchema(): void {
-    this.db.exec(`
+	private createSchema(): void {
+		this.db.exec(`
       DROP TABLE IF EXISTS logs;
 
       CREATE TABLE IF NOT EXISTS schema_migrations (
         version INTEGER PRIMARY KEY,
         applied_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS projects (
-        id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        repo_url TEXT NOT NULL,
-        source_type TEXT NOT NULL,
-        source_path TEXT NOT NULL,
-        track_file_changes INTEGER NOT NULL DEFAULT 1,
-        origin_url TEXT,
-        created_at INTEGER NOT NULL
       );
 
       CREATE TABLE IF NOT EXISTS snapshots (
@@ -1106,8 +1032,7 @@ export class SqliteMetadataStore implements MetadataStore {
         created_at INTEGER NOT NULL,
         failure_reason TEXT,
         processed_files INTEGER DEFAULT 0,
-        total_files INTEGER DEFAULT 0,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        total_files INTEGER DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS files (
@@ -1213,58 +1138,63 @@ export class SqliteMetadataStore implements MetadataStore {
       CREATE INDEX IF NOT EXISTS idx_dependencies_snapshot
         ON dependencies(snapshot_id);
     `);
-  }
+	}
 
-  private async runMigrations(): Promise<void> {
-    const currentVersion = this.getCurrentSchemaVersion();
-    logger.info('[SqliteMetadataStore] Current schema version:', currentVersion);
+	private async runMigrations(): Promise<void> {
+		const currentVersion = this.getCurrentSchemaVersion();
+		logger.info(
+			"[SqliteMetadataStore] Current schema version:",
+			currentVersion,
+		);
 
-    for (const migration of migrations) {
-      if (migration.version > currentVersion) {
-        logger.info(
-          `[SqliteMetadataStore] Running migration ${migration.version}: ${migration.name}`
-        );
-        migration.up(this.db);
-        this.db
-          .prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)')
-          .run(migration.version, Date.now());
-      } else {
-        logger.info(
-          `[SqliteMetadataStore] Skipping migration ${migration.version}: ${migration.name} (already applied)`
-        );
-      }
-    }
-  }
+		for (const migration of migrations) {
+			if (migration.version > currentVersion) {
+				logger.info(
+					`[SqliteMetadataStore] Running migration ${migration.version}: ${migration.name}`,
+				);
+				migration.up(this.db);
+				this.db
+					.prepare(
+						"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+					)
+					.run(migration.version, Date.now());
+			} else {
+				logger.info(
+					`[SqliteMetadataStore] Skipping migration ${migration.version}: ${migration.name} (already applied)`,
+				);
+			}
+		}
+	}
 
-  private getCurrentSchemaVersion(): number {
-    try {
-      const row = this.db.prepare('SELECT MAX(version) as version FROM schema_migrations').get() as
-        | { version: number | null }
-        | undefined;
-      return row?.version ?? 0;
-    } catch {
-      return 0;
-    }
-  }
+	private getCurrentSchemaVersion(): number {
+		try {
+			const row = this.db
+				.prepare("SELECT MAX(version) as version FROM schema_migrations")
+				.get() as { version: number | null } | undefined;
+			return row?.version ?? 0;
+		} catch {
+			return 0;
+		}
+	}
 
-  private mapSnapshotStatus(status: string): SnapshotStatus {
-    const statusMap: Record<string, SnapshotStatus> = {
-      pending: 'pending',
-      indexing: 'indexing',
-      ready: 'completed',
-      completed: 'completed',
-      failed: 'failed',
-    };
-    return statusMap[status] ?? 'pending';
-  }
+	private mapSnapshotStatus(status: string): SnapshotStatus {
+		const statusMap: Record<string, SnapshotStatus> = {
+			pending: "pending",
+			indexing: "indexing",
+			ready: "completed",
+			completed: "completed",
+			failed: "failed",
+		};
+		return statusMap[status] ?? "pending";
+	}
 
-  private mapToDbStatus(status: SnapshotStatus): string {
-    const statusMap: Record<SnapshotStatus, string> = {
-      pending: 'pending',
-      indexing: 'indexing',
-      completed: 'ready',
-      failed: 'failed',
-    };
-    return statusMap[status];
-  }
+	private mapToDbStatus(status: SnapshotStatus): string {
+		const statusMap: Record<SnapshotStatus, string> = {
+			pending: "pending",
+			indexing: "indexing",
+			completed: "ready",
+			failed: "failed",
+		};
+		return statusMap[status];
+	}
 }

@@ -1,12 +1,13 @@
 import path from "node:path";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
+import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { setLogLevel } from "../../core/logger.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SearchEngine } from "../../engine/searcher.js";
-import type { Project } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
+import { ensureIndexed } from "./ensure-indexed.js";
 
 type CliColors = {
 	green(text: string): string;
@@ -16,23 +17,6 @@ type CliColors = {
 
 async function loadChalk(): Promise<CliColors> {
 	return (await import("chalk")).default as unknown as CliColors;
-}
-
-async function loadProject(
-	metadata: SqliteMetadataStore,
-	repoRoot: string,
-): Promise<Project> {
-	const project = (await metadata.listProjects()).find(
-		(entry) =>
-			path.resolve(entry.workdir) === repoRoot ||
-			path.resolve(entry.repoRoot) === repoRoot,
-	);
-
-	if (!project) {
-		throw new Error("Project not initialized. Run `indexer init` first.");
-	}
-
-	return project;
 }
 
 export function registerSearchCommand(program: Command): void {
@@ -78,19 +62,15 @@ export function registerSearchCommand(program: Command): void {
 				);
 
 				try {
-					await Promise.all([
-						metadata.initialize(),
-						vectors.initialize(),
-						embedder.initialize(),
-					]);
+					await metadata.initialize();
+					await ensureIndexed(metadata, resolvedProjectPath, chalk);
+					await Promise.all([vectors.initialize(), embedder.initialize()]);
 
-					const project = await loadProject(metadata, resolvedProjectPath);
-					const snapshot = await metadata.getLatestCompletedSnapshot(
-						project.id,
-					);
+					const snapshot =
+						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) {
 						throw new Error(
-							"No completed snapshot found. Run `indexer index` first.",
+							"Auto-indexing did not produce a completed snapshot.",
 						);
 					}
 
@@ -101,7 +81,7 @@ export function registerSearchCommand(program: Command): void {
 						.filter(Boolean);
 
 					const results = await searchEngine.search(
-						project.id,
+						DEFAULT_PROJECT_ID,
 						snapshot.id,
 						query,
 						{

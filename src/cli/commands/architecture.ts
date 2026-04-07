@@ -1,8 +1,9 @@
 import path from "node:path";
 import type { Command } from "commander";
 import { setLogLevel } from "../../core/logger.js";
-import type { Project } from "../../core/types.js";
+import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
+import { ensureIndexed } from "./ensure-indexed.js";
 
 type CliColors = {
 	green(text: string): string;
@@ -25,23 +26,6 @@ type ArchitectureSnapshot = {
 	};
 	dependencies?: Record<string, number>;
 };
-
-async function loadProject(
-	metadata: SqliteMetadataStore,
-	repoRoot: string,
-): Promise<Project> {
-	const project = (await metadata.listProjects()).find(
-		(entry) =>
-			path.resolve(entry.workdir) === repoRoot ||
-			path.resolve(entry.repoRoot) === repoRoot,
-	);
-
-	if (!project) {
-		throw new Error("Project not initialized. Run `indexer init` first.");
-	}
-
-	return project;
-}
 
 function printRecord(
 	title: string,
@@ -120,24 +104,24 @@ export function registerArchitectureCommand(program: Command): void {
 
 			try {
 				await metadata.initialize();
-				const project = await loadProject(metadata, resolvedProjectPath);
-				const snapshot = await metadata.getLatestCompletedSnapshot(project.id);
-
+				await ensureIndexed(metadata, resolvedProjectPath, chalk);
+				const snapshot =
+					await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 				if (!snapshot) {
-					console.log("Run `indexer index` first");
-					return;
+					throw new Error(
+						"Auto-indexing did not produce a completed snapshot.",
+					);
 				}
 
 				const artifact = await metadata.getArtifact(
-					project.id,
+					DEFAULT_PROJECT_ID,
 					snapshot.id,
 					"architecture_snapshot",
 					"project",
 				);
 
 				if (!artifact) {
-					console.log("Run `indexer index` first");
-					return;
+					throw new Error("Architecture snapshot unavailable after indexing.");
 				}
 
 				const architecture = JSON.parse(

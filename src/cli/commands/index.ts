@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
+import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { setLogLevel } from "../../core/logger.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SimpleGitOperations } from "../../engine/git.js";
@@ -11,7 +12,7 @@ import {
 import { scanProjectFiles } from "../../engine/scanner.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
-import type { GitDiff, Project } from "../../core/types.js";
+import type { GitDiff } from "../../core/types.js";
 
 type CliColors = {
 	green(text: string): string;
@@ -25,23 +26,6 @@ async function loadChalk(): Promise<CliColors> {
 
 async function loadOra() {
 	return (await import("ora")).default;
-}
-
-async function loadProject(
-	metadata: SqliteMetadataStore,
-	repoRoot: string,
-): Promise<Project> {
-	const project = (await metadata.listProjects()).find(
-		(entry) =>
-			path.resolve(entry.workdir) === repoRoot ||
-			path.resolve(entry.repoRoot) === repoRoot,
-	);
-
-	if (!project) {
-		throw new Error("Project not initialized. Run `indexer init` first.");
-	}
-
-	return project;
 }
 
 function countChangedFiles(diff: GitDiff): number {
@@ -73,12 +57,10 @@ export function registerIndexCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					const project = await loadProject(metadata, resolvedProjectPath);
 
 					if (options?.status) {
-						const snapshot = await metadata.getLatestCompletedSnapshot(
-							project.id,
-						);
+						const snapshot =
+							await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 
 						if (!snapshot) {
 							console.log(
@@ -90,9 +72,9 @@ export function registerIndexCommand(program: Command): void {
 						}
 
 						const [files, symbols, dependencies] = await Promise.all([
-							metadata.listFiles(project.id, snapshot.id, {}),
-							metadata.listSymbols(project.id, snapshot.id),
-							metadata.listDependencies(project.id, snapshot.id),
+							metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, {}),
+							metadata.listSymbols(DEFAULT_PROJECT_ID, snapshot.id),
+							metadata.listDependencies(DEFAULT_PROJECT_ID, snapshot.id),
 						]);
 
 						const vectors = new LanceDbVectorStore({
@@ -103,7 +85,7 @@ export function registerIndexCommand(program: Command): void {
 						try {
 							await vectors.initialize();
 							vectorCount = await vectors.countVectors({
-								projectId: project.id,
+								projectId: DEFAULT_PROJECT_ID,
 								snapshotId: snapshot.id,
 							});
 						} finally {
@@ -177,7 +159,7 @@ export function registerIndexCommand(program: Command): void {
 
 					try {
 						engine = new IndexerEngine({
-							projectId: project.id,
+							projectId: DEFAULT_PROJECT_ID,
 							repoRoot: resolvedProjectPath,
 							metadata,
 							vectors,
@@ -185,9 +167,8 @@ export function registerIndexCommand(program: Command): void {
 							git,
 							languagePlugins: createDefaultLanguagePlugins(),
 						});
-						const latestSnapshot = await metadata.getLatestCompletedSnapshot(
-							project.id,
-						);
+						const latestSnapshot =
+							await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 						const headCommit = await git.getHeadCommit(resolvedProjectPath);
 						const changedFiles =
 							!options?.full && latestSnapshot?.meta.headCommit
@@ -248,7 +229,7 @@ export function registerIndexCommand(program: Command): void {
 							: "Running incremental index...";
 
 						const result = await engine.indexProject({
-							projectId: project.id,
+							projectId: DEFAULT_PROJECT_ID,
 							repoRoot: resolvedProjectPath,
 							gitRef: headCommit ?? "unknown",
 							isFullReindex: Boolean(options?.full),
@@ -270,7 +251,7 @@ export function registerIndexCommand(program: Command): void {
 						);
 						console.log(
 							chalk.gray(
-								`Chunks created: ${await vectors.countVectors({ projectId: project.id, snapshotId: result.snapshotId })}`,
+								`Chunks created: ${await vectors.countVectors({ projectId: DEFAULT_PROJECT_ID, snapshotId: result.snapshotId })}`,
 							),
 						);
 						console.log(
