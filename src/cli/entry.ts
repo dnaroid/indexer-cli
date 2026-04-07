@@ -9,11 +9,19 @@ import { registerUninstallCommand } from "./commands/uninstall.js";
 program
 	.name("indexer")
 	.description("Lightweight project indexer with semantic search")
-	.version("0.1.0");
+	.version("0.1.0")
+	.exitOverride();
 registerInitCommand(program);
 registerIndexCommand(program);
 registerSearchCommand(program);
 registerStructureCommand(program);
 registerArchitectureCommand(program);
 registerUninstallCommand(program);
-program.parse();
+
+try {
+	program.parse();
+} catch (e: any) {
+	// Commander throws on --help or when no subcommand is given.
+	// "commander.help" = help displayed (not an error), anything else = real failure.
+	if (e?.code !== "commander.help") throw e;
+}
