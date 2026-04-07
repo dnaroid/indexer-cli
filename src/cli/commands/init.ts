@@ -64,6 +64,7 @@ export function registerInitCommand(program: Command): void {
 			const configPath = path.join(dataDir, "config.json");
 
 			initLogger(dataDir);
+			config.load(dataDir);
 
 			let metadata: SqliteMetadataStore | null = null;
 			let vectors: LanceDbVectorStore | null = null;

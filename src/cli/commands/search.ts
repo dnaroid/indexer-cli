@@ -36,6 +36,7 @@ export function registerSearchCommand(program: Command): void {
 				const vectorsPath = path.join(dataDir, "vectors");
 
 				initLogger(dataDir);
+				config.load(dataDir);
 
 				const metadata = new SqliteMetadataStore(dbPath);
 				const vectors = new LanceDbVectorStore({

@@ -1,5 +1,6 @@
 import path from "node:path";
 import type { Command } from "commander";
+import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
@@ -105,6 +106,7 @@ export function registerArchitectureCommand(program: Command): void {
 			const dbPath = path.join(dataDir, "db.sqlite");
 
 			initLogger(dataDir);
+			config.load(dataDir);
 
 			const metadata = new SqliteMetadataStore(dbPath);
 

@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 export interface IndexerConfig {
 	embeddingProvider: string;
 	embeddingModel: string;
@@ -27,52 +30,45 @@ export class ConfigManager {
 
 	constructor() {
 		this.config = { ...DEFAULT_CONFIG };
-		this.loadFromProcessEnv();
 	}
 
-	private loadFromProcessEnv(): void {
-		const env = process.env as Record<string, string>;
+	load(dataDir: string): void {
+		const configPath = path.join(dataDir, "config.json");
+		if (!fs.existsSync(configPath)) return;
 
-		if (env.INDEXER_EMBEDDING_PROVIDER) {
-			this.config.embeddingProvider =
-				env.INDEXER_EMBEDDING_PROVIDER.toLowerCase();
-		}
-		if (env.INDEXER_EMBEDDING_MODEL) {
-			this.config.embeddingModel = env.INDEXER_EMBEDDING_MODEL;
-		}
-		if (env.INDEXER_EMBEDDING_CONTEXT_SIZE) {
-			const size = parseInt(env.INDEXER_EMBEDDING_CONTEXT_SIZE, 10);
-			if (Number.isFinite(size) && size > 0)
-				this.config.embeddingContextSize = size;
-		}
-		if (env.INDEXER_VECTOR_SIZE) {
-			const size = parseInt(env.INDEXER_VECTOR_SIZE, 10);
-			if (Number.isFinite(size) && size > 0) this.config.vectorSize = size;
-		}
-		if (env.INDEXER_OLLAMA_BASE_URL) {
-			this.config.ollamaBaseUrl = env.INDEXER_OLLAMA_BASE_URL;
-		}
-		if (env.INDEXER_OLLAMA_NUM_CTX) {
-			const numCtx = parseInt(env.INDEXER_OLLAMA_NUM_CTX, 10);
-			if (Number.isFinite(numCtx) && numCtx > 0)
-				this.config.ollamaNumCtx = numCtx;
-		}
-		const concurrencyRaw =
-			env.INDEXER_INDEX_CONCURRENCY ?? env.INDEX_CONCURRENCY;
-		if (concurrencyRaw) {
-			const concurrency = parseInt(concurrencyRaw, 10);
-			if (Number.isFinite(concurrency) && concurrency > 0)
-				this.config.indexConcurrency = concurrency;
-		}
-		if (env.INDEX_BATCH_SIZE) {
-			const size = parseInt(env.INDEX_BATCH_SIZE, 10);
-			if (Number.isFinite(size) && size > 0) this.config.indexBatchSize = size;
-		}
-		if (env.LOG_LEVEL) {
-			const level = env.LOG_LEVEL.toLowerCase();
-			if (["trace", "debug", "info", "warn", "error"].includes(level)) {
-				this.config.logLevel = level;
-			}
+		try {
+			const raw = fs.readFileSync(configPath, "utf-8");
+			const parsed = JSON.parse(raw) as Partial<IndexerConfig>;
+
+			if (typeof parsed.embeddingProvider === "string")
+				this.config.embeddingProvider = parsed.embeddingProvider;
+			if (typeof parsed.embeddingModel === "string")
+				this.config.embeddingModel = parsed.embeddingModel;
+			if (
+				typeof parsed.embeddingContextSize === "number" &&
+				parsed.embeddingContextSize > 0
+			)
+				this.config.embeddingContextSize = parsed.embeddingContextSize;
+			if (typeof parsed.vectorSize === "number" && parsed.vectorSize > 0)
+				this.config.vectorSize = parsed.vectorSize;
+			if (typeof parsed.ollamaBaseUrl === "string")
+				this.config.ollamaBaseUrl = parsed.ollamaBaseUrl;
+			if (typeof parsed.ollamaNumCtx === "number" && parsed.ollamaNumCtx > 0)
+				this.config.ollamaNumCtx = parsed.ollamaNumCtx;
+			if (
+				typeof parsed.indexConcurrency === "number" &&
+				parsed.indexConcurrency > 0
+			)
+				this.config.indexConcurrency = parsed.indexConcurrency;
+			if (
+				typeof parsed.indexBatchSize === "number" &&
+				parsed.indexBatchSize > 0
+			)
+				this.config.indexBatchSize = parsed.indexBatchSize;
+			if (typeof parsed.logLevel === "string")
+				this.config.logLevel = parsed.logLevel;
+		} catch {
+			// config unreadable — keep defaults
 		}
 	}
 
