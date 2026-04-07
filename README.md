@@ -29,12 +29,29 @@ and get relevant results in seconds. It ships as a single package with no daemon
 
 ## Installation
 
+### One-liner (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/buzz/indexer-cli/main/install.sh | bash
+```
+
+Installs into `~/.indexer-cli` by default. Override with `INDEXER_INSTALL_DIR`.
+
+### From source
+
 ```bash
 git clone <repo-url>
 cd indexer-cli
 npm install
-npm run build
-npm link  # makes the `indexer` command available globally
+npm run install:global
+```
+
+### Uninstall
+
+```bash
+npm run uninstall:global
+# or, if installed via install.sh:
+rm -rf ~/.indexer-cli
 ```
 
 ## Quick Start

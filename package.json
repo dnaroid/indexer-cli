@@ -11,6 +11,8 @@
 		"dev": "tsc --watch",
 		"start": "tsx bin/indexer-cli.js",
 		"indexer": "tsx bin/indexer-cli.js",
+		"install:global": "npm run build && npm link",
+		"uninstall:global": "npm unlink -g indexer-cli",
 		"test": "vitest run",
 		"test:watch": "vitest"
 	},
