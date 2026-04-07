@@ -1,17 +1,20 @@
+import Parser from 'tree-sitter';
+import PythonLanguage from 'tree-sitter-python';
+
 import type {
+  LanguagePlugin,
+  SourceFile,
+  ParsedFile,
+  LanguageSymbol,
+  LanguageImport,
+  LanguageCodeChunk,
   ChunkOptions,
   CodeRange,
-  LanguageCodeChunk,
-  LanguageImport,
-  LanguagePlugin,
-  LanguageSymbol,
-  ParsedFile,
-  SourceFile,
 } from './plugin.js';
 
 type PythonAst = {
   source: string;
-  lines: string[];
+  tree: Parser.Tree;
 };
 
 export class PythonPlugin implements LanguagePlugin {
@@ -19,72 +22,85 @@ export class PythonPlugin implements LanguagePlugin {
   readonly displayName = 'Python';
   readonly fileExtensions = ['.py', '.pyi'];
   readonly frameworks = ['django', 'flask', 'fastapi'];
+  readonly capabilities = {
+    supportsCustomMetadata: true,
+    supportsEntryPointDiscovery: true,
+  };
 
-  parse(file: SourceFile): ParsedFile {
-    return {
-      languageId: this.id,
-      path: file.path,
-      ast: {
-        source: file.content,
-        lines: file.content.split(/\r?\n/),
-      } satisfies PythonAst,
-    };
+  private readonly parser: Parser;
+
+  constructor() {
+    this.parser = new Parser();
+    const language = PythonLanguage as unknown as Parameters<Parser['setLanguage']>[0];
+    this.parser.setLanguage(language);
   }
 
-  getEntrypoints(filePaths: string[]): string[] {
-    return filePaths
-      .filter((filePath) => /(^|\/)(main|app|manage|cli|__main__)\.py$/i.test(filePath))
-      .slice(0, 20);
+  parse(file: SourceFile): ParsedFile {
+    const tree = this.parser.parse(file.content);
+    const ast: PythonAst = { source: file.content, tree };
+    const frameworkHint = this.detectFramework(file.content);
+
+    return {
+      languageId: 'python',
+      path: file.path,
+      ast,
+      meta: {
+        languageVersion: 'unknown',
+        frameworkHint,
+      },
+    };
   }
 
   extractSymbols(parsed: ParsedFile): LanguageSymbol[] {
     const ast = parsed.ast as PythonAst;
     const symbols: LanguageSymbol[] = [];
-    const classStack: Array<{ indent: number; name: string }> = [];
 
-    for (let index = 0; index < ast.lines.length; index += 1) {
-      const line = ast.lines[index];
-      const indent = line.match(/^\s*/)?.[0].length ?? 0;
-      while (classStack.length > 0 && indent <= classStack[classStack.length - 1].indent) {
-        classStack.pop();
+    this.walk(ast.tree.rootNode, (node) => {
+      if (node.type !== 'class_definition' && node.type !== 'function_definition') {
+        return;
       }
 
-      const classMatch = line.match(/^\s*class\s+([A-Za-z_][A-Za-z0-9_]*)/);
-      if (classMatch) {
-        const name = classMatch[1];
-        classStack.push({ indent, name });
-        symbols.push(
-          this.makeSymbol(
-            parsed.path,
-            'class',
-            name,
-            index + 1,
-            line,
-            indent,
-            !name.startsWith('_')
-          )
-        );
-        continue;
+      const nameNode = node.childForFieldName('name');
+      if (!nameNode) {
+        return;
       }
 
-      const fnMatch = line.match(/^\s*(?:async\s+def|def)\s+([A-Za-z_][A-Za-z0-9_]*)/);
-      if (fnMatch) {
-        const name = fnMatch[1];
-        const containerName = classStack[classStack.length - 1]?.name;
+      const name = this.nodeText(ast.source, nameNode);
+      const signature = this.firstLine(this.nodeText(ast.source, node));
+
+      if (node.type === 'class_definition') {
+        const classText = this.nodeText(ast.source, node);
+        const baseClasses = this.extractBaseClasses(classText);
+
         symbols.push({
-          ...this.makeSymbol(
-            parsed.path,
-            containerName ? 'method' : 'function',
-            name,
-            index + 1,
-            line,
-            indent,
-            !name.startsWith('_')
-          ),
-          containerName,
+          id: `${parsed.path}:class:${name}:${nameNode.startPosition.row + 1}`,
+          kind: 'class',
+          name,
+          filePath: parsed.path,
+          range: this.rangeFromNode(nameNode),
+          exported: !name.startsWith('_'),
+          signature,
+          metadata: baseClasses.length > 0 ? { baseClasses } : undefined,
         });
+        return;
       }
-    }
+
+      const container = this.findAncestor(node, 'class_definition');
+      const containerName = container
+        ? this.nodeText(ast.source, container.childForFieldName('name') ?? container)
+        : undefined;
+
+      symbols.push({
+        id: `${parsed.path}:function:${name}:${nameNode.startPosition.row + 1}`,
+        kind: container ? 'method' : 'function',
+        name,
+        filePath: parsed.path,
+        range: this.rangeFromNode(nameNode),
+        exported: !name.startsWith('_'),
+        containerName,
+        signature,
+      });
+    });
 
     return symbols;
   }
@@ -92,71 +108,250 @@ export class PythonPlugin implements LanguagePlugin {
   extractImports(parsed: ParsedFile): LanguageImport[] {
     const ast = parsed.ast as PythonAst;
     const imports: LanguageImport[] = [];
+    const lines = ast.source.split(/\r?\n/);
 
-    for (let index = 0; index < ast.lines.length; index += 1) {
-      const line = ast.lines[index].trim();
-      const importMatch = line.match(/^import\s+(.+)$/);
-      if (importMatch) {
-        const modules = importMatch[1]
+    this.walk(ast.tree.rootNode, (node) => {
+      if (node.type !== 'import_statement' && node.type !== 'import_from_statement') {
+        return;
+      }
+
+      const statement = this.nodeText(ast.source, node).trim();
+      if (!statement) {
+        return;
+      }
+
+      if (node.type === 'import_statement') {
+        const modulePart = statement.replace(/^import\s+/, '');
+        const modules = modulePart
           .split(',')
           .map((part) => part.trim().split(/\s+as\s+/)[0])
           .filter(Boolean);
+
         for (const moduleName of modules) {
-          imports.push(this.makeImport(parsed.path, moduleName, index + 1, ast.lines[index]));
+          imports.push({
+            id: `${parsed.path}:import:${moduleName}:${node.startPosition.row + 1}`,
+            kind: 'import',
+            spec: moduleName,
+            filePath: parsed.path,
+            range: this.rangeForToken(lines, node.startPosition.row, moduleName, node),
+          });
         }
-        continue;
+        return;
       }
 
-      const fromMatch = line.match(/^from\s+([A-Za-z0-9_\.]+)\s+import\s+/);
-      if (fromMatch) {
-        imports.push(this.makeImport(parsed.path, fromMatch[1], index + 1, ast.lines[index]));
+      const fromMatch = statement.match(/^from\s+([A-Za-z0-9_\.]+)\s+import\s+(.+)$/);
+      if (!fromMatch) {
+        return;
       }
-    }
+
+      const moduleName = fromMatch[1];
+      const imported = fromMatch[2]
+        .split(',')
+        .map((part) => part.trim().split(/\s+as\s+/)[0])
+        .filter(Boolean);
+
+      imports.push({
+        id: `${parsed.path}:import:${moduleName}:${node.startPosition.row + 1}`,
+        kind: 'import',
+        spec: moduleName,
+        filePath: parsed.path,
+        range: this.rangeForToken(lines, node.startPosition.row, moduleName, node),
+        metadata: imported.length > 0 ? { imported } : undefined,
+      });
+    });
 
     return imports;
   }
 
-  splitIntoChunks(_parsed: ParsedFile, _opts: ChunkOptions): LanguageCodeChunk[] {
-    return [];
-  }
+  splitIntoChunks(parsed: ParsedFile, opts: ChunkOptions): LanguageCodeChunk[] {
+    const ast = parsed.ast as PythonAst;
+    const content = ast.source;
 
-  private makeSymbol(
-    filePath: string,
-    kind: string,
-    name: string,
-    line: number,
-    text: string,
-    indent: number,
-    exported: boolean
-  ): LanguageSymbol {
-    const column = indent + text.trimStart().indexOf(name) + 1;
-    return {
-      id: `${filePath}:${kind}:${name}:${line}`,
-      kind,
-      name,
-      filePath,
-      range: this.range(line, column, name.length),
-      exported,
-      signature: text.trim(),
+    if (!content.trim()) {
+      return [];
+    }
+
+    const lines = content.split(/\r?\n/);
+    const importNodes: Parser.SyntaxNode[] = [];
+    const definitionNodes: Parser.SyntaxNode[] = [];
+
+    this.walk(ast.tree.rootNode, (node) => {
+      if (node.type === 'import_statement' || node.type === 'import_from_statement') {
+        importNodes.push(node);
+      }
+      if (node.type === 'function_definition' || node.type === 'class_definition') {
+        definitionNodes.push(node);
+      }
+    });
+
+    const chunks: LanguageCodeChunk[] = [];
+
+    if (importNodes.length > 0) {
+      const importStart = Math.min(...importNodes.map((node) => node.startPosition.row + 1));
+      const importEnd = Math.max(...importNodes.map((node) => node.endPosition.row + 1));
+      const importContent = lines
+        .slice(importStart - 1, importEnd)
+        .join('\n')
+        .trim();
+      if (importContent.length > 0) {
+        chunks.push({
+          id: `${parsed.path}:chunk:imports`,
+          filePath: parsed.path,
+          range: {
+            startLine: importStart,
+            startCol: 1,
+            endLine: importEnd,
+            endCol: (lines[importEnd - 1]?.length ?? 0) + 1,
+          },
+          content: importContent,
+          languageId: 'python',
+          estimatedTokens: Math.max(1, Math.ceil(importContent.length / 4)),
+          metadata: {
+            chunkType: 'imports',
+          },
+        });
+      }
+    }
+
+    const sortedDefinitions = definitionNodes.sort(
+      (a, b) => a.startPosition.row - b.startPosition.row
+    );
+    for (const node of sortedDefinitions) {
+      const nodeContent = this.nodeText(content, node).trim();
+      if (!nodeContent) continue;
+      const range = this.rangeFromNode(node);
+      const firstLine = this.firstLine(nodeContent);
+      const symbolMatch = firstLine.match(/^(?:async\s+def|def|class)\s+([A-Za-z_][A-Za-z0-9_]*)/);
+      chunks.push({
+        id: `${parsed.path}:chunk:${range.startLine}`,
+        filePath: parsed.path,
+        range,
+        content: nodeContent,
+        languageId: 'python',
+        estimatedTokens: Math.max(1, Math.ceil(nodeContent.length / 4)),
+        metadata: {
+          chunkType: node.type === 'class_definition' ? 'types' : 'impl',
+          primarySymbol: symbolMatch?.[1],
+        },
+      });
+    }
+
+    if (chunks.length > 0) {
+      return chunks;
+    }
+
+    const range: CodeRange = {
+      startLine: 1,
+      startCol: 1,
+      endLine: lines.length,
+      endCol: (lines[lines.length - 1]?.length ?? 0) + 1,
     };
+
+    return [
+      {
+        id: `${parsed.path}:chunk:1`,
+        filePath: parsed.path,
+        range,
+        content,
+        languageId: 'python',
+        estimatedTokens: Math.max(opts.targetTokens, Math.ceil(content.length / 4)),
+        metadata: {
+          chunkStrategy: 'tree-sitter-single-chunk',
+          chunkType: 'impl',
+        },
+      },
+    ];
   }
 
-  private makeImport(filePath: string, spec: string, line: number, text: string): LanguageImport {
-    return {
-      id: `${filePath}:import:${spec}:${line}`,
-      kind: 'import',
-      spec,
-      filePath,
-      range: this.range(line, Math.max(1, text.indexOf(spec) + 1), spec.length),
-    };
+  getEntrypoints(filePaths: string[]): string[] {
+    return filePaths.filter(
+      (filePath) => filePath.endsWith('__main__.py') || filePath.endsWith('manage.py')
+    );
   }
 
-  private range(line: number, startCol: number, length: number): CodeRange {
+  private detectFramework(content: string): string | null {
+    if (content.includes('django')) {
+      return 'django';
+    }
+    if (content.includes('fastapi')) {
+      return 'fastapi';
+    }
+    if (content.includes('flask')) {
+      return 'flask';
+    }
+    return null;
+  }
+
+  private extractBaseClasses(classText: string): string[] {
+    const firstLine = this.firstLine(classText);
+    const match = firstLine.match(/^class\s+[A-Za-z_]\w*\s*\(([^)]*)\)\s*:/);
+    if (!match) {
+      return [];
+    }
+
+    return match[1]
+      .split(',')
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  private nodeText(source: string, node: Parser.SyntaxNode): string {
+    return source.slice(node.startIndex, node.endIndex);
+  }
+
+  private firstLine(value: string): string {
+    return value.split(/\r?\n/, 1)[0]?.trim() ?? '';
+  }
+
+  private findAncestor(node: Parser.SyntaxNode, type: string): Parser.SyntaxNode | null {
+    let current: Parser.SyntaxNode | null = node.parent;
+    while (current) {
+      if (current.type === type) {
+        return current;
+      }
+      current = current.parent;
+    }
+    return null;
+  }
+
+  private rangeFromNode(node: Parser.SyntaxNode): CodeRange {
+    const startCol = node.startPosition.column + 1;
+    const endCol = Math.max(startCol + 1, node.endPosition.column + 1);
     return {
-      startLine: line,
+      startLine: node.startPosition.row + 1,
       startCol,
-      endLine: line,
-      endCol: startCol + length,
+      endLine: node.endPosition.row + 1,
+      endCol,
     };
+  }
+
+  private rangeForToken(
+    lines: string[],
+    lineIndex: number,
+    token: string,
+    fallbackNode: Parser.SyntaxNode
+  ): CodeRange {
+    const line = lines[lineIndex] ?? '';
+    const tokenIndex = line.indexOf(token);
+    if (tokenIndex < 0) {
+      return this.rangeFromNode(fallbackNode);
+    }
+
+    return {
+      startLine: lineIndex + 1,
+      startCol: tokenIndex + 1,
+      endLine: lineIndex + 1,
+      endCol: tokenIndex + Math.max(2, token.length + 1),
+    };
+  }
+
+  private walk(node: Parser.SyntaxNode, visitor: (node: Parser.SyntaxNode) => void): void {
+    visitor(node);
+    for (const child of node.namedChildren) {
+      this.walk(child, visitor);
+    }
   }
 }
+
+export const plugin = new PythonPlugin();
+export default plugin;
