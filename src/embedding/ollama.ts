@@ -1,3 +1,4 @@
+import { execSync } from "node:child_process";
 import type { EmbeddingProvider } from "../core/types.js";
 import { SystemLogger } from "../core/logger.js";
 
@@ -269,6 +270,18 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 		);
 	}
 
+	private startOllama(): void {
+		try {
+			execSync("ollama serve > /dev/null 2>&1 &", {
+				stdio: "pipe",
+				timeout: 3000,
+			});
+			logger.info("Started Ollama daemon in background.");
+		} catch {
+			// already running or not installed — waitForOllama handles both
+		}
+	}
+
 	private async ensureOllamaAvailable(context: string): Promise<void> {
 		if (await this.checkOllamaRunning()) {
 			return;
@@ -277,8 +290,9 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 		if (!this.reconnectInFlight) {
 			this.reconnectInFlight = (async () => {
 				logger.warn(
-					`Ollama is unavailable during ${context}. Waiting for readiness...`,
+					`Ollama is unavailable during ${context}. Starting and waiting for readiness...`,
 				);
+				this.startOllama();
 				await this.waitForOllama();
 			})();
 		}
