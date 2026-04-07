@@ -1,14 +1,33 @@
 {
-  "name": "${PROJECT_NAME}",
-  "version": "1.0.0",
-  "description": "",
+  "name": "indexer-cli",
+  "version": "0.1.0",
+  "description": "Lightweight CLI project indexer with semantic search via Ollama",
   "main": "dist/index.js",
-  "scripts": {
-    "build": "tsc"
+  "bin": {
+    "indexer": "./bin/indexer-cli.js"
   },
-  "dependencies": {},
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "axios": "^1.7.9",
+    "better-sqlite3": "^11.9.1",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "ora": "^8.1.1",
+    "p-limit": "^4.0.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-gdscript": "^6.1.0",
+    "tree-sitter-python": "^0.25.0",
+    "ts-morph": "^21.0.0",
+    "vectordb": "^0.21.2"
+  },
   "devDependencies": {
-    "typescript": "^5.5.3"
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
   },
   "private": true
 }
