@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { Command } from "commander";
-import { setLogLevel } from "../../core/logger.js";
+import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID, type SymbolRecord } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
@@ -108,7 +108,7 @@ export function registerStructureCommand(program: Command): void {
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
 
-				setLogLevel("error");
+				initLogger(dataDir);
 
 				const metadata = new SqliteMetadataStore(dbPath);
 

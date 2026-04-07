@@ -2,7 +2,7 @@ import path from "node:path";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
-import { setLogLevel } from "../../core/logger.js";
+import { initLogger } from "../../core/logger.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SimpleGitOperations } from "../../engine/git.js";
 import {
@@ -79,7 +79,7 @@ export function registerIndexCommand(program: Command): void {
 				const dbPath = path.join(dataDir, "db.sqlite");
 				const vectorsPath = path.join(dataDir, "vectors");
 
-				setLogLevel("error");
+				initLogger(dataDir);
 
 				const metadata = new SqliteMetadataStore(dbPath);
 

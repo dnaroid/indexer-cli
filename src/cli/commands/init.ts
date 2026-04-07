@@ -3,7 +3,7 @@ import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
-import { setLogLevel } from "../../core/logger.js";
+import { initLogger } from "../../core/logger.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
@@ -63,7 +63,7 @@ export function registerInitCommand(program: Command): void {
 			const vectorsPath = path.join(dataDir, "vectors");
 			const configPath = path.join(dataDir, "config.json");
 
-			setLogLevel("error");
+			initLogger(dataDir);
 
 			let metadata: SqliteMetadataStore | null = null;
 			let vectors: LanceDbVectorStore | null = null;
