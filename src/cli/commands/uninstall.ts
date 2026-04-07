@@ -28,7 +28,8 @@ export function registerUninstallCommand(program: Command): void {
 	program
 		.command("uninstall")
 		.description("Remove indexer data for a project")
-		.action(async () => {
+		.option("-f, --force", "Skip confirmation prompt")
+		.action(async (options: { force?: boolean }) => {
 			const chalk = await loadChalk();
 			const resolvedProjectPath = process.cwd();
 			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
@@ -39,16 +40,18 @@ export function registerUninstallCommand(program: Command): void {
 					return;
 				}
 
-				const rl = createInterface({ input, output });
+				if (!options.force) {
+					const rl = createInterface({ input, output });
 
-				try {
-					const answer = await rl.question(`Delete ${dataDir}? [y/N] `);
-					if (!/^y(es)?$/i.test(answer.trim())) {
-						console.log(chalk.gray("Uninstall cancelled."));
-						return;
+					try {
+						const answer = await rl.question(`Delete ${dataDir}? [y/N] `);
+						if (!/^y(es)?$/i.test(answer.trim())) {
+							console.log(chalk.gray("Uninstall cancelled."));
+							return;
+						}
+					} finally {
+						rl.close();
 					}
-				} finally {
-					rl.close();
 				}
 
 				await rm(dataDir, { recursive: true, force: true });

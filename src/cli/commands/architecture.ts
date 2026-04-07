@@ -161,6 +161,11 @@ export function registerArchitectureCommand(program: Command): void {
 					),
 					chalk,
 				);
+				printDependencyGraph(
+					"Unresolved dependencies",
+					architecture.dependency_map?.unresolved ?? {},
+					chalk,
+				);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(chalk.red(`Architecture command failed: ${message}`));

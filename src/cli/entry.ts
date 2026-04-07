@@ -21,7 +21,6 @@ registerUninstallCommand(program);
 try {
 	program.parse();
 } catch (e: any) {
-	// Commander throws on --help or when no subcommand is given.
-	// "commander.help" = help displayed (not an error), anything else = real failure.
-	if (e?.code !== "commander.help") throw e;
+	if (e?.code !== "commander.helpDisplayed" && e?.code !== "commander.help")
+		throw e;
 }

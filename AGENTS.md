@@ -1,3 +1,1 @@
-Это облегченная версия проекта /Volumes/128GBSSD/Projects/ai-code-helper
-
-Если что-то не работает - смотри в оригинальный проект для примера
+Это облегченная версия проекта '/Volumes/128GBSSD/Projects/ai-code-helper'
