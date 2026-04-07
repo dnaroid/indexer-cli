@@ -11,16 +11,6 @@ import {
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import type { SqliteMetadataStore } from "../../storage/sqlite.js";
 
-type CliColors = {
-	green(text: string): string;
-	red(text: string): string;
-	gray(text: string): string;
-};
-
-async function loadOra() {
-	return (await import("ora")).default;
-}
-
 async function getIndexPlan(
 	git: SimpleGitOperations,
 	repoRoot: string,
@@ -61,7 +51,6 @@ async function getIndexPlan(
 export async function ensureIndexed(
 	metadata: SqliteMetadataStore,
 	repoRoot: string,
-	chalk: CliColors,
 ): Promise<void> {
 	const git = new SimpleGitOperations();
 	const snapshot =
@@ -80,8 +69,6 @@ export async function ensureIndexed(
 		vectorSize: config.get("vectorSize"),
 	});
 
-	const ora = await loadOra();
-	const spinner = ora("Preparing indexer...").start();
 	const startedAt = Date.now();
 
 	const embedder = new OllamaEmbeddingProvider(
@@ -110,9 +97,8 @@ export async function ensureIndexed(
 		const headCommit = await git.getHeadCommit(repoRoot);
 
 		await engine.initialize();
-		spinner.text = indexPlan.isFullReindex
-			? "Running full index..."
-			: "Running incremental index...";
+		const mode = indexPlan.isFullReindex ? "full" : "incremental";
+		console.log(`Indexing (${mode})...`);
 
 		const result = await engine.indexProject({
 			projectId: DEFAULT_PROJECT_ID,
@@ -121,37 +107,33 @@ export async function ensureIndexed(
 			isFullReindex: indexPlan.isFullReindex,
 			changedFiles: indexPlan.changedFiles,
 			onProgress: (processed, total) => {
-				spinner.text = `Indexing files ${processed}/${total}`;
+				console.log(`  ${processed}/${total} files...`);
 			},
 		});
 
 		const elapsedMs = Date.now() - startedAt;
+		const chunkCount = await vectors.countVectors({
+			projectId: DEFAULT_PROJECT_ID,
+			snapshotId: result.snapshotId,
+		});
 
-		spinner.succeed(chalk.green("Index updated."));
-		console.log(chalk.gray(`Snapshot: ${result.snapshotId}`));
-		console.log(chalk.gray(`Files indexed: ${result.filesIndexed}`));
-		console.log(
-			chalk.gray(
-				`Chunks created: ${await vectors.countVectors({ projectId: DEFAULT_PROJECT_ID, snapshotId: result.snapshotId })}`,
-			),
-		);
-		console.log(chalk.gray(`Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`));
+		console.log("Index updated.");
+		console.log(`  Snapshot: ${result.snapshotId}`);
+		console.log(`  Files indexed: ${result.filesIndexed}`);
+		console.log(`  Chunks created: ${chunkCount}`);
+		console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
 
 		if (result.errors.length > 0) {
 			for (const error of result.errors) {
-				console.log(chalk.red(`- ${error}`));
+				console.error(`  Error: ${error}`);
 			}
 		}
 	} catch (indexError) {
-		spinner.fail(chalk.red("Indexing failed."));
 		const message =
 			indexError instanceof Error ? indexError.message : String(indexError);
 		throw new Error(`Auto-indexing failed: ${message}`);
 	} finally {
-		if (engine) {
-			await engine.close().catch(() => undefined);
-		} else {
-			await Promise.allSettled([vectors.close(), embedder.close()]);
-		}
+		// metadata is borrowed from caller — do NOT close it here
+		await Promise.allSettled([vectors.close(), embedder.close()]);
 	}
 }

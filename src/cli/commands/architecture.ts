@@ -5,16 +5,6 @@ import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
-type CliColors = {
-	green(text: string): string;
-	red(text: string): string;
-	gray(text: string): string;
-};
-
-async function loadChalk(): Promise<CliColors> {
-	return (await import("chalk")).default as unknown as CliColors;
-}
-
 type ArchitectureSnapshot = {
 	file_stats?: Record<string, number>;
 	entrypoints?: string[];
@@ -26,53 +16,6 @@ type ArchitectureSnapshot = {
 	};
 	dependencies?: Record<string, number>;
 };
-
-function printRecord(
-	title: string,
-	values: Record<string, number>,
-	chalk: CliColors,
-): void {
-	console.log(chalk.green(title));
-	const entries = Object.entries(values).sort((a, b) =>
-		a[0].localeCompare(b[0]),
-	);
-	if (entries.length === 0) {
-		console.log(chalk.gray("  none"));
-		return;
-	}
-	for (const [key, value] of entries) {
-		console.log(`  ${key}: ${value}`);
-	}
-}
-
-function printList(title: string, values: string[], chalk: CliColors): void {
-	console.log(chalk.green(title));
-	if (values.length === 0) {
-		console.log(chalk.gray("  none"));
-		return;
-	}
-	for (const value of values) {
-		console.log(`  ${value}`);
-	}
-}
-
-function printDependencyGraph(
-	title: string,
-	values: Record<string, string[]>,
-	chalk: CliColors,
-): void {
-	console.log(chalk.green(title));
-	const entries = Object.entries(values).sort((a, b) =>
-		a[0].localeCompare(b[0]),
-	);
-	if (entries.length === 0) {
-		console.log(chalk.gray("  none"));
-		return;
-	}
-	for (const [from, to] of entries) {
-		console.log(`  ${from} -> ${to.join(", ")}`);
-	}
-}
 
 function summarizeExternalDependencies(
 	values: Record<string, string[]>,
@@ -88,12 +31,75 @@ function summarizeExternalDependencies(
 	);
 }
 
+function formatPlain(architecture: ArchitectureSnapshot): void {
+	console.log("File stats by language");
+	const fileEntries = Object.entries(architecture.file_stats ?? {}).sort(
+		(a, b) => a[0].localeCompare(b[0]),
+	);
+	if (fileEntries.length === 0) {
+		console.log("  none");
+	} else {
+		for (const [key, value] of fileEntries) {
+			console.log(`  ${key}: ${value}`);
+		}
+	}
+
+	console.log("Entrypoints");
+	const entrypoints = architecture.entrypoints ?? [];
+	if (entrypoints.length === 0) {
+		console.log("  none");
+	} else {
+		for (const value of entrypoints) {
+			console.log(`  ${value}`);
+		}
+	}
+
+	console.log("Module dependency graph");
+	const internalEntries = Object.entries(
+		architecture.dependency_map?.internal ?? {},
+	).sort((a, b) => a[0].localeCompare(b[0]));
+	if (internalEntries.length === 0) {
+		console.log("  none");
+	} else {
+		for (const [from, to] of internalEntries) {
+			console.log(`  ${from} -> ${to.join(", ")}`);
+		}
+	}
+
+	console.log("External dependencies summary");
+	const externalSummary = summarizeExternalDependencies(
+		architecture.dependency_map?.external ?? {},
+	);
+	const extEntries = Object.entries(externalSummary).sort((a, b) =>
+		a[0].localeCompare(b[0]),
+	);
+	if (extEntries.length === 0) {
+		console.log("  none");
+	} else {
+		for (const [key, value] of extEntries) {
+			console.log(`  ${key}: ${value}`);
+		}
+	}
+
+	console.log("Unresolved dependencies");
+	const unresolvedEntries = Object.entries(
+		architecture.dependency_map?.unresolved ?? {},
+	).sort((a, b) => a[0].localeCompare(b[0]));
+	if (unresolvedEntries.length === 0) {
+		console.log("  none");
+	} else {
+		for (const [from, to] of unresolvedEntries) {
+			console.log(`  ${from} -> ${to.join(", ")}`);
+		}
+	}
+}
+
 export function registerArchitectureCommand(program: Command): void {
 	program
 		.command("architecture")
 		.description("Print the latest architecture snapshot")
-		.action(async () => {
-			const chalk = await loadChalk();
+		.option("--json", "output results as JSON")
+		.action(async (options?: { json?: boolean }) => {
 			const resolvedProjectPath = process.cwd();
 			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 			const dbPath = path.join(dataDir, "db.sqlite");
@@ -104,7 +110,7 @@ export function registerArchitectureCommand(program: Command): void {
 
 			try {
 				await metadata.initialize();
-				await ensureIndexed(metadata, resolvedProjectPath, chalk);
+				await ensureIndexed(metadata, resolvedProjectPath);
 				const snapshot =
 					await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 				if (!snapshot) {
@@ -127,32 +133,15 @@ export function registerArchitectureCommand(program: Command): void {
 				const architecture = JSON.parse(
 					artifact.dataJson,
 				) as ArchitectureSnapshot;
-				printRecord(
-					"File stats by language",
-					architecture.file_stats ?? {},
-					chalk,
-				);
-				printList("Entrypoints", architecture.entrypoints ?? [], chalk);
-				printDependencyGraph(
-					"Module dependency graph",
-					architecture.dependency_map?.internal ?? {},
-					chalk,
-				);
-				printRecord(
-					"External dependencies summary",
-					summarizeExternalDependencies(
-						architecture.dependency_map?.external ?? {},
-					),
-					chalk,
-				);
-				printDependencyGraph(
-					"Unresolved dependencies",
-					architecture.dependency_map?.unresolved ?? {},
-					chalk,
-				);
+
+				if (options?.json) {
+					console.log(JSON.stringify(architecture, null, 2));
+				} else {
+					formatPlain(architecture);
+				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				console.error(chalk.red(`Architecture command failed: ${message}`));
+				console.error(`Architecture command failed: ${message}`);
 				process.exitCode = 1;
 			} finally {
 				await metadata.close().catch(() => undefined);

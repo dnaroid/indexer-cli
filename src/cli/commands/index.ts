@@ -14,20 +14,6 @@ import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import type { GitDiff } from "../../core/types.js";
 
-type CliColors = {
-	green(text: string): string;
-	red(text: string): string;
-	gray(text: string): string;
-};
-
-async function loadChalk(): Promise<CliColors> {
-	return (await import("chalk")).default as unknown as CliColors;
-}
-
-async function loadOra() {
-	return (await import("ora")).default;
-}
-
 function countChangedFiles(diff: GitDiff): number {
 	return diff.added.length + diff.modified.length + diff.deleted.length;
 }
@@ -39,13 +25,14 @@ export function registerIndexCommand(program: Command): void {
 		.option("--full", "force a full reindex")
 		.option("--dry-run", "show what would change without indexing")
 		.option("--status", "show indexing status for the current project")
+		.option("--json", "output status as JSON (use with --status)")
 		.action(
 			async (options?: {
 				full?: boolean;
 				dryRun?: boolean;
 				status?: boolean;
+				json?: boolean;
 			}) => {
-				const chalk = await loadChalk();
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
@@ -63,11 +50,13 @@ export function registerIndexCommand(program: Command): void {
 							await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 
 						if (!snapshot) {
-							console.log(
-								chalk.gray(
+							if (options?.json) {
+								console.log(JSON.stringify({ indexed: false }, null, 2));
+							} else {
+								console.log(
 									"No completed snapshot found. Run `indexer index` first.",
-								),
-							);
+								);
+							}
 							return;
 						}
 
@@ -106,18 +95,39 @@ export function registerIndexCommand(program: Command): void {
 							);
 						}
 
+						if (options?.json) {
+							console.log(
+								JSON.stringify(
+									{
+										indexed: true,
+										snapshot: {
+											id: snapshot.id,
+											status: snapshot.status,
+											createdAt: snapshot.createdAt,
+											gitRef: snapshot.meta.headCommit ?? null,
+										},
+										stats: {
+											files: files.length,
+											symbols: symbols.length,
+											chunks: vectorCount,
+											dependencies: dependencies.length,
+										},
+										languages: Object.fromEntries(languages),
+										symbolKinds: Object.fromEntries(symbolKinds),
+									},
+									null,
+									2,
+								),
+							);
+							return;
+						}
+
+						console.log(`Snapshot: ${snapshot.id} (${snapshot.status})`);
 						console.log(
-							chalk.green(`Snapshot: ${snapshot.id} (${snapshot.status})`),
+							`Created: ${snapshot.createdAt}  |  Git ref: ${snapshot.meta.headCommit ?? "unknown"}`,
 						);
 						console.log(
-							chalk.gray(
-								`Created: ${snapshot.createdAt}  |  Git ref: ${snapshot.meta.headCommit ?? "unknown"}`,
-							),
-						);
-						console.log(
-							chalk.gray(
-								`Files: ${files.length}  |  Symbols: ${symbols.length}  |  Chunks: ${vectorCount}  |  Dependencies: ${dependencies.length}`,
-							),
+							`Files: ${files.length}  |  Symbols: ${symbols.length}  |  Chunks: ${vectorCount}  |  Dependencies: ${dependencies.length}`,
 						);
 
 						if (languages.size > 0) {
@@ -125,7 +135,7 @@ export function registerIndexCommand(program: Command): void {
 								.sort((a, b) => b[1] - a[1])
 								.map(([lang, count]) => `${lang}: ${count}`)
 								.join(", ");
-							console.log(chalk.gray(`Languages: ${langEntries}`));
+							console.log(`Languages: ${langEntries}`);
 						}
 
 						if (symbolKinds.size > 0) {
@@ -133,15 +143,14 @@ export function registerIndexCommand(program: Command): void {
 								.sort((a, b) => b[1] - a[1])
 								.map(([kind, count]) => `${kind}: ${count}`)
 								.join(", ");
-							console.log(chalk.gray(`Symbol kinds: ${kindEntries}`));
+							console.log(`Symbol kinds: ${kindEntries}`);
 						}
 
 						return;
 					}
 
-					const ora = await loadOra();
-					const spinner = ora("Preparing indexer...").start();
 					const startedAt = Date.now();
+					console.log("Preparing indexer...");
 
 					const vectors = new LanceDbVectorStore({
 						dbPath: vectorsPath,
@@ -179,8 +188,6 @@ export function registerIndexCommand(program: Command): void {
 								: undefined;
 
 						if (options?.dryRun) {
-							spinner.stop();
-
 							if (options.full || !latestSnapshot) {
 								const plannedFiles = await scanProjectFiles(
 									resolvedProjectPath,
@@ -199,34 +206,31 @@ export function registerIndexCommand(program: Command): void {
 										".gd",
 									],
 								);
-								console.log(chalk.green("Dry run complete."));
-								console.log(chalk.gray(`Mode: full reindex`));
-								console.log(
-									chalk.gray(`Files to index: ${plannedFiles.length}`),
-								);
+								console.log("Dry run complete.");
+								console.log("Mode: full reindex");
+								console.log(`Files to index: ${plannedFiles.length}`);
 							} else {
 								const diff = changedFiles ?? {
 									added: [],
 									modified: [],
 									deleted: [],
 								};
-								console.log(chalk.green("Dry run complete."));
-								console.log(chalk.gray("Mode: incremental"));
-								console.log(chalk.gray(`Added: ${diff.added.length}`));
-								console.log(chalk.gray(`Modified: ${diff.modified.length}`));
-								console.log(chalk.gray(`Deleted: ${diff.deleted.length}`));
-								console.log(
-									chalk.gray(`Changed total: ${countChangedFiles(diff)}`),
-								);
+								console.log("Dry run complete.");
+								console.log("Mode: incremental");
+								console.log(`Added: ${diff.added.length}`);
+								console.log(`Modified: ${diff.modified.length}`);
+								console.log(`Deleted: ${diff.deleted.length}`);
+								console.log(`Changed total: ${countChangedFiles(diff)}`);
 							}
 
 							return;
 						}
 
 						await engine.initialize();
-						spinner.text = options?.full
+						const mode = options?.full
 							? "Running full reindex..."
 							: "Running incremental index...";
+						console.log(mode);
 
 						const result = await engine.indexProject({
 							projectId: DEFAULT_PROJECT_ID,
@@ -235,40 +239,34 @@ export function registerIndexCommand(program: Command): void {
 							isFullReindex: Boolean(options?.full),
 							changedFiles,
 							onProgress: (processed, total) => {
-								spinner.text = `Indexing files ${processed}/${total}`;
+								console.log(`  ${processed}/${total} files...`);
 							},
 						});
 
 						const snapshot = await metadata.getSnapshot(result.snapshotId);
 						const elapsedMs = Date.now() - startedAt;
+						const totalFiles = snapshot?.totalFiles
+							? ` / ${snapshot.totalFiles}`
+							: "";
 
-						spinner.succeed(chalk.green("Index completed successfully."));
-						console.log(chalk.gray(`Snapshot: ${result.snapshotId}`));
+						console.log("Index completed successfully.");
+						console.log(`  Snapshot: ${result.snapshotId}`);
+						console.log(`  Files indexed: ${result.filesIndexed}${totalFiles}`);
 						console.log(
-							chalk.gray(
-								`Files indexed: ${result.filesIndexed}${snapshot?.totalFiles ? ` / ${snapshot.totalFiles}` : ""}`,
-							),
+							`  Chunks created: ${await vectors.countVectors({ projectId: DEFAULT_PROJECT_ID, snapshotId: result.snapshotId })}`,
 						);
-						console.log(
-							chalk.gray(
-								`Chunks created: ${await vectors.countVectors({ projectId: DEFAULT_PROJECT_ID, snapshotId: result.snapshotId })}`,
-							),
-						);
-						console.log(
-							chalk.gray(`Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`),
-						);
-						console.log(chalk.gray(`Errors: ${result.errors.length}`));
+						console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
+						console.log(`  Errors: ${result.errors.length}`);
 
 						if (result.errors.length > 0) {
 							for (const error of result.errors) {
-								console.log(chalk.red(`- ${error}`));
+								console.error(`  - ${error}`);
 							}
 						}
 					} catch (error) {
-						spinner.fail(chalk.red("Indexing failed."));
 						const message =
 							error instanceof Error ? error.message : String(error);
-						console.error(chalk.red(message));
+						console.error(`Indexing failed: ${message}`);
 						process.exitCode = 1;
 					} finally {
 						if (engine) {

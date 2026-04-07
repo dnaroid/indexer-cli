@@ -8,16 +8,6 @@ import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
-type CliColors = {
-	green(text: string): string;
-	red(text: string): string;
-	gray(text: string): string;
-};
-
-async function loadChalk(): Promise<CliColors> {
-	return (await import("chalk")).default as unknown as CliColors;
-}
-
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
 		await access(targetPath, fsConstants.F_OK);
@@ -53,7 +43,6 @@ export function registerInitCommand(program: Command): void {
 		.command("init")
 		.description("Initialize indexer storage for a project")
 		.action(async () => {
-			const chalk = await loadChalk();
 			const resolvedProjectPath = process.cwd();
 			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 			const dbPath = path.join(dataDir, "db.sqlite");
@@ -85,17 +74,15 @@ export function registerInitCommand(program: Command): void {
 				);
 				await ensureGitignoreEntry(resolvedProjectPath);
 
-				console.log(
-					chalk.green(`Initialized indexer-cli in ${resolvedProjectPath}`),
-				);
-				console.log(chalk.gray(`SQLite: ${dbPath}`));
-				console.log(chalk.gray(`Vectors: ${vectorsPath}`));
-				console.log(chalk.gray(`Config: ${configPath}`));
+				console.log(`Initialized indexer-cli in ${resolvedProjectPath}`);
+				console.log(`  SQLite: ${dbPath}`);
+				console.log(`  Vectors: ${vectorsPath}`);
+				console.log(`  Config: ${configPath}`);
 
-				await ensureIndexed(metadata, resolvedProjectPath, chalk);
+				await ensureIndexed(metadata, resolvedProjectPath);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				console.error(chalk.red(`Failed to initialize project: ${message}`));
+				console.error(`Failed to initialize project: ${message}`);
 				process.exitCode = 1;
 			} finally {
 				if (metadata) {

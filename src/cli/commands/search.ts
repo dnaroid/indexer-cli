@@ -9,16 +9,6 @@ import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
-type CliColors = {
-	green(text: string): string;
-	red(text: string): string;
-	gray(text: string): string;
-};
-
-async function loadChalk(): Promise<CliColors> {
-	return (await import("chalk")).default as unknown as CliColors;
-}
-
 export function registerSearchCommand(program: Command): void {
 	program
 		.command("search <query>")
@@ -29,12 +19,17 @@ export function registerSearchCommand(program: Command): void {
 			"limit search to files under a path prefix",
 		)
 		.option("--chunk-types <string>", "comma-separated chunk types to include")
+		.option("--json", "output results as JSON")
 		.action(
 			async (
 				query: string,
-				options?: { topK?: string; pathPrefix?: string; chunkTypes?: string },
+				options?: {
+					topK?: string;
+					pathPrefix?: string;
+					chunkTypes?: string;
+					json?: boolean;
+				},
 			) => {
-				const chalk = await loadChalk();
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
@@ -63,7 +58,7 @@ export function registerSearchCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath, chalk);
+					await ensureIndexed(metadata, resolvedProjectPath);
 					await Promise.all([vectors.initialize(), embedder.initialize()]);
 
 					const snapshot =
@@ -92,7 +87,29 @@ export function registerSearchCommand(program: Command): void {
 					);
 
 					if (results.length === 0) {
-						console.log(chalk.gray("No results found."));
+						if (options?.json) {
+							console.log("[]");
+						} else {
+							console.log("No results found.");
+						}
+						return;
+					}
+
+					if (options?.json) {
+						console.log(
+							JSON.stringify(
+								results.map((r) => ({
+									filePath: r.filePath,
+									startLine: r.startLine,
+									endLine: r.endLine,
+									score: r.score,
+									primarySymbol: r.primarySymbol ?? null,
+									content: r.content ?? null,
+								})),
+								null,
+								2,
+							),
+						);
 						return;
 					}
 
@@ -101,16 +118,15 @@ export function registerSearchCommand(program: Command): void {
 							? `, function: ${result.primarySymbol}`
 							: "";
 						console.log(
-							`${chalk.green(`${result.filePath}:${result.startLine}-${result.endLine}`)} ${chalk.gray(`(score: ${result.score.toFixed(2)}${symbolPart})`)}`,
+							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart})`,
 						);
-						console.log(chalk.gray("─────────────────────────────"));
-						console.log(result.content || chalk.gray("(content unavailable)"));
-						console.log(chalk.gray("─────────────────────────────"));
+						console.log(result.content || "(content unavailable)");
+						console.log("");
 					}
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
-					console.error(chalk.red(`Search failed: ${message}`));
+					console.error(`Search failed: ${message}`);
 					process.exitCode = 1;
 				} finally {
 					await Promise.allSettled([
