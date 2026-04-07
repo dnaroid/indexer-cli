@@ -18,6 +18,45 @@ function countChangedFiles(diff: GitDiff): number {
 	return diff.added.length + diff.modified.length + diff.deleted.length;
 }
 
+type TreeNode = {
+	dirs: Map<string, TreeNode>;
+	files: Set<string>;
+};
+
+function buildFileTree(filePaths: string[]): TreeNode {
+	const root: TreeNode = { dirs: new Map(), files: new Set() };
+	for (const filePath of filePaths) {
+		const parts = filePath.split("/");
+		let node = root;
+		for (let i = 0; i < parts.length - 1; i++) {
+			const dir = parts[i];
+			let child = node.dirs.get(dir);
+			if (!child) {
+				child = { dirs: new Map(), files: new Set() };
+				node.dirs.set(dir, child);
+			}
+			node = child;
+		}
+		node.files.add(parts[parts.length - 1]);
+	}
+	return root;
+}
+
+function printFileTree(node: TreeNode, indent: string): void {
+	const dirs = Array.from(node.dirs.entries()).sort((a, b) =>
+		a[0].localeCompare(b[0]),
+	);
+	const files = Array.from(node.files).sort((a, b) => a.localeCompare(b));
+
+	for (const [name, child] of dirs) {
+		console.log(`${indent}${name}/`);
+		printFileTree(child, `${indent}  `);
+	}
+	for (const name of files) {
+		console.log(`${indent}${name}`);
+	}
+}
+
 export function registerIndexCommand(program: Command): void {
 	program
 		.command("index")
@@ -25,12 +64,14 @@ export function registerIndexCommand(program: Command): void {
 		.option("--full", "force a full reindex")
 		.option("--dry-run", "show what would change without indexing")
 		.option("--status", "show indexing status for the current project")
+		.option("--tree", "show indexed file tree (use with --status)")
 		.option("--json", "output status as JSON (use with --status)")
 		.action(
 			async (options?: {
 				full?: boolean;
 				dryRun?: boolean;
 				status?: boolean;
+				tree?: boolean;
 				json?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
@@ -96,29 +137,27 @@ export function registerIndexCommand(program: Command): void {
 						}
 
 						if (options?.json) {
-							console.log(
-								JSON.stringify(
-									{
-										indexed: true,
-										snapshot: {
-											id: snapshot.id,
-											status: snapshot.status,
-											createdAt: snapshot.createdAt,
-											gitRef: snapshot.meta.headCommit ?? null,
-										},
-										stats: {
-											files: files.length,
-											symbols: symbols.length,
-											chunks: vectorCount,
-											dependencies: dependencies.length,
-										},
-										languages: Object.fromEntries(languages),
-										symbolKinds: Object.fromEntries(symbolKinds),
-									},
-									null,
-									2,
-								),
-							);
+							const output: Record<string, unknown> = {
+								indexed: true,
+								snapshot: {
+									id: snapshot.id,
+									status: snapshot.status,
+									createdAt: snapshot.createdAt,
+									gitRef: snapshot.meta.headCommit ?? null,
+								},
+								stats: {
+									files: files.length,
+									symbols: symbols.length,
+									chunks: vectorCount,
+									dependencies: dependencies.length,
+								},
+								languages: Object.fromEntries(languages),
+								symbolKinds: Object.fromEntries(symbolKinds),
+							};
+							if (options?.tree) {
+								output.files = files.map((f) => f.path);
+							}
+							console.log(JSON.stringify(output, null, 2));
 							return;
 						}
 
@@ -144,6 +183,12 @@ export function registerIndexCommand(program: Command): void {
 								.map(([kind, count]) => `${kind}: ${count}`)
 								.join(", ");
 							console.log(`Symbol kinds: ${kindEntries}`);
+						}
+
+						if (options?.tree) {
+							console.log("");
+							const filePaths = files.map((f) => f.path);
+							printFileTree(buildFileTree(filePaths), "");
 						}
 
 						return;
