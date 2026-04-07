@@ -32,4 +32,4 @@ msg "Linking globally..."
 npm link --prefix "$INSTALL_DIR" 2>/dev/null || npm link --prefix "$INSTALL_DIR" || err "npm link failed"
 
 ok "indexer-cli installed successfully!"
-msg "Run 'indexer --help' to get started."
+msg "Run 'indexer-cli --help' to get started."

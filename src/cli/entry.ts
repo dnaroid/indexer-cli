@@ -8,7 +8,7 @@ import { registerUninstallCommand } from "./commands/uninstall.js";
 import { registerSetupCommand } from "./commands/setup.js";
 
 program
-	.name("indexer")
+	.name("indexer-cli")
 	.description("Lightweight project indexer with semantic search")
 	.version("0.1.0")
 	.exitOverride();

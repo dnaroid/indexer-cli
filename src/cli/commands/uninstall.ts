@@ -14,6 +14,19 @@ async function pathExists(targetPath: string): Promise<boolean> {
 	}
 }
 
+async function removeClaudeSkill(projectRoot: string): Promise<void> {
+	const skillDir = path.join(
+		projectRoot,
+		".claude",
+		"skills",
+		"semantic-search",
+	);
+	if (await pathExists(skillDir)) {
+		await rm(skillDir, { recursive: true, force: true });
+		console.log(`Removed ${skillDir}`);
+	}
+}
+
 export function registerUninstallCommand(program: Command): void {
 	program
 		.command("uninstall")
@@ -45,6 +58,7 @@ export function registerUninstallCommand(program: Command): void {
 
 				await rm(dataDir, { recursive: true, force: true });
 				console.log(`Removed ${dataDir}`);
+				await removeClaudeSkill(resolvedProjectPath);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Uninstall failed: ${message}`);

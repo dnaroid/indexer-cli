@@ -95,7 +95,7 @@ export function registerIndexCommand(program: Command): void {
 								console.log(JSON.stringify({ indexed: false }, null, 2));
 							} else {
 								console.log(
-									"No completed snapshot found. Run `indexer index` first.",
+									"No completed snapshot found. Run `indexer-cli index` first.",
 								);
 							}
 							return;

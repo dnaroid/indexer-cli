@@ -7,6 +7,7 @@ import { setLogLevel } from "../../core/logger.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { SKILL_MD } from "./skill-template.js";
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
@@ -15,6 +16,19 @@ async function pathExists(targetPath: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+async function writeClaudeSkill(projectRoot: string): Promise<void> {
+	const skillDir = path.join(
+		projectRoot,
+		".claude",
+		"skills",
+		"semantic-search",
+	);
+	await mkdir(skillDir, { recursive: true });
+	const skillPath = path.join(skillDir, "SKILL.md");
+	await writeFile(skillPath, SKILL_MD, "utf8");
+	console.log(`  Skill: ${skillPath}`);
 }
 
 async function ensureGitignoreEntry(projectRoot: string): Promise<void> {
@@ -75,6 +89,7 @@ export function registerInitCommand(program: Command): void {
 				await ensureGitignoreEntry(resolvedProjectPath);
 
 				console.log(`Initialized indexer-cli in ${resolvedProjectPath}`);
+				await writeClaudeSkill(resolvedProjectPath);
 				console.log(`  SQLite: ${dbPath}`);
 				console.log(`  Vectors: ${vectorsPath}`);
 				console.log(`  Config: ${configPath}`);

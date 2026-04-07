@@ -4,14 +4,14 @@
 	"description": "Lightweight CLI project indexer with semantic search via Ollama",
 	"main": "dist/index.js",
 	"bin": {
-		"indexer": "./bin/indexer-cli.js"
+		"indexer-cli": "./bin/indexer-cli.js"
 	},
 	"scripts": {
 		"build": "tsc",
 		"dev": "tsc --watch",
 		"start": "tsx bin/indexer-cli.js",
-		"indexer": "tsx bin/indexer-cli.js",
-		"install:global": "npm run build && npm link",
+		"indexer-cli": "tsx bin/indexer-cli.js",
+		"install:global": "npm run build && npm link --force",
 		"uninstall:global": "npm unlink -g indexer-cli",
 		"test": "vitest run",
 		"test:watch": "vitest"
