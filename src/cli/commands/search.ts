@@ -113,7 +113,9 @@ export function registerSearchCommand(program: Command): void {
 						return;
 					}
 
-					for (const result of results) {
+					for (let i = 0; i < results.length; i++) {
+						if (i > 0) console.log("---");
+						const result = results[i];
 						const symbolPart = result.primarySymbol
 							? `, function: ${result.primarySymbol}`
 							: "";
@@ -121,7 +123,6 @@ export function registerSearchCommand(program: Command): void {
 							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart})`,
 						);
 						console.log(result.content || "(content unavailable)");
-						console.log("");
 					}
 				} catch (error) {
 					const message =
