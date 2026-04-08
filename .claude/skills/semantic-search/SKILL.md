@@ -1,27 +1,36 @@
 ---
-name: semantic-search
-description: Load this for repo discovery. Use indexer-cli before grep/glob/find when you need to find code, trace implementations, inspect structure, or understand an unfamiliar area.
+name: repo-discovery
+description: Mandatory for repository discovery. Before grep/glob/find, first use indexer-cli whenever the task involves finding implementations, tracing behavior, locating symbols, identifying entry points, inspecting module structure, or understanding an unfamiliar area of this repo.
 allowed-tools: Bash(indexer-cli:*)
 ---
 
-# Semantic search with indexer-cli
+# Repository discovery with indexer-cli
 
-Use this skill before grep/glob/find when the task is about discovery inside this repo.
+Use this skill for discovery tasks inside this repository.
+
+## Required behavior
+
+Always start with indexer-cli for repository discovery.
+Do not use grep, glob, or find until indexer-cli was insufficient, or you need an exact literal text match after
+narrowing the area.
 
 ## Load this skill when
 
 - You need to find where something is implemented
+- You need to trace a symbol, handler, feature, or behavior
 - You are entering an unfamiliar module or directory
-- You want the structure of an area, not just a filename
-- You need entry points, symbols, or dependency context
+- You need structure, entry points, or dependency context
+- The task is exploratory and you do not yet know the right file
 
 ## Skip this skill when
 
-- The user already gave the exact file and the task stays inside it
-- You only need a literal text match
+- The exact file is already known and the task stays inside it
+- You only need an exact literal text match
 - The task is outside this repository
 
-## First commands to try
+## First command
+
+Run one of these first:
 
 ```bash
 indexer-cli search "<query>" --json
@@ -29,31 +38,3 @@ indexer-cli search "<query>" --json --path-prefix src/<area>
 indexer-cli structure --json --path-prefix src/<area>
 indexer-cli architecture --json
 indexer-cli index --status --json
-```
-
-If results look stale, run:
-
-```bash
-indexer-cli index
-```
-
-## Default workflow
-
-1. Start with `search` for a symbol, behavior, or concept.
-2. Use `structure` when you need the layout of a directory.
-3. Use `architecture` for higher-level dependency or entry-point questions.
-4. Only fall back to grep/glob/find after indexer-cli was not enough.
-
-## Query tips
-
-- Keep queries short: 2-8 keywords
-- Prefer identifiers or nouns over full sentences
-- Add `--path-prefix` as soon as you know the area
-
-## Examples
-
-```bash
-indexer-cli search "search command handler" --json
-indexer-cli search "SymbolExtractor" --json --path-prefix src
-indexer-cli structure --json --path-prefix src/engine
-```
