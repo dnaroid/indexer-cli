@@ -31,25 +31,33 @@ async function writeClaudeSkill(projectRoot: string): Promise<void> {
 	console.log(`  Skill: ${skillPath}`);
 }
 
-async function ensureGitignoreEntry(projectRoot: string): Promise<void> {
+async function ensureGitignoreEntries(
+	projectRoot: string,
+	entries: string[],
+): Promise<void> {
 	const gitignorePath = path.join(projectRoot, ".gitignore");
-	const entry = ".indexer-cli/";
 
-	if (!(await pathExists(gitignorePath))) {
-		await writeFile(gitignorePath, `${entry}\n`, "utf8");
+	const missing = [...entries];
+
+	if (await pathExists(gitignorePath)) {
+		const current = await readFile(gitignorePath, "utf8");
+		const lines = current.split(/\r?\n/).map((line) => line.trim());
+		for (const entry of entries) {
+			if (lines.includes(entry)) {
+				missing.splice(missing.indexOf(entry), 1);
+			}
+		}
+		if (missing.length === 0) {
+			return;
+		}
+		const nextContent = current.endsWith("\n")
+			? `${current}${missing.join("\n")}\n`
+			: `${current}\n${missing.join("\n")}\n`;
+		await writeFile(gitignorePath, nextContent, "utf8");
 		return;
 	}
 
-	const current = await readFile(gitignorePath, "utf8");
-	const lines = current.split(/\r?\n/).map((line) => line.trim());
-	if (lines.includes(entry)) {
-		return;
-	}
-
-	const nextContent = current.endsWith("\n")
-		? `${current}${entry}\n`
-		: `${current}\n${entry}\n`;
-	await writeFile(gitignorePath, nextContent, "utf8");
+	await writeFile(gitignorePath, `${missing.join("\n")}\n`, "utf8");
 }
 
 export function registerInitCommand(program: Command): void {
@@ -87,7 +95,10 @@ export function registerInitCommand(program: Command): void {
 					`${JSON.stringify(config.getAll(), null, 2)}\n`,
 					"utf8",
 				);
-				await ensureGitignoreEntry(resolvedProjectPath);
+				await ensureGitignoreEntries(resolvedProjectPath, [
+					".indexer-cli/",
+					".claude/",
+				]);
 
 				console.log(`Initialized indexer-cli in ${resolvedProjectPath}`);
 				await writeClaudeSkill(resolvedProjectPath);
