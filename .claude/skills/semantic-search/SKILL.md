@@ -1,119 +1,81 @@
 ---
 name: semantic-search
-description: Semantic code search and codebase discovery via indexer-cli. Use BEFORE grep/glob/find when exploring unfamiliar code, understanding architecture, finding implementations, or locating symbols. Triggers: "find where X is implemented", "how does Y work", "search for Z", "where is the function that", "show me code related to", "what files handle", codebase navigation, dependency analysis.
+description: Semantic code search and codebase discovery via indexer-cli. Prefer it for exploratory repo navigation, architecture discovery, and semantic lookup when the exact file or literal string is unknown. Skip it for exact-file or literal-text tasks.
 allowed-tools: Bash(indexer-cli:*)
 ---
 
-# Semantic Code Search with indexer-cli
+# Semantic search via indexer-cli
 
-## When to Use
+Use `indexer-cli` for exploratory lookup inside this repo. It is best when you need meaning-based discovery, not exact text matching.
 
-Run indexer-cli commands BEFORE falling back to grep/glob/find. Indexer understands code semantics, not just text patterns.
-
-**Use indexer-cli when:**
+## Use when
 - Exploring unfamiliar code or modules
 - Finding where a symbol/function/class is implemented
 - Understanding codebase architecture and dependencies
 - Searching for code by meaning, not just exact text
 - Locating entry points and module boundaries
 
-**Skip indexer-cli when:**
+## Skip when
 - User gave an exact file path and task is strictly inside it
 - Searching for a literal string you know exists (use grep)
 - Task is external to this repo
+- The repo/task is small enough that grep/read is cheaper
 
-## Prerequisites
+## Prerequisite
 
-Indexer must be initialized in the project (`.indexer-cli/` directory exists).
-If not initialized, tell the user to run: `indexer-cli init`
+The project must already be initialized (`.indexer-cli/` exists). If not, tell the user to run `indexer-cli init`.
 
-## Commands
+## Default workflow
 
-All commands MUST be run in the project root directory.
+Run all commands from the project root. Prefer `--json`. Add `--path-prefix` whenever you already know the target area.
 
-### Search (primary tool)
-
-```bash
-# Semantic search — returns ranked results with file paths, line ranges, and code snippets
-indexer-cli search "<query>" --json
-
-# Narrow to a specific directory
-indexer-cli search "<query>" --json --path-prefix src/api
-
-# Limit results
-indexer-cli search "<query>" --json --top-k 5
-
-# Filter by chunk type
-indexer-cli search "<query>" --json --chunk-types impl,types
-```
-
-**Output (JSON):** Array of `{ filePath, startLine, endLine, score, primarySymbol, content }`
-
-### Status check
+1. **Check index status if needed**
 
 ```bash
 indexer-cli index --status --json
 ```
 
-**Output:** `{ indexed, snapshot: { id, status, createdAt, gitRef }, stats: { files, symbols, chunks, dependencies }, languages, symbolKinds }`
+2. **Search semantically first**
 
-### Structure (file tree with symbols)
+```bash
+indexer-cli search "<query>" --json
+indexer-cli search "<query>" --json --path-prefix src/api
+indexer-cli search "<query>" --json --top-k 5
+indexer-cli search "<query>" --json --chunk-types impl,types
+```
+
+3. **Use structure when search is weak or you need layout**
 
 ```bash
 indexer-cli structure --json
-
-# Filter by path prefix
 indexer-cli structure --json --path-prefix src/engine
-
-# Filter by symbol kind
 indexer-cli structure --json --kind function
 ```
 
-**Output:** Array of `{ type: "directory"|"file", name, path, symbols: [{ name, kind, exported }] }`
-
-### Architecture snapshot
+4. **Use architecture for project-wide overview**
 
 ```bash
 indexer-cli architecture --json
 ```
 
-**Output:** `{ file_stats, entrypoints, dependency_map: { internal, external, builtin, unresolved } }`
-
-### Re-index after code changes
+5. **Re-index if results look stale**
 
 ```bash
 indexer-cli index
 ```
 
-Incremental by default — only re-indexes changed files. Run this if search results seem stale.
-
-## Recommended First Move
-
-Start with an `indexer-cli` command when the task is exploratory and you do not already know the exact file or literal string.
-
-Use one of these first when it fits:
-1. `indexer-cli search "<query>" --json` — for semantic discovery
-2. `indexer-cli structure --json --path-prefix <dir>` — for understanding module layout
-
-Skip this step and go straight to grep/glob/read when:
-- you already know the exact file to inspect
-- you need an exact literal match
-- the repo is tiny enough that indexer overhead is not justified
-
-## Token-safe Defaults
-
-Always use `--json` flag for machine-readable output. Always use `--path-prefix` when you know the target directory.
+Incremental is the default.
 
 ## Search Query Tips
 
-- **Short and specific**: "authentication middleware", "JWT token validation", "database connection pool"
-- **Use identifiers**: function names, class names, variable names work best
-- **Avoid sentences**: "how do I handle errors" → "error handler", "error handling middleware"
-- **2-8 keywords** is the sweet spot
+- Use 2-8 keywords, not full sentences
+- Prefer identifiers and concrete nouns
+- Good: `authentication middleware`, `JWT token validation`, `database connection pool`
+- Better than: `how do I handle errors`
 
 ## Fallback Order
 
 If indexer results are insufficient:
-1. Refine query (shorter, different keywords, add `--path-prefix`)
-2. Try `indexer-cli structure --json --path-prefix <area>` to browse
-3. Then fall back to grep/glob for literal text searches
+1. Refine the query
+2. Add `--path-prefix` or use `structure`
+3. Fall back to grep/glob/read for literal lookup
