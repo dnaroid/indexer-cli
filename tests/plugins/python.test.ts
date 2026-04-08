@@ -157,4 +157,67 @@ describe("PythonPlugin", () => {
 			);
 		});
 	});
+
+	describe("inline helper branches", () => {
+		it("detects django, fastapi, and flask in parse metadata and extracts base classes", () => {
+			expect(
+				plugin.parse({ path: "inline/django.py", content: "import django" })
+					.meta?.frameworkHint,
+			).toBe("django");
+			expect(
+				plugin.parse({
+					path: "inline/fastapi.py",
+					content: "from fastapi import FastAPI",
+				}).meta?.frameworkHint,
+			).toBe("fastapi");
+
+			const parsed = plugin.parse({
+				path: "inline/app.py",
+				content: [
+					"from flask import Flask",
+					"",
+					"class Service(BaseOne, BaseTwo):",
+					"    pass",
+				].join("\n"),
+			});
+
+			expect(parsed.meta?.frameworkHint).toBe("flask");
+			expect(
+				(plugin as any).extractBaseClasses("class Service(BaseOne, BaseTwo):"),
+			).toEqual(["BaseOne", "BaseTwo"]);
+		});
+
+		it("falls back to the node range when a token cannot be located in the source line", () => {
+			const parsed = plugin.parse({
+				path: "inline/range.py",
+				content: "import os\n",
+			});
+			const root = (
+				(parsed.ast as any).tree.rootNode as {
+					namedChildren: Array<any>;
+				}
+			).namedChildren[0];
+
+			expect(
+				(plugin as any).rangeForToken(["import os"], 0, "missing", root),
+			).toEqual((plugin as any).rangeFromNode(root));
+		});
+
+		it("returns a single fallback chunk when no imports or definitions are present", () => {
+			const parsed = plugin.parse({
+				path: "inline/fallback.py",
+				content: "print('hello')\n",
+			});
+
+			expect(plugin.splitIntoChunks(parsed, { targetTokens: 64 })).toEqual([
+				expect.objectContaining({
+					id: "inline/fallback.py:chunk:1",
+					metadata: {
+						chunkStrategy: "tree-sitter-single-chunk",
+						chunkType: "impl",
+					},
+				}),
+			]);
+		});
+	});
 });

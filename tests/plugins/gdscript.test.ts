@@ -209,4 +209,79 @@ describe("GDScriptPlugin", () => {
 			expect(entrypoints).not.toContain("godot-basic/project.godot");
 		});
 	});
+
+	describe("inline helper branches", () => {
+		it("extracts nested class methods with a container name", () => {
+			const parsed = plugin.parse({
+				path: "inline/nested.gd",
+				content: ["class Helper:", "\tfunc act():", "\t\tpass"].join("\n"),
+			});
+
+			const act = plugin
+				.extractSymbols(parsed)
+				.find((symbol) => symbol.name === "act");
+			expect(act).toMatchObject({
+				kind: "method",
+				containerName: "Helper",
+			});
+		});
+
+		it("returns null when a function signature has no name and falls back to node ranges", () => {
+			expect(
+				(plugin as any).extractFunctionNameFromSignature(
+					"signal value_changed",
+				),
+			).toBeNull();
+
+			const parsed = plugin.parse({
+				path: "inline/range.gd",
+				content: 'extends "Node"\n',
+			});
+			const root = (
+				(parsed.ast as any).tree.rootNode as {
+					namedChildren: Array<any>;
+				}
+			).namedChildren[0];
+
+			expect(
+				(plugin as any).rangeForToken(
+					['extends "Node"'],
+					0,
+					"MissingType",
+					root,
+				),
+			).toEqual((plugin as any).rangeFromNode(root));
+		});
+
+		it("creates type chunks for local class definitions and falls back to a single chunk for plain scripts", () => {
+			const classParsed = plugin.parse({
+				path: "inline/class.gd",
+				content: ["class Helper:", "\tpass"].join("\n"),
+			});
+			expect(
+				plugin.splitIntoChunks(classParsed, { targetTokens: 32 })[0],
+			).toMatchObject({
+				metadata: {
+					chunkType: "types",
+					primarySymbol: "Helper",
+				},
+			});
+
+			const fallbackParsed = plugin.parse({
+				path: "inline/plain.gd",
+				content: "print('hi')\n",
+			});
+			expect(
+				plugin.splitIntoChunks(fallbackParsed, { targetTokens: 32 }),
+			).toEqual([
+				expect.objectContaining({
+					id: "inline/plain.gd:chunk:1",
+					metadata: {
+						chunkStrategy: "tree-sitter-single-chunk",
+						chunkType: "impl",
+					},
+				}),
+			]);
+		});
+	});
 });

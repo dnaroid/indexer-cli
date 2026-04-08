@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CSharpPlugin } from "../../../src/languages/csharp";
+import { CSharpPlugin } from "../../src/languages/csharp";
 import { readFixtureAsSource } from "../helpers/fixture-loader";
 
 const plugin = new CSharpPlugin();
@@ -194,6 +194,73 @@ describe("CSharpPlugin", () => {
 			const paths = ["Assets/Scripts/PlayerController.cs", "Other.cs"];
 			const entrypoints = plugin.getEntrypoints(paths);
 			expect(entrypoints).toEqual([]);
+		});
+	});
+
+	describe("inline branch coverage", () => {
+		it("handles non-unity files, static using directives, and interface/enum chunks", () => {
+			const parsed = plugin.parse({
+				path: "inline/Plain.cs",
+				content: [
+					"using static System.Math;",
+					"",
+					"internal interface IWorker {}",
+					"public enum Mode { A, B }",
+				].join("\n"),
+			});
+
+			expect(parsed.meta?.frameworkHint).toBeNull();
+
+			const imports = plugin.extractImports(parsed);
+			expect(imports).toEqual([
+				expect.objectContaining({ kind: "using", spec: "System.Math" }),
+			]);
+
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 120 });
+			expect(chunks.map((chunk) => chunk.metadata?.chunkType)).toEqual([
+				"imports",
+				"types",
+				"types",
+			]);
+		});
+
+		it("falls back to the node range when a using token is not present in the source line", () => {
+			const parsed = plugin.parse({
+				path: "inline/range.cs",
+				content: "using System;\n",
+			});
+			const root = (
+				(parsed.ast as any).tree.rootNode as {
+					namedChildren: Array<any>;
+				}
+			).namedChildren[0];
+
+			expect(
+				(plugin as any).rangeForToken(
+					["using System;"],
+					0,
+					"Missing.Type",
+					root,
+				),
+			).toEqual((plugin as any).rangeFromNode(root));
+		});
+
+		it("returns a single fallback chunk when no declarations or imports exist", () => {
+			const parsed = plugin.parse({
+				path: "inline/fallback.cs",
+				content: "Console.WriteLine(42);",
+			});
+
+			expect(plugin.splitIntoChunks(parsed, { targetTokens: 64 })).toEqual([
+				expect.objectContaining({
+					id: "inline/fallback.cs:chunk:1",
+					content: "Console.WriteLine(42);",
+					metadata: {
+						chunkStrategy: "tree-sitter-single-chunk",
+						chunkType: "impl",
+					},
+				}),
+			]);
 		});
 	});
 });
