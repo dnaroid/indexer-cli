@@ -7,7 +7,7 @@ import { initLogger } from "../../core/logger.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
-import { CLAUDE_MD, SKILL_MD } from "./skill-template.js";
+import { SKILL_MD } from "./skill-template.js";
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
@@ -29,17 +29,6 @@ async function writeClaudeSkill(projectRoot: string): Promise<void> {
 	const skillPath = path.join(skillDir, "SKILL.md");
 	await writeFile(skillPath, SKILL_MD, "utf8");
 	console.log(`  Skill: ${skillPath}`);
-}
-
-async function ensureClaudeGuide(projectRoot: string): Promise<void> {
-	const claudePath = path.join(projectRoot, "CLAUDE.md");
-	if (await pathExists(claudePath)) {
-		console.log(`  CLAUDE guide: kept existing ${claudePath}`);
-		return;
-	}
-
-	await writeFile(claudePath, CLAUDE_MD, "utf8");
-	console.log(`  CLAUDE guide: ${claudePath}`);
 }
 
 async function ensureGitignoreEntries(
@@ -113,7 +102,6 @@ export function registerInitCommand(program: Command): void {
 
 				console.log(`Initialized indexer-cli in ${resolvedProjectPath}`);
 				await writeClaudeSkill(resolvedProjectPath);
-				await ensureClaudeGuide(resolvedProjectPath);
 				console.log(`  SQLite: ${dbPath}`);
 				console.log(`  Vectors: ${vectorsPath}`);
 				console.log(`  Config: ${configPath}`);
