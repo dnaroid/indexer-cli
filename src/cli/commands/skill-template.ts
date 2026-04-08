@@ -40,7 +40,9 @@ Run one of these first:
 \`\`\`bash
 indexer-cli search "<query>" --json
 indexer-cli search "<query>" --json --path-prefix src/<area>
+indexer-cli search "<query>" --json --chunk-types impl,types
 indexer-cli structure --json --path-prefix src/<area>
+indexer-cli structure --json --kind class
 indexer-cli architecture --json
 indexer-cli index --status --json
 \`\`\`
@@ -53,4 +55,14 @@ Each result includes \`filePath\`, \`startLine\`, \`endLine\`, \`score\`, \`prim
 - Use \`score\` to prefer the most relevant chunks first and filter obvious low-relevance noise.
 - Use \`primarySymbol\` to see which function/class/type the chunk belongs to before opening the file.
 - Treat \`content\` as supporting context, but rank and filter with \`score\` + \`primarySymbol\` instead of raw text alone.
+
+## Reference
+
+### Chunk types (--chunk-types)
+
+\`full_file\`, \`imports\`, \`preamble\`, \`declaration\`, \`module_section\`, \`impl\`, \`types\`
+
+### Symbol kinds (--kind)
+
+\`function\`, \`class\`, \`method\`, \`interface\`, \`type\`, \`variable\`, \`module\`, \`signal\`
 `;
