@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { SimpleGitOperations } from "../../../src/engine/git.js";
+import { mergeGitDiffs, SimpleGitOperations } from "../../../src/engine/git.js";
 
 const { execSyncMock } = vi.hoisted(() => ({
 	execSyncMock: vi.fn(),
@@ -54,10 +54,38 @@ describe("SimpleGitOperations", () => {
 		const git = new SimpleGitOperations();
 
 		await expect(git.getChangedFiles("/repo", "deadbeef")).resolves.toEqual({
-			added: ["src/new.ts"],
-			modified: ["src/updated.ts", "src/renamed.ts"],
-			deleted: ["src/removed.ts"],
+			added: ["src/new.ts", "src/renamed.ts"],
+			modified: ["src/updated.ts"],
+			deleted: ["src/old.ts", "src/removed.ts"],
 		});
+	});
+
+	it("reads staged, unstaged, untracked, and renamed working tree changes", async () => {
+		execSyncMock.mockReturnValue(
+			[
+				" M src/unstaged.ts",
+				"M  src/staged.ts",
+				"A  src/new-staged.ts",
+				" D src/deleted.ts",
+				"R  src/old.ts -> src/renamed.ts",
+				"?? src/untracked.ts",
+			].join("\n"),
+		);
+		const git = new SimpleGitOperations();
+
+		await expect(git.getWorkingTreeChanges("/repo")).resolves.toEqual({
+			added: ["src/new-staged.ts", "src/renamed.ts", "src/untracked.ts"],
+			modified: ["src/staged.ts", "src/unstaged.ts"],
+			deleted: ["src/deleted.ts", "src/old.ts"],
+		});
+		expect(execSyncMock).toHaveBeenCalledWith(
+			"git status --porcelain --untracked-files=all",
+			{
+				cwd: "/repo",
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			},
+		);
 	});
 
 	it("aggregates churn by file from git numstat output", async () => {
@@ -101,6 +129,11 @@ describe("SimpleGitOperations", () => {
 			modified: [],
 			deleted: [],
 		});
+		await expect(git.getWorkingTreeChanges("/repo")).resolves.toEqual({
+			added: [],
+			modified: [],
+			deleted: [],
+		});
 		await expect(
 			git.getChurnByFile("/repo", { sinceDays: 7 }),
 		).resolves.toEqual({});
@@ -122,6 +155,48 @@ describe("SimpleGitOperations", () => {
 		const git = new SimpleGitOperations();
 
 		await expect(git.getChurnByFile("/repo")).resolves.toEqual({});
+	});
+
+	it("merges commit and working tree diffs without duplicate paths", () => {
+		expect(
+			mergeGitDiffs(
+				{
+					added: ["src/new.ts"],
+					modified: ["src/shared.ts", "src/delete-me.ts"],
+					deleted: [],
+				},
+				{
+					added: ["src/new.ts", "src/local-only.ts"],
+					modified: ["src/shared.ts"],
+					deleted: ["src/delete-me.ts"],
+				},
+			),
+		).toEqual({
+			added: ["src/local-only.ts", "src/new.ts"],
+			modified: ["src/shared.ts"],
+			deleted: ["src/delete-me.ts"],
+		});
+	});
+
+	it("treats delete then re-add as present in the final diff", () => {
+		expect(
+			mergeGitDiffs(
+				{
+					added: [],
+					modified: [],
+					deleted: ["src/recreated.ts"],
+				},
+				{
+					added: ["src/recreated.ts"],
+					modified: [],
+					deleted: [],
+				},
+			),
+		).toEqual({
+			added: ["src/recreated.ts"],
+			modified: [],
+			deleted: [],
+		});
 	});
 
 	it("returns null for empty HEAD output and ignores malformed diff and churn rows", async () => {

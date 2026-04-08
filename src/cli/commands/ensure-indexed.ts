@@ -4,6 +4,7 @@ import type { Snapshot } from "../../core/types.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SimpleGitOperations } from "../../engine/git.js";
+import { mergeGitDiffs } from "../../engine/git.js";
 import {
 	IndexerEngine,
 	createDefaultLanguagePlugins,
@@ -38,13 +39,24 @@ async function getIndexPlan(
 	}
 
 	const headCommit = await git.getHeadCommit(repoRoot);
-	if (headCommit === snapshot.meta.headCommit) {
+	const workspaceChanges = await git.getWorkingTreeChanges(repoRoot);
+	const committedChanges =
+		headCommit && headCommit !== snapshot.meta.headCommit
+			? await git.getChangedFiles(repoRoot, snapshot.meta.headCommit)
+			: { added: [], modified: [], deleted: [] };
+	const changedFiles = mergeGitDiffs(committedChanges, workspaceChanges);
+	const hasChanges =
+		changedFiles.added.length > 0 ||
+		changedFiles.modified.length > 0 ||
+		changedFiles.deleted.length > 0;
+
+	if (!hasChanges) {
 		return null;
 	}
 
 	return {
 		isFullReindex: false,
-		changedFiles: await git.getChangedFiles(repoRoot, snapshot.meta.headCommit),
+		changedFiles,
 	};
 }
 

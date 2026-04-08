@@ -87,11 +87,18 @@ indexer-cli index
 
 Incremental by default — only re-indexes changed files. Run this if search results seem stale.
 
-## Mandatory First Move
+## Recommended First Move
 
-Before grep/glob/find/explore, run at least ONE indexer-cli command:
-1. `indexer-cli search "<query>" --json` — for specific searches
+Start with an `indexer-cli` command when the task is exploratory and you do not already know the exact file or literal string.
+
+Use one of these first when it fits:
+1. `indexer-cli search "<query>" --json` — for semantic discovery
 2. `indexer-cli structure --json --path-prefix <dir>` — for understanding module layout
+
+Skip this step and go straight to grep/glob/read when:
+- you already know the exact file to inspect
+- you need an exact literal match
+- the repo is tiny enough that indexer overhead is not justified
 
 ## Token-safe Defaults
 

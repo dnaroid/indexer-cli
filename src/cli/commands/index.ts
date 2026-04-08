@@ -5,6 +5,7 @@ import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { initLogger } from "../../core/logger.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SimpleGitOperations } from "../../engine/git.js";
+import { mergeGitDiffs } from "../../engine/git.js";
 import {
 	IndexerEngine,
 	createDefaultLanguagePlugins,
@@ -227,9 +228,12 @@ export function registerIndexCommand(program: Command): void {
 						const headCommit = await git.getHeadCommit(resolvedProjectPath);
 						const changedFiles =
 							!options?.full && latestSnapshot?.meta.headCommit
-								? await git.getChangedFiles(
-										resolvedProjectPath,
-										latestSnapshot.meta.headCommit,
+								? mergeGitDiffs(
+										await git.getChangedFiles(
+											resolvedProjectPath,
+											latestSnapshot.meta.headCommit,
+										),
+										await git.getWorkingTreeChanges(resolvedProjectPath),
 									)
 								: undefined;
 

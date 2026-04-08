@@ -292,6 +292,7 @@ export interface GitOperations {
 	getHeadCommit(repoRoot: string): Promise<string | null>;
 	isDirty(repoRoot: string): Promise<boolean>;
 	getChangedFiles(repoRoot: string, sinceCommit: string): Promise<GitDiff>;
+	getWorkingTreeChanges(repoRoot: string): Promise<GitDiff>;
 	getChurnByFile(
 		repoRoot: string,
 		options?: { sinceDays?: number },
