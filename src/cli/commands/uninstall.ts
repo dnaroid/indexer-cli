@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { access, rm } from "node:fs/promises";
+import { access, readdir, rm, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -14,6 +14,11 @@ async function pathExists(targetPath: string): Promise<boolean> {
 	}
 }
 
+async function isDirEmpty(dirPath: string): Promise<boolean> {
+	const entries = await readdir(dirPath);
+	return entries.length === 0;
+}
+
 async function removeClaudeSkill(projectRoot: string): Promise<void> {
 	const skillDir = path.join(
 		projectRoot,
@@ -24,6 +29,49 @@ async function removeClaudeSkill(projectRoot: string): Promise<void> {
 	if (await pathExists(skillDir)) {
 		await rm(skillDir, { recursive: true, force: true });
 		console.log(`Removed ${skillDir}`);
+	}
+
+	const skillsDir = path.join(projectRoot, ".claude", "skills");
+	if (await pathExists(skillsDir)) {
+		try {
+			if (await isDirEmpty(skillsDir)) {
+				await rm(skillsDir, { recursive: true, force: true });
+			}
+		} catch {}
+	}
+
+	const claudeDir = path.join(projectRoot, ".claude");
+	if (await pathExists(claudeDir)) {
+		try {
+			if (await isDirEmpty(claudeDir)) {
+				await rm(claudeDir, { recursive: true, force: true });
+				console.log(`Removed empty ${claudeDir}`);
+			}
+		} catch {}
+	}
+}
+
+async function removeFromGitignore(
+	projectRoot: string,
+	entries: string[],
+): Promise<void> {
+	const gitignorePath = path.join(projectRoot, ".gitignore");
+	if (!(await pathExists(gitignorePath))) return;
+
+	const current = await readFile(gitignorePath, "utf8");
+	const lines = current.split(/\r?\n/);
+	const entrySet = new Set(entries);
+	const filtered = lines.filter((line) => !entrySet.has(line.trim()));
+
+	while (filtered.length > 0 && filtered[filtered.length - 1] === "") {
+		filtered.pop();
+	}
+	filtered.push("");
+
+	const nextContent = filtered.join("\n");
+	if (nextContent !== current) {
+		await writeFile(gitignorePath, nextContent, "utf8");
+		console.log(`Updated ${gitignorePath}`);
 	}
 }
 
@@ -58,7 +106,12 @@ export function registerUninstallCommand(program: Command): void {
 
 				await rm(dataDir, { recursive: true, force: true });
 				console.log(`Removed ${dataDir}`);
+
 				await removeClaudeSkill(resolvedProjectPath);
+				await removeFromGitignore(resolvedProjectPath, [
+					".indexer-cli/",
+					".claude/",
+				]);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Uninstall failed: ${message}`);
