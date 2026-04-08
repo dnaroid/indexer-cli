@@ -104,6 +104,51 @@ describe("TypeScriptPlugin", () => {
 		});
 	});
 
+	describe(`fixture: ${FIXTURE_ADD}`, () => {
+		const source = readFixtureAsSource(FIXTURE_ADD);
+		const parsed = plugin.parse(source);
+
+		it("parse() returns correct structure", () => {
+			expect(parsed).toHaveProperty("languageId", "typescript");
+			expect(parsed).toHaveProperty("path", FIXTURE_ADD);
+			expect(parsed.ast).toBeTruthy();
+		});
+
+		it("extractSymbols() finds exported function add", () => {
+			const symbols = plugin.extractSymbols(parsed);
+			expect(symbols.length).toBeGreaterThanOrEqual(1);
+
+			const add = symbols.find((s) => s.name === "add");
+			expect(add).toBeDefined();
+			expect(add!.kind).toBe("function");
+			expect(add!.exported).toBe(true);
+			expect(add!.filePath).toContain(FIXTURE_ADD);
+		});
+
+		it("extractImports() returns an array without errors", () => {
+			const imports = plugin.extractImports(parsed);
+			expect(Array.isArray(imports)).toBe(true);
+		});
+
+		it("splitIntoChunks() returns valid chunks", () => {
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 300 });
+			expect(chunks.length).toBeGreaterThanOrEqual(1);
+
+			for (const chunk of chunks) {
+				expect(chunk.id).toBeTruthy();
+				expect(chunk.filePath).toContain(FIXTURE_ADD);
+				expect(chunk.languageId).toBe("typescript");
+				expect(chunk.content.length).toBeGreaterThan(0);
+				expect(chunk.range).toHaveProperty("startLine");
+				expect(chunk.range).toHaveProperty("endLine");
+				expect(chunk.range.startLine).toBeGreaterThanOrEqual(1);
+				expect(chunk.range.endLine).toBeGreaterThanOrEqual(
+					chunk.range.startLine,
+				);
+			}
+		});
+	});
+
 	describe("getEntrypoints()", () => {
 		it("ranks src/index.ts highly among file paths", () => {
 			const filePaths = [

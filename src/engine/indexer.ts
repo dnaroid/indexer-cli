@@ -1364,9 +1364,4 @@ export class IndexerEngine {
 		const value = config.get("indexBatchSize");
 		return Number.isFinite(value) && value > 0 ? value : 50;
 	}
-
-	private getIndexConcurrency(): number {
-		const value = config.get("indexConcurrency");
-		return Number.isFinite(value) && value > 0 ? value : 5;
-	}
 }

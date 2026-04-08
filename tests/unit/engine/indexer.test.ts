@@ -1175,20 +1175,18 @@ describe("IndexerEngine internals", () => {
 	});
 
 	describe("config-driven helpers", () => {
-		it("uses configured batch and concurrency values when valid", () => {
+		it("uses configured batch size when valid", () => {
 			mockConfig({ indexBatchSize: 3, indexConcurrency: 7 });
 			const engine = new IndexerEngine(createMockOptions());
 
 			expect((engine as any).getBatchSize()).toBe(3);
-			expect((engine as any).getIndexConcurrency()).toBe(7);
 		});
 
-		it("falls back to defaults when configured batch and concurrency are invalid", () => {
+		it("falls back to the default batch size when configured value is invalid", () => {
 			mockConfig({ indexBatchSize: 0, indexConcurrency: -1 });
 			const engine = new IndexerEngine(createMockOptions());
 
 			expect((engine as any).getBatchSize()).toBe(50);
-			expect((engine as any).getIndexConcurrency()).toBe(5);
 		});
 	});
 });
