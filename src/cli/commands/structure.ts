@@ -116,7 +116,9 @@ export function registerStructureCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath);
+					await ensureIndexed(metadata, resolvedProjectPath, {
+						silent: Boolean(options?.json),
+					});
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) {

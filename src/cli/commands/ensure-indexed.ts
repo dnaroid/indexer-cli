@@ -63,7 +63,11 @@ async function getIndexPlan(
 export async function ensureIndexed(
 	metadata: SqliteMetadataStore,
 	repoRoot: string,
+	options?: {
+		silent?: boolean;
+	},
 ): Promise<void> {
+	const silent = options?.silent ?? false;
 	const git = new SimpleGitOperations();
 	const snapshot =
 		(await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID)) ??
@@ -110,7 +114,9 @@ export async function ensureIndexed(
 
 		await engine.initialize();
 		const mode = indexPlan.isFullReindex ? "full" : "incremental";
-		console.log(`Indexing (${mode})...`);
+		if (!silent) {
+			console.log(`Indexing (${mode})...`);
+		}
 
 		const result = await engine.indexProject({
 			projectId: DEFAULT_PROJECT_ID,
@@ -118,9 +124,11 @@ export async function ensureIndexed(
 			gitRef: headCommit ?? "unknown",
 			isFullReindex: indexPlan.isFullReindex,
 			changedFiles: indexPlan.changedFiles,
-			onProgress: (processed, total) => {
-				console.log(`  ${processed}/${total} files...`);
-			},
+			onProgress: silent
+				? undefined
+				: (processed, total) => {
+						console.log(`  ${processed}/${total} files...`);
+					},
 		});
 
 		const elapsedMs = Date.now() - startedAt;
@@ -129,13 +137,15 @@ export async function ensureIndexed(
 			snapshotId: result.snapshotId,
 		});
 
-		console.log("Index updated.");
-		console.log(`  Snapshot: ${result.snapshotId}`);
-		console.log(`  Files indexed: ${result.filesIndexed}`);
-		console.log(`  Chunks created: ${chunkCount}`);
-		console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
+		if (!silent) {
+			console.log("Index updated.");
+			console.log(`  Snapshot: ${result.snapshotId}`);
+			console.log(`  Files indexed: ${result.filesIndexed}`);
+			console.log(`  Chunks created: ${chunkCount}`);
+			console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
+		}
 
-		if (result.errors.length > 0) {
+		if (!silent && result.errors.length > 0) {
 			for (const error of result.errors) {
 				console.error(`  Error: ${error}`);
 			}

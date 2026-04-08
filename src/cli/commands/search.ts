@@ -59,7 +59,9 @@ export function registerSearchCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath);
+					await ensureIndexed(metadata, resolvedProjectPath, {
+						silent: Boolean(options?.json),
+					});
 					await Promise.all([vectors.initialize(), embedder.initialize()]);
 
 					const snapshot =
