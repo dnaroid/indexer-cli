@@ -1,7 +1,7 @@
 /**
  * SKILL.md template for Claude Code integration.
  *
- * Written to `.claude/skills/semantic-search/SKILL.md` during `indexer-cli init`.
+ * Written to `.claude/skills/repo-discovery/SKILL.md` during `indexer-cli init`.
  */
 export const SKILL_MD = `\
 ---
@@ -43,4 +43,14 @@ indexer-cli search "<query>" --json --path-prefix src/<area>
 indexer-cli structure --json --path-prefix src/<area>
 indexer-cli architecture --json
 indexer-cli index --status --json
+\`\`\`
+
+## Reading search results
+
+\`indexer-cli search --json\` returns ranked code chunks, not whole files.
+Each result includes \`filePath\`, \`startLine\`, \`endLine\`, \`score\`, \`primarySymbol\`, and \`content\`.
+
+- Use \`score\` to prefer the most relevant chunks first and filter obvious low-relevance noise.
+- Use \`primarySymbol\` to see which function/class/type the chunk belongs to before opening the file.
+- Treat \`content\` as supporting context, but rank and filter with \`score\` + \`primarySymbol\` instead of raw text alone.
 `;

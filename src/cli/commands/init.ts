@@ -23,7 +23,7 @@ async function writeClaudeSkill(projectRoot: string): Promise<void> {
 		projectRoot,
 		".claude",
 		"skills",
-		"semantic-search",
+		"repo-discovery",
 	);
 	await mkdir(skillDir, { recursive: true });
 	const skillPath = path.join(skillDir, "SKILL.md");

@@ -19,7 +19,7 @@ async function removeClaudeSkill(projectRoot: string): Promise<void> {
 		projectRoot,
 		".claude",
 		"skills",
-		"semantic-search",
+		"repo-discovery",
 	);
 	if (await pathExists(skillDir)) {
 		await rm(skillDir, { recursive: true, force: true });
