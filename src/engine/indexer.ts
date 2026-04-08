@@ -24,6 +24,7 @@ import { TypeScriptPlugin } from "../languages/typescript.js";
 import { PythonPlugin } from "../languages/python.js";
 import { CSharpPlugin } from "../languages/csharp.js";
 import { GDScriptPlugin } from "../languages/gdscript.js";
+import { RubyPlugin } from "../languages/ruby.js";
 import { SystemLogger } from "../core/logger.js";
 import { config } from "../core/config.js";
 import { TokenEstimator } from "../utils/token-estimator.js";
@@ -117,13 +118,15 @@ export type BuiltinLanguagePluginId =
 	| "typescript"
 	| "python"
 	| "csharp"
-	| "gdscript";
+	| "gdscript"
+	| "ruby";
 
 export const DEFAULT_LANGUAGE_PLUGIN_IDS: readonly BuiltinLanguagePluginId[] = [
 	"typescript",
 	"python",
 	"csharp",
 	"gdscript",
+	"ruby",
 ];
 
 const BUILTIN_LANGUAGE_PLUGIN_FACTORIES: Record<
@@ -134,6 +137,7 @@ const BUILTIN_LANGUAGE_PLUGIN_FACTORIES: Record<
 	python: () => new PythonPlugin(),
 	csharp: () => new CSharpPlugin(),
 	gdscript: () => new GDScriptPlugin(),
+	ruby: () => new RubyPlugin(),
 };
 
 function normalizeImportKind(
@@ -460,9 +464,10 @@ export class IndexerEngine {
 		const isPython = languageId === "python";
 		const isCSharp = languageId === "csharp";
 		const isGDScript = languageId === "gdscript";
+		const isRuby = languageId === "ruby";
 		const isJSImport =
 			languageId === "typescript" || languageId === "javascript";
-		if (!isPython && !isCSharp && !isGDScript && !isJSImport) {
+		if (!isPython && !isCSharp && !isGDScript && !isRuby && !isJSImport) {
 			return [];
 		}
 
@@ -480,7 +485,9 @@ export class IndexerEngine {
 				? /^using\s+[^;]+;/
 				: isGDScript
 					? /^(extends\s+\S+|class_name\s+\S+|const\s+\S+\s*=\s*preload\(|var\s+\S+\s*=\s*preload\()/
-					: /^(import\s+|export\s+.+\s+from\s+|const\s+.+\s*=\s*require\()/;
+					: isRuby
+						? /^(require|require_relative|include|extend)\b/
+						: /^(import\s+|export\s+.+\s+from\s+|const\s+.+\s*=\s*require\()/;
 
 		let importEnd = 0;
 		for (let index = 0; index < lines.length; index += 1) {
@@ -526,6 +533,9 @@ export class IndexerEngine {
 			/\b(?:public|private|protected|internal|static|virtual|override|sealed|partial|async|extern|unsafe|abstract|new|readonly|ref|out|in)+\s+[A-Za-z_][A-Za-z0-9_<>,\[\]?]*\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/;
 		const gdClassPattern = /^(?:class_name|class)\s+([A-Za-z_][A-Za-z0-9_]*)/;
 		const gdFuncPattern = /^(?:static\s+)?func\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/;
+		const rubyTypePattern = /^(?:class|module)\s+([A-Z][A-Za-z0-9_:]*)/;
+		const rubyMethodPattern =
+			/^def\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_]*[!?=]?)/;
 		const jsDefPattern =
 			/^(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)/;
 
@@ -585,6 +595,28 @@ export class IndexerEngine {
 						line: index + 1,
 						chunkType: "impl",
 						primarySymbol: funcMatch[1],
+					});
+				}
+				continue;
+			}
+
+			if (isRuby) {
+				const typeMatch = line.match(rubyTypePattern);
+				if (typeMatch) {
+					definitions.push({
+						line: index + 1,
+						chunkType: "types",
+						primarySymbol: typeMatch[1],
+					});
+					continue;
+				}
+
+				const methodMatch = line.match(rubyMethodPattern);
+				if (methodMatch) {
+					definitions.push({
+						line: index + 1,
+						chunkType: "impl",
+						primarySymbol: methodMatch[1],
 					});
 				}
 				continue;
@@ -1042,6 +1074,8 @@ export class IndexerEngine {
 				return "csharp";
 			case ".gd":
 				return "gdscript";
+			case ".rb":
+				return "ruby";
 			default:
 				return "plaintext";
 		}

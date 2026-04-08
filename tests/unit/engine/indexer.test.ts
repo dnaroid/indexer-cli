@@ -290,7 +290,7 @@ describe("IndexerEngine internals", () => {
 		it("creates all default plugins when no ids are provided", () => {
 			const plugins = createDefaultLanguagePlugins();
 
-			expect(plugins).toHaveLength(4);
+			expect(plugins).toHaveLength(5);
 			expect(plugins.map((plugin) => plugin.id)).toEqual([
 				...DEFAULT_LANGUAGE_PLUGIN_IDS,
 			]);
@@ -314,8 +314,8 @@ describe("IndexerEngine internals", () => {
 		});
 
 		it("throws for unknown plugin ids", () => {
-			expect(() => createDefaultLanguagePlugins(["ruby"])).toThrow(
-				"Unsupported language plugin id: ruby",
+			expect(() => createDefaultLanguagePlugins(["elixir"])).toThrow(
+				"Unsupported language plugin id: elixir",
 			);
 		});
 	});
@@ -340,6 +340,7 @@ describe("IndexerEngine internals", () => {
 				".pyi",
 				".cs",
 				".gd",
+				".rb",
 			]);
 		});
 
@@ -395,6 +396,7 @@ describe("IndexerEngine internals", () => {
 			["file.pyi", "python"],
 			["file.cs", "csharp"],
 			["file.gd", "gdscript"],
+			["file.rb", "ruby"],
 			["file.txt", "plaintext"],
 		])("maps %s to %s", (filePath, expected) => {
 			expect((engine as any).getLanguageIdFromPath(filePath)).toBe(expected);
@@ -559,6 +561,41 @@ describe("IndexerEngine internals", () => {
 					startLine: 2,
 					endLine: 3,
 					chunkType: "impl",
+				},
+			]);
+		});
+
+		it("creates heuristic chunks for supported Ruby files", () => {
+			const engine = new IndexerEngine(createMockOptions());
+			const content = [
+				'require "json"',
+				"",
+				"class App",
+				"  def self.call",
+				"  end",
+				"end",
+			].join("\n");
+
+			expect((engine as any).splitHeuristicChunks(content, "ruby")).toEqual([
+				{
+					content: 'require "json"',
+					startLine: 1,
+					endLine: 1,
+					chunkType: "imports",
+				},
+				{
+					content: ["class App"].join("\n"),
+					startLine: 3,
+					endLine: 3,
+					chunkType: "types",
+					primarySymbol: "App",
+				},
+				{
+					content: ["def self.call", "  end", "end"].join("\n"),
+					startLine: 4,
+					endLine: 6,
+					chunkType: "impl",
+					primarySymbol: "call",
 				},
 			]);
 		});

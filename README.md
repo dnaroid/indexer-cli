@@ -10,7 +10,7 @@ and get relevant results in seconds. It ships as a single package with no daemon
 
 ## Features
 
-- **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript
+- **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby
 - **Semantic code search**: Natural language queries over your entire codebase
 - **Incremental indexing**: Uses `git diff` to re-index only changed files, bulk-copies unchanged vectors
 - **Local-first**: All data stored in `.indexer-cli/` inside the project (SQLite + LanceDB)
@@ -130,7 +130,7 @@ All configuration is done through environment variables. Defaults are shown belo
 
 1. **Scan**: Walks the project directory, respecting `.gitignore` rules and filtering by supported file extensions.
 2. **Parse**: Language-specific plugins parse the AST and extract symbols, imports, and structure. TypeScript/JS uses
-   ts-morph; Python, C#, and GDScript use tree-sitter.
+   ts-morph; Python, C#, GDScript, and Ruby use tree-sitter.
 3. **Chunk**: An adaptive chunker splits each file into semantic chunks tagged by type: imports, type declarations,
    implementation bodies, or the full file for small sources.
 4. **Embed**: Each chunk is sent to Ollama, which produces a 768-dimensional vector. A context overflow guard prevents
@@ -158,6 +158,17 @@ All configuration is done through environment variables. Defaults are shown belo
 | Python                  | `.py`, `.pyi`                                                | tree-sitter |
 | C#                      | `.cs`                                                        | tree-sitter |
 | GDScript                | `.gd`                                                        | tree-sitter |
+| Ruby                    | `.rb`                                                        | tree-sitter |
+
+## Adding Another Language
+
+To add a built-in language plugin:
+
+1. Add the parser package and module declaration in `src/languages/tree-sitter-languages.d.ts` if it does not ship types.
+2. Create `src/languages/<language>.ts` implementing `parse`, `extractSymbols`, `extractImports`, `splitIntoChunks`, and `getEntrypoints` following the existing plugin contract.
+3. Register the plugin in `src/engine/indexer.ts` by updating `BuiltinLanguagePluginId`, `DEFAULT_LANGUAGE_PLUGIN_IDS`, and the built-in factory map.
+4. Add realistic fixtures under `fixtures/projects/<project-name>/` and plugin coverage under `tests/plugins/`.
+5. Update engine tests and this README so the new built-in language is documented and treated as supported.
 
 ## Project Structure
 
@@ -168,7 +179,7 @@ src/
 ├── chunking/         # Adaptive, function-level, module-level, and single-file chunkers
 ├── embedding/        # Ollama embedding provider
 ├── engine/           # Indexer, scanner, searcher, architecture generator, git operations
-├── languages/        # Language plugins (TS, Python, C#, GDScript)
+├── languages/        # Language plugins (TS, Python, C#, GDScript, Ruby)
 ├── storage/          # SQLite metadata store, LanceDB vector store
 └── utils/            # Gitignore parser, hashing, token estimation
 ```
