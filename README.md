@@ -18,6 +18,7 @@ and get relevant results in seconds. It ships as a single package with no daemon
 - **Architecture snapshot**: Generates dependency graphs, entry points, and file stats
 - **Symbol extraction**: Functions, classes, interfaces, and imports are all indexed
 - **Adaptive chunking**: Smart code splitting at function, module, or single-file granularity
+- **Agent-ready repo skill**: `init` installs a project-local `repo-discovery` skill for Claude and OpenCode workflows
 
 ## Prerequisites
 
@@ -72,6 +73,26 @@ indexer-cli index
 indexer-cli search "authentication middleware"
 ```
 
+`indexer-cli init` also writes `.claude/skills/repo-discovery/SKILL.md`, so agentic tools such as Claude and
+OpenCode can be steered toward using `indexer-cli` first for repository discovery.
+
+## Agent Integration
+
+When you run `indexer-cli init`, the CLI creates a project-local repo-discovery skill at
+`.claude/skills/repo-discovery/SKILL.md` and adds `.claude/` to `.gitignore`.
+
+That skill tells coding agents to start repository discovery with commands like:
+
+```bash
+indexer-cli search "<query>" --json
+indexer-cli structure --json --path-prefix src/<area>
+indexer-cli architecture --json
+indexer-cli index --status --json
+```
+
+This is especially useful in Claude and OpenCode setups, where project-local skills can guide the agent away from
+blind `grep`/`find` usage and toward indexed search first.
+
 ## CLI Commands
 
 ### `indexer-cli setup`
@@ -81,7 +102,8 @@ Check and install all dependencies (Node.js, Git, build tools, Ollama, embedding
 ### `indexer-cli init`
 
 Create the `.indexer-cli/` directory, initialize the SQLite database and LanceDB vector store, and add `.indexer-cli/`
-to `.gitignore` in the current working directory.
+to `.gitignore` in the current working directory. Also writes the project-local repo-discovery skill to
+`.claude/skills/repo-discovery/SKILL.md` and adds `.claude/` to `.gitignore`.
 
 ### `indexer-cli index`
 
@@ -122,7 +144,8 @@ Print an architecture snapshot for the current working directory: file statistic
 
 ### `indexer-cli uninstall`
 
-Remove the `.indexer-cli/` directory from the current working directory. Prompts for confirmation before deleting.
+Remove the `.indexer-cli/` directory from the current working directory. Also removes the generated
+`.claude/skills/repo-discovery/` skill directory when present, then prompts for confirmation before deleting.
 
 ## License
 
