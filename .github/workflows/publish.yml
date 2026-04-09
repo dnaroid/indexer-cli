@@ -1,29 +1,22 @@
-name: Auto Publish
+name: CI
 
 on:
   push:
     branches: [master]
-  workflow_dispatch:
-
-permissions:
-  contents: write
-  id-token: write
+  pull_request:
+    branches: [master]
 
 jobs:
-  publish:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          registry-url: https://registry.npmjs.org
           cache: npm
 
       - name: Install dependencies
@@ -34,38 +27,3 @@ jobs:
 
       - name: Run tests
         run: npm test
-
-      - name: Check if release commit (prevent loop)
-        id: check-release
-        run: |
-          LAST_MSG=$(git log -1 --pretty=%B)
-          if echo "$LAST_MSG" | grep -q "chore(release)"; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Publish current version to npm
-        if: steps.check-release.outputs.skip == 'false'
-        run: npm publish --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Bump patch version
-        if: steps.check-release.outputs.skip == 'false'
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          npm version patch -m "chore(release): %s"
-
-      - name: Push version bump
-        if: steps.check-release.outputs.skip == 'false'
-        run: git push --follow-tags
-
-      - name: Verify publication
-        if: steps.check-release.outputs.skip == 'false'
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "Published indexer-cli@${VERSION} to npm"
-          sleep 10
-          npm view indexer-cli@${VERSION} version
