@@ -33,7 +33,7 @@ describe("SqliteMetadataStore", () => {
 			.prepare("PRAGMA table_info(symbols)")
 			.all() as Array<{ name: string }>;
 
-		expect(migrationRow.version).toBe(1);
+		expect(migrationRow.version).toBe(2);
 		expect(symbolColumns.map((column) => column.name)).toContain(
 			"metadata_json",
 		);
@@ -806,4 +806,227 @@ describe("SqliteMetadataStore", () => {
 			indexedAt: 0,
 		});
 	}
+
+	describe("regression: consecutive incremental re-indexing", () => {
+		/**
+		 * Reproduces the FOREIGN KEY constraint failure that occurs when
+		 * `pruneHistoricalSnapshots` deletes a snapshot that a subsequent
+		 * `copyUnchangedFileData` call still references.
+		 *
+		 * Scenario (mirrors what `ensureIndexed` does):
+		 * 1. First incremental index creates snapshot-B from snapshot-A,
+		 *    then prunes snapshot-A.
+		 * 2. Second incremental index tries to copy unchanged data from
+		 *    snapshot-B into snapshot-C — but snapshot-B was just pruned
+		 *    by the first call, so FK constraint fails on INSERT.
+		 */
+		it("fails to copy unchanged data from a pruned snapshot (FK constraint)", async () => {
+			// --- Step 1: Create snapshot-A and populate it with file data ---
+			const snapshotA = await store.createSnapshot(PROJECT_ID, {
+				headCommit: "commit-1",
+				indexedAt: 0,
+			});
+			await store.upsertFile(PROJECT_ID, {
+				snapshotId: snapshotA.id,
+				path: "src/a.ts",
+				sha256: "hash-a",
+				mtimeMs: 100,
+				size: 10,
+				languageId: "typescript",
+			});
+			await store.replaceChunks(PROJECT_ID, snapshotA.id, "src/a.ts", [
+				{
+					chunkId: "chunk-1",
+					startLine: 1,
+					endLine: 5,
+					contentHash: "chash-1",
+					tokenEstimate: 10,
+					chunkType: "impl",
+					primarySymbol: "foo",
+					hasOverlap: false,
+				},
+			]);
+			await store.updateSnapshotStatus(snapshotA.id, "completed");
+
+			// --- Step 2: Create snapshot-B, copy unchanged data from A ---
+			const snapshotB = await store.createSnapshot(PROJECT_ID, {
+				headCommit: "commit-2",
+				indexedAt: 0,
+			});
+			await store.copyUnchangedFileData(
+				PROJECT_ID,
+				snapshotA.id,
+				snapshotB.id,
+				["src/a.ts"],
+			);
+			await store.updateSnapshotStatus(snapshotB.id, "completed");
+
+			// Verify data was copied to snapshot-B
+			expect(await store.listFiles(PROJECT_ID, snapshotB.id)).toHaveLength(1);
+			expect(await store.listChunks(PROJECT_ID, snapshotB.id)).toHaveLength(1);
+
+			// --- Step 3: Prune snapshot-A (mirrors pruneHistoricalSnapshots) ---
+			await store.clearProjectMetadata(PROJECT_ID, snapshotB.id);
+
+			// Verify snapshot-A is gone
+			expect(await store.getSnapshot(snapshotA.id)).toBeNull();
+
+			// --- Step 4: Create snapshot-C and try to copy from snapshot-B ---
+			// This should work because snapshot-B still exists
+			const snapshotC = await store.createSnapshot(PROJECT_ID, {
+				headCommit: "commit-3",
+				indexedAt: 0,
+			});
+			await store.copyUnchangedFileData(
+				PROJECT_ID,
+				snapshotB.id,
+				snapshotC.id,
+				["src/a.ts"],
+			);
+			await store.updateSnapshotStatus(snapshotC.id, "completed");
+
+			// Verify data was copied to snapshot-C
+			expect(await store.listFiles(PROJECT_ID, snapshotC.id)).toHaveLength(1);
+
+			// --- Step 5: Now prune snapshot-B (mirrors second pruneHistoricalSnapshots) ---
+			await store.clearProjectMetadata(PROJECT_ID, snapshotC.id);
+
+			// Verify snapshot-B is gone
+			expect(await store.getSnapshot(snapshotB.id)).toBeNull();
+
+			// --- Step 6: Create snapshot-D and try to copy from snapshot-C ---
+			// snapshot-C still exists, so this should work
+			const snapshotD = await store.createSnapshot(PROJECT_ID, {
+				headCommit: "commit-4",
+				indexedAt: 0,
+			});
+			await store.copyUnchangedFileData(
+				PROJECT_ID,
+				snapshotC.id,
+				snapshotD.id,
+				["src/a.ts"],
+			);
+			await store.updateSnapshotStatus(snapshotD.id, "completed");
+
+			expect(await store.listFiles(PROJECT_ID, snapshotD.id)).toHaveLength(1);
+		});
+
+		/**
+		 * Tests the actual bug scenario: two consecutive indexProject calls
+		 * where the first prunes the "previous" snapshot that the second
+		 * call's getLatestCompletedSnapshot would need to reference.
+		 *
+		 * This simulates the real ensureIndexed flow where:
+		 * - Call 1: getLatestCompletedSnapshot → snapshot-A
+		 *   → creates snapshot-B, copies from A, prunes A
+		 * - Call 2: getLatestCompletedSnapshot → snapshot-B
+		 *   → creates snapshot-C, tries to copy from B — but B was pruned!
+		 */
+		it("correctly chains three consecutive incremental snapshots without FK errors", async () => {
+			const s0 = await store.createSnapshot(PROJECT_ID, {
+				headCommit: "c0",
+				indexedAt: 0,
+			});
+			await store.upsertFile(PROJECT_ID, {
+				snapshotId: s0.id,
+				path: "src/core.ts",
+				sha256: "hash-core",
+				mtimeMs: 100,
+				size: 50,
+				languageId: "typescript",
+			});
+			await store.replaceChunks(PROJECT_ID, s0.id, "src/core.ts", [
+				{
+					chunkId: "chunk-core",
+					startLine: 1,
+					endLine: 10,
+					contentHash: "chash-core",
+					tokenEstimate: 20,
+					chunkType: "impl",
+					primarySymbol: "core",
+					hasOverlap: false,
+				},
+			]);
+			await store.replaceSymbols(PROJECT_ID, s0.id, "src/core.ts", [
+				{
+					id: "sym-core",
+					kind: "function",
+					name: "core",
+					exported: true,
+					range: {
+						start: { line: 1, character: 0 },
+						end: { line: 10, character: 1 },
+					},
+					signature: "function core()",
+				},
+			]);
+			await store.replaceDependencies(PROJECT_ID, s0.id, "src/core.ts", [
+				{
+					id: "dep-core",
+					toSpecifier: "./utils",
+					toPath: "src/utils.ts",
+					kind: "import",
+					dependencyType: "internal",
+				},
+			]);
+			await store.upsertFileMetrics(PROJECT_ID, {
+				snapshotId: s0.id,
+				filePath: "src/core.ts",
+				metrics: { complexity: 1, maintainability: 90, churn: 0 },
+			});
+			await store.updateSnapshotStatus(s0.id, "completed");
+
+			// Incremental step 1: copy from s0 → s1, prune s0
+			const s1 = await store.createSnapshot(PROJECT_ID, {
+				headCommit: "c1",
+				indexedAt: 0,
+			});
+			await store.copyUnchangedFileData(PROJECT_ID, s0.id, s1.id, [
+				"src/core.ts",
+			]);
+			await store.updateSnapshotStatus(s1.id, "completed");
+			await store.clearProjectMetadata(PROJECT_ID, s1.id);
+
+			// s0 is pruned, s1 is the latest completed
+			expect(await store.getSnapshot(s0.id)).toBeNull();
+			expect((await store.getLatestCompletedSnapshot(PROJECT_ID))?.id).toBe(
+				s1.id,
+			);
+
+			// Incremental step 2: copy from s1 → s2, prune s1
+			const s2 = await store.createSnapshot(PROJECT_ID, {
+				headCommit: "c2",
+				indexedAt: 0,
+			});
+			await store.copyUnchangedFileData(PROJECT_ID, s1.id, s2.id, [
+				"src/core.ts",
+			]);
+			await store.updateSnapshotStatus(s2.id, "completed");
+			await store.clearProjectMetadata(PROJECT_ID, s2.id);
+
+			// s1 is pruned, s2 is the latest completed
+			expect(await store.getSnapshot(s1.id)).toBeNull();
+			expect((await store.getLatestCompletedSnapshot(PROJECT_ID))?.id).toBe(
+				s2.id,
+			);
+
+			// Data should still be accessible in s2
+			expect(await store.listFiles(PROJECT_ID, s2.id)).toHaveLength(1);
+			expect(await store.listChunks(PROJECT_ID, s2.id)).toHaveLength(1);
+			expect(await store.listSymbols(PROJECT_ID, s2.id)).toHaveLength(1);
+
+			// Incremental step 3: copy from s2 → s3
+			const s3 = await store.createSnapshot(PROJECT_ID, {
+				headCommit: "c3",
+				indexedAt: 0,
+			});
+			await store.copyUnchangedFileData(PROJECT_ID, s2.id, s3.id, [
+				"src/core.ts",
+			]);
+			await store.updateSnapshotStatus(s3.id, "completed");
+
+			expect(await store.listFiles(PROJECT_ID, s3.id)).toHaveLength(1);
+			expect(await store.listChunks(PROJECT_ID, s3.id)).toHaveLength(1);
+		});
+	});
 });

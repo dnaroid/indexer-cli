@@ -11,6 +11,8 @@ export interface IndexerConfig {
 	indexConcurrency: number;
 	indexBatchSize: number;
 	logLevel: string;
+	enrichModel: string;
+	enrichConcurrency: number;
 }
 
 const DEFAULT_CONFIG: IndexerConfig = {
@@ -23,6 +25,8 @@ const DEFAULT_CONFIG: IndexerConfig = {
 	indexConcurrency: 2,
 	indexBatchSize: 8,
 	logLevel: "error",
+	enrichModel: "qwen2.5-coder:1.5b",
+	enrichConcurrency: 1,
 };
 
 export class ConfigManager {
@@ -67,6 +71,13 @@ export class ConfigManager {
 				this.config.indexBatchSize = parsed.indexBatchSize;
 			if (typeof parsed.logLevel === "string")
 				this.config.logLevel = parsed.logLevel;
+			if (typeof parsed.enrichModel === "string")
+				this.config.enrichModel = parsed.enrichModel;
+			if (
+				typeof parsed.enrichConcurrency === "number" &&
+				parsed.enrichConcurrency > 0
+			)
+				this.config.enrichConcurrency = parsed.enrichConcurrency;
 		} catch {
 			// config unreadable — keep defaults
 		}

@@ -6,6 +6,10 @@ import { registerStructureCommand } from "./commands/structure.js";
 import { registerArchitectureCommand } from "./commands/architecture.js";
 import { registerUninstallCommand } from "./commands/uninstall.js";
 import { registerSetupCommand } from "./commands/setup.js";
+import { registerEnrichCommand } from "./commands/enrich.js";
+import { registerContextCommand } from "./commands/context.js";
+import { registerExplainCommand } from "./commands/explain.js";
+import { registerDepsCommand } from "./commands/deps.js";
 import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
@@ -34,9 +38,13 @@ program
 registerSetupCommand(program);
 registerInitCommand(program);
 registerIndexCommand(program);
+registerEnrichCommand(program);
 registerSearchCommand(program);
 registerStructureCommand(program);
 registerArchitectureCommand(program);
+registerContextCommand(program);
+registerExplainCommand(program);
+registerDepsCommand(program);
 registerUninstallCommand(program);
 
 try {

@@ -5,6 +5,7 @@ import type {
 	ArtifactRecord,
 	ChunkRecord,
 	DependencyRecord,
+	FileEnrichmentRecord,
 	FileMetricsRecord,
 	FileRecord,
 	MetadataStore,
@@ -13,6 +14,7 @@ import type {
 	SnapshotId,
 	SnapshotMeta,
 	SnapshotStatus,
+	SymbolEnrichmentRecord,
 	SymbolRecord,
 } from "../core/types.js";
 import { SystemLogger } from "../core/logger.js";
@@ -45,10 +47,43 @@ const migrations: Migration[] = [
 			}
 		},
 	},
+	{
+		version: 2,
+		name: "add_enrichments_tables",
+		up: (db) => {
+			db.exec(`
+        CREATE TABLE IF NOT EXISTS file_enrichments (
+          project_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          module_summary TEXT NOT NULL,
+          enriched_at INTEGER NOT NULL,
+          PRIMARY KEY (project_id, file_path)
+        );
+
+        CREATE TABLE IF NOT EXISTS symbol_enrichments (
+          project_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          symbol_name TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          description TEXT NOT NULL,
+          enriched_at INTEGER NOT NULL,
+          PRIMARY KEY (project_id, file_path, symbol_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_file_enrichments_project
+          ON file_enrichments(project_id);
+
+        CREATE INDEX IF NOT EXISTS idx_symbol_enrichments_file
+          ON symbol_enrichments(project_id, file_path);
+      `);
+		},
+	},
 ];
 
 export class SqliteMetadataStore implements MetadataStore {
 	private db: Database.Database;
+	private initialized = false;
 
 	constructor(private readonly dbPath: string) {
 		this.db = new Database(this.dbPath);
@@ -57,6 +92,8 @@ export class SqliteMetadataStore implements MetadataStore {
 	}
 
 	async initialize(): Promise<void> {
+		if (this.initialized) return;
+		this.initialized = true;
 		logger.info("[SqliteMetadataStore] Initializing database at:", this.dbPath);
 		this.db.pragma("foreign_keys = ON");
 		this.createSchema();
@@ -1196,5 +1233,181 @@ export class SqliteMetadataStore implements MetadataStore {
 			failed: "failed",
 		};
 		return statusMap[status];
+	}
+
+	async upsertFileEnrichment(
+		projectId: ProjectId,
+		record: FileEnrichmentRecord,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					`INSERT INTO file_enrichments (project_id, file_path, content_hash, module_summary, enriched_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(project_id, file_path) DO UPDATE SET
+             content_hash = excluded.content_hash,
+             module_summary = excluded.module_summary,
+             enriched_at = excluded.enriched_at`,
+				)
+				.run(
+					projectId,
+					record.filePath,
+					record.contentHash,
+					record.moduleSummary,
+					record.enrichedAt,
+				);
+		});
+	}
+
+	async getFileEnrichment(
+		projectId: ProjectId,
+		filePath: string,
+	): Promise<FileEnrichmentRecord | null> {
+		const row = this.db
+			.prepare(
+				"SELECT * FROM file_enrichments WHERE project_id = ? AND file_path = ?",
+			)
+			.get(projectId, filePath) as
+			| {
+					file_path: string;
+					content_hash: string;
+					module_summary: string;
+					enriched_at: number;
+			  }
+			| undefined;
+
+		if (!row) return null;
+		return {
+			projectId,
+			filePath: row.file_path,
+			contentHash: row.content_hash,
+			moduleSummary: row.module_summary,
+			enrichedAt: row.enriched_at,
+		};
+	}
+
+	async listFileEnrichments(
+		projectId: ProjectId,
+		filePaths?: string[],
+	): Promise<FileEnrichmentRecord[]> {
+		if (filePaths && filePaths.length === 0) return [];
+
+		let rows: Array<{
+			file_path: string;
+			content_hash: string;
+			module_summary: string;
+			enriched_at: number;
+		}>;
+
+		if (filePaths) {
+			const placeholders = filePaths.map(() => "?").join(",");
+			rows = this.db
+				.prepare(
+					`SELECT * FROM file_enrichments WHERE project_id = ? AND file_path IN (${placeholders}) ORDER BY file_path`,
+				)
+				.all(projectId, ...filePaths) as typeof rows;
+		} else {
+			rows = this.db
+				.prepare(
+					"SELECT * FROM file_enrichments WHERE project_id = ? ORDER BY file_path",
+				)
+				.all(projectId) as typeof rows;
+		}
+
+		return rows.map((row) => ({
+			projectId,
+			filePath: row.file_path,
+			contentHash: row.content_hash,
+			moduleSummary: row.module_summary,
+			enrichedAt: row.enriched_at,
+		}));
+	}
+
+	async upsertSymbolEnrichment(
+		projectId: ProjectId,
+		record: SymbolEnrichmentRecord,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					`INSERT INTO symbol_enrichments (project_id, file_path, symbol_name, content_hash, description, enriched_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(project_id, file_path, symbol_name) DO UPDATE SET
+             content_hash = excluded.content_hash,
+             description = excluded.description,
+             enriched_at = excluded.enriched_at`,
+				)
+				.run(
+					projectId,
+					record.filePath,
+					record.symbolName,
+					record.contentHash,
+					record.description,
+					record.enrichedAt,
+				);
+		});
+	}
+
+	async getSymbolEnrichment(
+		projectId: ProjectId,
+		filePath: string,
+		symbolName: string,
+	): Promise<SymbolEnrichmentRecord | null> {
+		const row = this.db
+			.prepare(
+				"SELECT * FROM symbol_enrichments WHERE project_id = ? AND file_path = ? AND symbol_name = ?",
+			)
+			.get(projectId, filePath, symbolName) as
+			| {
+					file_path: string;
+					symbol_name: string;
+					content_hash: string;
+					description: string;
+					enriched_at: number;
+			  }
+			| undefined;
+
+		if (!row) return null;
+		return {
+			projectId,
+			filePath: row.file_path,
+			symbolName: row.symbol_name,
+			contentHash: row.content_hash,
+			description: row.description,
+			enrichedAt: row.enriched_at,
+		};
+	}
+
+	async listSymbolEnrichments(
+		projectId: ProjectId,
+		filePath?: string,
+	): Promise<SymbolEnrichmentRecord[]> {
+		let sql =
+			"SELECT * FROM symbol_enrichments WHERE project_id = ?";
+		const params: Array<string> = [projectId];
+
+		if (filePath) {
+			sql += " AND file_path = ?";
+			params.push(filePath);
+		}
+
+		sql += " ORDER BY file_path, symbol_name";
+
+		const rows = this.db.prepare(sql).all(...params) as Array<{
+			file_path: string;
+			symbol_name: string;
+			content_hash: string;
+			description: string;
+			enriched_at: number;
+		}>;
+
+		return rows.map((row) => ({
+			projectId,
+			filePath: row.file_path,
+			symbolName: row.symbol_name,
+			contentHash: row.content_hash,
+			description: row.description,
+			enrichedAt: row.enriched_at,
+		}));
 	}
 }

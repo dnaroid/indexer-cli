@@ -15,3 +15,4 @@ yarn-error.log*
 /coverage/
 .indexer-cli/
 .claude/
+/.sisyphus/

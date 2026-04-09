@@ -1,4 +1,6 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { extname } from "node:path";
 import { config } from "../../core/config.js";
 import type { Snapshot } from "../../core/types.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
@@ -9,33 +11,85 @@ import {
 	IndexerEngine,
 	createDefaultLanguagePlugins,
 } from "../../engine/indexer.js";
+import { computeHash } from "../../utils/hash.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import type { SqliteMetadataStore } from "../../storage/sqlite.js";
+
+type GitDiff = Awaited<ReturnType<SimpleGitOperations["getChangedFiles"]>>;
+
+// Extensions that the indexer actually processes (from language plugins).
+// Non-code files in workspace changes are irrelevant for re-index decisions.
+const INDEXED_EXTENSIONS = new Set([
+	".ts", ".tsx", ".mts", ".cts",
+	".js", ".jsx", ".mjs", ".cjs",
+	".py", ".pyi",
+	".cs",
+	".gd",
+	".rb",
+]);
+
+type IndexPlan =
+	| { isFullReindex: true; changedFiles: undefined }
+	| { isFullReindex: false; changedFiles: GitDiff }
+	| null;
+
+/**
+ * Returns true if every workspace-modified/added file in workspaceChanges
+ * is already captured in `snapshot` with the same sha256 as on disk.
+ * This prevents repeated reindexing of persistent uncommitted changes.
+ */
+async function workspaceAlreadyIndexed(
+	metadata: SqliteMetadataStore,
+	repoRoot: string,
+	snapshot: Snapshot,
+	workspaceChanges: GitDiff,
+): Promise<boolean> {
+	// Deleted files can't be verified as "already indexed"
+	if (workspaceChanges.deleted.length > 0) return false;
+
+	const filesToCheck = [
+		...workspaceChanges.modified,
+		...workspaceChanges.added,
+	];
+	if (filesToCheck.length === 0) return true;
+
+	for (const filePath of filesToCheck) {
+		if (!INDEXED_EXTENSIONS.has(extname(filePath).toLowerCase())) {
+			continue; // Non-code file — not indexed, irrelevant for re-index decision
+		}
+
+		const record = await metadata.getFile(
+			DEFAULT_PROJECT_ID,
+			snapshot.id,
+			filePath,
+		);
+		if (!record) return false; // Code file not in snapshot
+
+		let content: string;
+		try {
+			content = await readFile(path.join(repoRoot, filePath), "utf8");
+		} catch {
+			return false; // Unreadable
+		}
+
+		if (computeHash(content) !== record.sha256) return false;
+	}
+
+	return true;
+}
 
 async function getIndexPlan(
 	git: SimpleGitOperations,
 	repoRoot: string,
+	metadata: SqliteMetadataStore,
 	snapshot: Snapshot | undefined,
-): Promise<
-	| { isFullReindex: true; changedFiles: undefined }
-	| {
-			isFullReindex: false;
-			changedFiles: Awaited<ReturnType<SimpleGitOperations["getChangedFiles"]>>;
-	  }
-	| null
-> {
+): Promise<IndexPlan> {
 	if (!snapshot) {
-		return {
-			isFullReindex: true,
-			changedFiles: undefined,
-		};
+		return { isFullReindex: true, changedFiles: undefined };
 	}
 
 	if (!snapshot.meta.headCommit) {
-		return {
-			isFullReindex: true,
-			changedFiles: undefined,
-		};
+		return { isFullReindex: true, changedFiles: undefined };
 	}
 
 	const headCommit = await git.getHeadCommit(repoRoot);
@@ -50,14 +104,26 @@ async function getIndexPlan(
 		changedFiles.modified.length > 0 ||
 		changedFiles.deleted.length > 0;
 
-	if (!hasChanges) {
-		return null;
+	if (!hasChanges) return null;
+
+	// Optimisation: if the only "changes" are workspace changes that were
+	// already indexed in the latest snapshot (same sha256 on disk), skip.
+	const noCommittedChanges =
+		committedChanges.added.length === 0 &&
+		committedChanges.modified.length === 0 &&
+		committedChanges.deleted.length === 0;
+
+	if (noCommittedChanges) {
+		const alreadyIndexed = await workspaceAlreadyIndexed(
+			metadata,
+			repoRoot,
+			snapshot,
+			workspaceChanges,
+		);
+		if (alreadyIndexed) return null;
 	}
 
-	return {
-		isFullReindex: false,
-		changedFiles,
-	};
+	return { isFullReindex: false, changedFiles };
 }
 
 export async function ensureIndexed(
@@ -72,7 +138,7 @@ export async function ensureIndexed(
 	const snapshot =
 		(await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID)) ??
 		undefined;
-	const indexPlan = await getIndexPlan(git, repoRoot, snapshot);
+	const indexPlan = await getIndexPlan(git, repoRoot, metadata, snapshot);
 
 	if (!indexPlan) {
 		return;
@@ -112,7 +178,8 @@ export async function ensureIndexed(
 		});
 		const headCommit = await git.getHeadCommit(repoRoot);
 
-		await engine.initialize();
+		// metadata is already initialized by the caller — skip engine.initialize()
+		// to avoid redundant schema/migration checks.
 		const mode = indexPlan.isFullReindex ? "full" : "incremental";
 		if (!silent) {
 			console.log(`Indexing (${mode})...`);
