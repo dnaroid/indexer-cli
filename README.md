@@ -46,8 +46,8 @@ npx indexer-cli search "authentication middleware"
 ```
 
 After `init`, the repo also contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents can be steered toward
-`npx indexer-cli search`, `npx indexer-cli structure`, and `npx indexer-cli architecture` before they start burning tokens on broad
-filesystem scans.
+`npx indexer-cli search`, `npx indexer-cli structure`, `npx indexer-cli architecture`, `npx indexer-cli context`,
+`npx indexer-cli explain`, and `npx indexer-cli deps` before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
 
@@ -110,9 +110,13 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 
 | Option                   | Default | Description                                                                                                  |
 |--------------------------|---------|--------------------------------------------------------------------------------------------------------------|
-| `--top-k <number>`       | 10      | Number of results to return                                                                                  |
+| `--top-k <number>`       | 3       | Number of results to return                                                                                  |
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
+| `--fields <list>`        | —       | Comma-separated output fields: `filePath`, `startLine`, `endLine`, `score`, `primarySymbol`, `content`       |
+| `--min-score <number>`   | —       | Filter out results below this score (0..1)                                                                   |
+| `--omit-content`         | —       | Exclude content from results (token-saving)                                                                  |
+| `--include-content`      | —       | Include content in JSON output                                                                               |
 | `--json`                 | —       | Output results as JSON                                                                                       |
 
 ### `npx indexer-cli structure`
@@ -124,6 +128,8 @@ files if needed.
 |--------------------------|-----------------------------------------------------------------------------------------------------------|
 | `--path-prefix <string>` | Limit output to files under this path                                                                     |
 | `--kind <string>`        | Filter by symbol kind: `function`, `class`, `method`, `interface`, `type`, `variable`, `module`, `signal` |
+| `--max-depth <number>`   | Limit directory traversal depth in the rendered tree                                                      |
+| `--max-files <number>`   | Limit number of files shown in output                                                                     |
 | `--json`                 | Output structure as JSON                                                                                  |
 
 ### `npx indexer-cli architecture`
@@ -131,10 +137,49 @@ files if needed.
 Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a
 dependency graph.
 
+| Option                   | Description                                  |
+|--------------------------|----------------------------------------------|
+| `--path-prefix <string>` | Limit output to files under this path        |
+| `--include-fixtures`     | Include fixture/vendor paths in output       |
+| `--json`                 | Output as JSON                               |
+
+### `npx indexer-cli context`
+
+Output dense project context aggregated from the index. Useful for getting a concise overview of a codebase area
+without pulling in entire files.
+
+| Option                | Default | Description                                                              |
+|-----------------------|---------|--------------------------------------------------------------------------|
+| `--format <format>`   | plain   | Output format: `plain` or `json`                                         |
+| `--scope <scope>`     | all     | `all`, `changed` (uncommitted changes), or `relevant-to:<path>`          |
+| `--max-deps <number>` | 30      | Maximum number of dependency edges to output                             |
+| `--include-fixtures`  | —       | Include fixture/vendor paths in output                                   |
+| `--json`              | —       | Shorthand for `--format=json`                                            |
+
+### `npx indexer-cli explain <symbol>`
+
+Show context for a symbol: its signature, callers, and containing module. Use this to quickly understand what a
+specific function, class, or type does and how it is used.
+
+| Option   | Description          |
+|----------|----------------------|
+| `--json` | Output as JSON       |
+
+### `npx indexer-cli deps <path>`
+
+Show callers (who imports this) and callees (what this imports) for a module or symbol. Useful for tracing impact
+of changes and understanding dependency chains.
+
+| Option              | Default | Description                                       |
+|---------------------|---------|---------------------------------------------------|
+| `--direction <dir>` | both    | `callers`, `callees`, or `both`                   |
+| `--depth <n>`       | 1       | Traversal depth                                   |
+| `--json`            | —       | Output as JSON                                    |
+
 ### `npx indexer-cli uninstall`
 
 Remove the `.indexer-cli/` directory from the current working directory. Also removes the generated
-`.claude/skills/repo-discovery/` skill directory when present, then prompts for confirmation before deleting.
+`.claude/skills/repo-discovery/` skill directory when present. Prompts for confirmation unless `-f` is given.
 
 ## License
 

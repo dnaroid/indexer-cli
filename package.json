@@ -19,7 +19,7 @@
 		"access": "public"
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "tsc && node scripts/copy-skill-template.mjs",
 		"dev": "tsc --watch",
 		"start": "tsx bin/indexer-cli.js",
 		"indexer-cli": "tsx bin/indexer-cli.js",
