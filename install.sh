@@ -317,6 +317,22 @@ EOF
 	fi
 }
 
+require_ollama_for_setup() {
+	if command_exists ollama; then
+		return 0
+	fi
+
+	msg "Ollama is required before running 'indexer-cli setup'."
+	msg "Install Ollama manually from https://ollama.com/download, then re-run this installer."
+	return 1
+}
+
+finish_install_waiting_for_ollama() {
+	ok "indexer-cli installed locally."
+	msg "Setup is waiting for Ollama. Install Ollama manually, then re-run this installer."
+	msg "After that, run 'indexer-cli --help' to get started."
+}
+
 main() {
 	ensure_supported_node
 	ensure_supported_git
@@ -353,6 +369,9 @@ main() {
 
 	if [ "${INDEXER_SKIP_SETUP:-0}" = "1" ]; then
 		msg "Skipping 'indexer-cli setup' because INDEXER_SKIP_SETUP=1"
+	elif ! require_ollama_for_setup; then
+		finish_install_waiting_for_ollama
+		return 0
 	else
 		msg "Running 'indexer-cli setup'..."
 		(cd "$INSTALL_DIR" && node "./bin/indexer-cli.js" setup) || err "indexer-cli setup failed"

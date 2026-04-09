@@ -28,10 +28,7 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 
 ## Prerequisites
 
-- [Ollama](https://ollama.ai) running locally with the `jina-8k` model pulled:
-  ```bash
-  ollama pull jina-8k
-  ```
+- [Ollama](https://ollama.ai) installed manually. `indexer-cli setup` will verify it, start the daemon if needed, and prepare the `jina-8k` model.
 
 ## Installation
 
@@ -42,6 +39,8 @@ curl -fsSL https://raw.githubusercontent.com/dnaroid/indexer-cli/refs/heads/mast
 ```
 
 Installs into `~/.indexer-cli` by default, runs `indexer-cli setup`, and writes a user-local `indexer-cli` launcher into `~/.local/bin` by default. Override with `INDEXER_INSTALL_DIR` and `INDEXER_BIN_DIR`.
+
+If Ollama is not installed yet, the installer stops after writing the launcher, tells you to install Ollama manually, and asks you to rerun the installer.
 
 On macOS (via Homebrew when available, otherwise the official Node.js installer package) or Debian/Ubuntu-style Linux with `apt-get`, the installer bootstraps a supported Node.js runtime automatically if `node`/`npm` are missing or too old.
 
@@ -64,7 +63,7 @@ From-source installs still require a working local Node.js 18+ toolchain before 
 
 Running `sh install.sh` from a local checkout installs that checkout into `~/.indexer-cli`; the curl one-liner installs from GitHub.
 
-If you install from source instead of `install.sh`, run `indexer-cli setup` once after `npm run install:global` to prepare Ollama and other local prerequisites.
+If you install from source instead of `install.sh`, run `indexer-cli setup` once after `npm run install:global` to verify local prerequisites and prepare the `jina-8k` model. `setup` does not auto-install Ollama; install Ollama yourself from https://ollama.com/download first.
 
 ### Uninstall
 
@@ -127,7 +126,7 @@ usage during repo discovery.
 
 ### `indexer-cli setup`
 
-Check and install all dependencies (Node.js, Git, build tools, Ollama, embedding model). Works on macOS and Linux.
+Check system prerequisites and prepare the Ollama embedding model. `setup` can install some system tools where appropriate, but Ollama itself must be installed manually first. Works on macOS and Linux.
 
 ### `indexer-cli init`
 

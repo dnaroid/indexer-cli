@@ -14,10 +14,23 @@ if (!IS_MAC && !IS_LINUX) {
 }
 
 function run(cmd: string, opts?: { stdio?: "pipe" | "inherit" }): string {
-	return execSync(cmd, {
+	const output = execSync(cmd, {
 		stdio: opts?.stdio ?? "pipe",
 		encoding: "utf8",
-	}).trim();
+	});
+	return normalizeCommandOutput(output);
+}
+
+function normalizeCommandOutput(output: string | Buffer | null): string {
+	if (typeof output === "string") {
+		return output.trim();
+	}
+
+	if (Buffer.isBuffer(output)) {
+		return output.toString("utf8").trim();
+	}
+
+	return "";
 }
 
 function cmdExists(cmd: string): boolean {
@@ -49,6 +62,10 @@ interface CheckResult {
 	name: string;
 	status: "ok" | "installed" | "failed" | "skipped";
 	detail?: string;
+}
+
+function createSkippedResult(name: string, detail: string): CheckResult {
+	return { name, status: "skipped", detail };
 }
 
 const results: CheckResult[] = [];
@@ -245,18 +262,12 @@ function checkPython(): CheckResult {
 
 function checkOllama(): CheckResult {
 	if (!cmdExists("ollama")) {
-		console.log(`  ${yellow("⨯")} Ollama not found. Installing...`);
-		try {
-			run("curl -fsSL https://ollama.com/install.sh | sh", {
-				stdio: "inherit",
-			});
-		} catch (e) {
-			return {
-				name: "Ollama",
-				status: "failed",
-				detail: `Install failed: ${e instanceof Error ? e.message : String(e)}. Install manually: https://ollama.com`,
-			};
-		}
+		return {
+			name: "Ollama",
+			status: "failed",
+			detail:
+				"Install Ollama manually from https://ollama.com/download and re-run `indexer-cli setup`.",
+		};
 	}
 
 	try {
@@ -268,6 +279,13 @@ function checkOllama(): CheckResult {
 }
 
 function ensureOllamaRunning(): CheckResult {
+	if (!cmdExists("ollama")) {
+		return createSkippedResult(
+			"Ollama daemon",
+			"Skipped until Ollama is installed manually.",
+		);
+	}
+
 	try {
 		const result = run("ollama ps");
 		void result;
@@ -314,6 +332,13 @@ const BASE_MODEL = "unclemusclez/jina-embeddings-v2-base-code:q5";
 const CUSTOM_MODEL = "jina-8k";
 
 function checkJinaModel(): CheckResult {
+	if (!cmdExists("ollama")) {
+		return createSkippedResult(
+			`Model ${CUSTOM_MODEL}`,
+			"Skipped until Ollama is installed manually.",
+		);
+	}
+
 	try {
 		const models = run("ollama list");
 		if (models.includes(CUSTOM_MODEL)) {
@@ -355,6 +380,41 @@ function checkJinaModel(): CheckResult {
 			detail: `Create failed: ${e instanceof Error ? e.message : String(e)}`,
 		};
 	}
+}
+
+function collectOllamaResults(deps: {
+	checkOllama: () => CheckResult;
+	ensureOllamaRunning: () => CheckResult;
+	checkJinaModel: () => CheckResult;
+}): CheckResult[] {
+	const ollamaResult = deps.checkOllama();
+	if (ollamaResult.status === "failed") {
+		return [
+			ollamaResult,
+			createSkippedResult(
+				"Ollama daemon",
+				"Skipped until Ollama is installed manually.",
+			),
+			createSkippedResult(
+				`Model ${CUSTOM_MODEL}`,
+				"Skipped until Ollama is installed manually.",
+			),
+		];
+	}
+
+	const daemonResult = deps.ensureOllamaRunning();
+	if (daemonResult.status === "failed") {
+		return [
+			ollamaResult,
+			daemonResult,
+			createSkippedResult(
+				`Model ${CUSTOM_MODEL}`,
+				"Skipped until the Ollama daemon is running.",
+			),
+		];
+	}
+
+	return [ollamaResult, daemonResult, deps.checkJinaModel()];
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────
@@ -406,7 +466,7 @@ export function registerSetupCommand(program: Command): void {
 	program
 		.command("setup")
 		.description(
-			"Check and install all dependencies for indexer-cli (can be run from anywhere)",
+			"Check system prerequisites and prepare Ollama for indexer-cli",
 		)
 		.action(() => {
 			console.log(bold("\n  indexer-cli dependency setup\n"));
@@ -421,9 +481,13 @@ export function registerSetupCommand(program: Command): void {
 
 			console.log(bold("\n  Checking Ollama & embedding model..."));
 
-			results.push(checkOllama());
-			results.push(ensureOllamaRunning());
-			results.push(checkJinaModel());
+			results.push(
+				...collectOllamaResults({
+					checkOllama,
+					ensureOllamaRunning,
+					checkJinaModel,
+				}),
+			);
 
 			printSummary();
 		});

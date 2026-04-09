@@ -152,4 +152,42 @@ describe("install.sh helpers", () => {
 
 		expect(output.trim().split("\n")).toEqual(["present", "missing"]);
 	});
+
+	it("tells the user to install Ollama manually and rerun the installer", () => {
+		const output = runShell(`
+			source "${scriptPath}"
+			command_exists() { [ "$1" = "ollama" ] && return 1; return 0; }
+			msg() { printf '%s\n' "$*"; }
+			if require_ollama_for_setup; then
+				printf 'ready\n'
+			else
+				printf 'blocked\n'
+			fi
+		`);
+
+		expect(output).toContain(
+			"Ollama is required before running 'indexer-cli setup'.",
+		);
+		expect(output).toContain(
+			"Install Ollama manually from https://ollama.com/download, then re-run this installer.",
+		);
+		expect(output).toContain("blocked");
+	});
+
+	it("reports a paused install state while waiting for Ollama", () => {
+		const output = runShell(`
+			source "${scriptPath}"
+			ok() { printf 'OK:%s\n' "$*"; }
+			msg() { printf 'MSG:%s\n' "$*"; }
+			finish_install_waiting_for_ollama
+		`);
+
+		expect(output).toContain("OK:indexer-cli installed locally.");
+		expect(output).toContain(
+			"MSG:Setup is waiting for Ollama. Install Ollama manually, then re-run this installer.",
+		);
+		expect(output).toContain(
+			"MSG:After that, run 'indexer-cli --help' to get started.",
+		);
+	});
 });
