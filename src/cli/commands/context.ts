@@ -30,6 +30,12 @@ type ContextData = {
 	dependencies: Record<string, string[]>;
 };
 
+type ContextOutputMeta = {
+	estimatedTokens: number;
+	scope: string;
+	warning?: string;
+};
+
 function parseMaxDeps(input?: string): number | undefined {
 	if (!input) {
 		return undefined;
@@ -70,6 +76,21 @@ function limitDependencies(
 		total: entries.length,
 		truncated: true,
 	};
+}
+
+function estimateTokens(data: unknown): number {
+	return Math.ceil(JSON.stringify(data).length / 4);
+}
+
+function normalizeScopePath(
+	inputPath: string,
+	resolvedProjectPath: string,
+): string {
+	const projectRelativePath = path.isAbsolute(inputPath)
+		? path.relative(resolvedProjectPath, inputPath)
+		: inputPath;
+
+	return projectRelativePath.replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
 function formatPlain(data: ContextData): void {
@@ -120,7 +141,7 @@ export function registerContextCommand(program: Command): void {
 		.option("--format <format>", "output format: plain or json", "plain")
 		.option(
 			"--scope <scope>",
-			"scope: all or changed (uncommitted changes)",
+			"scope: all, changed (uncommitted changes), or relevant-to:<path>",
 			"all",
 		)
 		.option(
@@ -143,6 +164,8 @@ export function registerContextCommand(program: Command): void {
 				const dbPath = path.join(dataDir, "db.sqlite");
 				const isJson = options?.json || options?.format === "json";
 				const maxDeps = parseMaxDeps(options?.maxDeps);
+				const scope = options?.scope ?? "all";
+				const relevantToPrefix = "relevant-to:";
 
 				initLogger(dataDir);
 				config.load(dataDir);
@@ -162,7 +185,8 @@ export function registerContextCommand(program: Command): void {
 					}
 
 					let scopeFilePaths: Set<string> | null = null;
-					if (options?.scope === "changed") {
+					let scopeWarning: string | undefined;
+					if (scope === "changed") {
 						const git = new SimpleGitOperations();
 						const changes =
 							await git.getWorkingTreeChanges(resolvedProjectPath);
@@ -180,18 +204,6 @@ export function registerContextCommand(program: Command): void {
 						),
 					]);
 
-					const scopedFiles =
-						scopeFilePaths !== null
-							? files.filter((file) => scopeFilePaths!.has(file.path))
-							: files;
-					const visibleFiles = options?.includeFixtures
-						? scopedFiles
-						: scopedFiles.filter(
-								(file) =>
-									!matchesPathPatterns(file.path, config.get("excludePaths")),
-							);
-					const filePathSet = new Set(visibleFiles.map((file) => file.path));
-
 					const rawArchitecture = archArtifact
 						? (JSON.parse(archArtifact.dataJson) as ArchitectureSnapshot)
 						: null;
@@ -203,6 +215,56 @@ export function registerContextCommand(program: Command): void {
 									config.get("excludePaths"),
 								)
 						: null;
+
+					if (scope.startsWith(relevantToPrefix)) {
+						const targetPath = normalizeScopePath(
+							scope.slice(relevantToPrefix.length),
+							resolvedProjectPath,
+						);
+						const moduleFiles = architecture?.module_files ?? {};
+						const dependencyMap = architecture?.dependency_map?.internal ?? {};
+						const targetModuleKey = Object.entries(moduleFiles).find(
+							([, moduleFilePaths]) =>
+								moduleFilePaths.some(
+									(filePath) =>
+										normalizeScopePath(filePath, resolvedProjectPath) ===
+										targetPath,
+								),
+						)?.[0];
+
+						if (targetModuleKey) {
+							const relatedModuleKeys = new Set<string>([
+								targetModuleKey,
+								...(dependencyMap[targetModuleKey] ?? []),
+								...Object.entries(dependencyMap)
+									.filter(([, toModules]) =>
+										toModules.includes(targetModuleKey),
+									)
+									.map(([fromModule]) => fromModule),
+							]);
+
+							scopeFilePaths = new Set(
+								Array.from(relatedModuleKeys).flatMap(
+									(moduleKey) => moduleFiles[moduleKey] ?? [],
+								),
+							);
+						} else {
+							scopeFilePaths = null;
+							scopeWarning = `No module found for path \"${targetPath}\"; falling back to full context.`;
+						}
+					}
+
+					const scopedFiles =
+						scopeFilePaths !== null
+							? files.filter((file) => scopeFilePaths.has(file.path))
+							: files;
+					const visibleFiles = options?.includeFixtures
+						? scopedFiles
+						: scopedFiles.filter(
+								(file) =>
+									!matchesPathPatterns(file.path, config.get("excludePaths")),
+							);
+					const filePathSet = new Set(visibleFiles.map((file) => file.path));
 
 					const visibleSymbols = allSymbols.filter((symbol) =>
 						filePathSet.has(symbol.filePath),
@@ -266,10 +328,36 @@ export function registerContextCommand(program: Command): void {
 						dependencies: limitedDependencies.dependencies,
 					};
 
+					if (!isJson && scopeWarning) {
+						console.warn(`Warning: ${scopeWarning}`);
+					}
+
+					const meta: ContextOutputMeta = {
+						estimatedTokens: 0,
+						scope,
+						...(scopeWarning ? { warning: scopeWarning } : {}),
+					};
+
+					const outputData = {
+						...contextData,
+						_meta: meta,
+					};
+					meta.estimatedTokens = estimateTokens(outputData);
+					const finalizedEstimatedTokens = estimateTokens(outputData);
+					if (finalizedEstimatedTokens !== meta.estimatedTokens) {
+						meta.estimatedTokens = finalizedEstimatedTokens;
+					}
+
 					if (isJson) {
-						console.log(JSON.stringify(contextData, null, 2));
+						console.log(JSON.stringify(outputData, null, 2));
 					} else {
 						formatPlain(contextData);
+						if (meta.estimatedTokens > 0) {
+							const estimatedChars = (meta.estimatedTokens * 4) / 1000;
+							console.log(
+								`\nEstimated tokens: ${meta.estimatedTokens} (~${estimatedChars.toFixed(1)}k chars)`,
+							);
+						}
 					}
 				} catch (error) {
 					const message =

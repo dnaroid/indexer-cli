@@ -25,6 +25,19 @@ function parseMaxDepth(value?: string): number | undefined {
 	return parsed;
 }
 
+function parseMaxFiles(value?: string): number | undefined {
+	if (!value) {
+		return undefined;
+	}
+
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		throw new Error("--max-files must be a positive integer");
+	}
+
+	return parsed;
+}
+
 function createNode(): TreeNode {
 	return { files: new Set<string>(), directories: new Map<string, TreeNode>() };
 }
@@ -48,6 +61,16 @@ function summarizeHiddenChildren(node: TreeNode): string {
 	return `... (${node.directories.size + node.files.size} children)`;
 }
 
+function countFiles(node: TreeNode): number {
+	let total = node.files.size;
+
+	for (const childNode of node.directories.values()) {
+		total += countFiles(childNode);
+	}
+
+	return total;
+}
+
 function printTree(
 	node: TreeNode,
 	indent: string,
@@ -55,6 +78,8 @@ function printTree(
 	symbolsByFile: Map<string, SymbolRecord[]>,
 	depth: number,
 	maxDepth?: number,
+	fileCounter?: { printed: number; hidden: number },
+	maxFiles?: number,
 ): void {
 	if (maxDepth !== undefined && depth >= maxDepth) {
 		const summary = summarizeHiddenChildren(node);
@@ -70,6 +95,15 @@ function printTree(
 	const fileEntries = Array.from(node.files).sort((a, b) => a.localeCompare(b));
 
 	for (const [directoryName, childNode] of directoryEntries) {
+		if (
+			maxFiles !== undefined &&
+			fileCounter &&
+			fileCounter.printed >= maxFiles
+		) {
+			fileCounter.hidden += countFiles(childNode);
+			continue;
+		}
+
 		const nextPrefix = prefix ? `${prefix}/${directoryName}` : directoryName;
 		console.log(`${indent}${directoryName}/`);
 		printTree(
@@ -79,12 +113,26 @@ function printTree(
 			symbolsByFile,
 			depth + 1,
 			maxDepth,
+			fileCounter,
+			maxFiles,
 		);
 	}
 
 	for (const fileName of fileEntries) {
+		if (
+			maxFiles !== undefined &&
+			fileCounter &&
+			fileCounter.printed >= maxFiles
+		) {
+			fileCounter.hidden += 1;
+			continue;
+		}
+
 		const filePath = prefix ? `${prefix}/${fileName}` : fileName;
 		console.log(`${indent}${fileName}`);
+		if (fileCounter) {
+			fileCounter.printed += 1;
+		}
 
 		const symbols = symbolsByFile.get(filePath) ?? [];
 		for (const symbol of symbols) {
@@ -100,6 +148,8 @@ function treeToJson(
 	symbolsByFile: Map<string, SymbolRecord[]>,
 	depth: number,
 	maxDepth?: number,
+	fileCounter?: { printed: number; hidden: number },
+	maxFiles?: number,
 ): object[] {
 	if (maxDepth !== undefined && depth >= maxDepth) {
 		const summary = summarizeHiddenChildren(node);
@@ -115,27 +165,55 @@ function treeToJson(
 	const fileEntries = Array.from(node.files).sort((a, b) => a.localeCompare(b));
 
 	for (const [directoryName, childNode] of directoryEntries) {
+		if (
+			maxFiles !== undefined &&
+			fileCounter &&
+			fileCounter.printed >= maxFiles
+		) {
+			fileCounter.hidden += countFiles(childNode);
+			continue;
+		}
+
 		const childPrefix = prefix ? `${prefix}/${directoryName}` : directoryName;
+		const children = treeToJson(
+			childNode,
+			childPrefix,
+			symbolsByFile,
+			depth + 1,
+			maxDepth,
+			fileCounter,
+			maxFiles,
+		);
+		if (maxFiles !== undefined && children.length === 0) {
+			continue;
+		}
+
 		entries.push({
 			type: "directory",
 			name: directoryName,
-			children: treeToJson(
-				childNode,
-				childPrefix,
-				symbolsByFile,
-				depth + 1,
-				maxDepth,
-			),
+			children,
 		});
 	}
 
 	for (const fileName of fileEntries) {
+		if (
+			maxFiles !== undefined &&
+			fileCounter &&
+			fileCounter.printed >= maxFiles
+		) {
+			fileCounter.hidden += 1;
+			continue;
+		}
+
 		const filePath = prefix ? `${prefix}/${fileName}` : fileName;
 		const symbols = (symbolsByFile.get(filePath) ?? []).map((s) => ({
 			name: s.name,
 			kind: s.kind,
 			exported: s.exported,
 		}));
+		if (fileCounter) {
+			fileCounter.printed += 1;
+		}
 		entries.push({ type: "file", name: fileName, path: filePath, symbols });
 	}
 
@@ -153,12 +231,14 @@ export function registerStructureCommand(program: Command): void {
 			"--max-depth <number>",
 			"limit directory traversal depth in the rendered tree",
 		)
+		.option("--max-files <number>", "limit number of files shown in output")
 		.option("--json", "output results as JSON")
 		.action(
 			async (options?: {
 				pathPrefix?: string;
 				kind?: string;
 				maxDepth?: string;
+				maxFiles?: string;
 				json?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
@@ -172,6 +252,9 @@ export function registerStructureCommand(program: Command): void {
 
 				try {
 					const maxDepth = parseMaxDepth(options?.maxDepth);
+					const maxFiles = parseMaxFiles(options?.maxFiles);
+					const fileCounter =
+						maxFiles !== undefined ? { printed: 0, hidden: 0 } : undefined;
 
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
@@ -228,15 +311,35 @@ export function registerStructureCommand(program: Command): void {
 					}
 
 					if (options?.json) {
-						console.log(
-							JSON.stringify(
-								treeToJson(root, "", symbolsByFile, 0, maxDepth),
-								null,
-								2,
-							),
+						const tree = treeToJson(
+							root,
+							"",
+							symbolsByFile,
+							0,
+							maxDepth,
+							fileCounter,
+							maxFiles,
 						);
+						if (fileCounter && fileCounter.hidden > 0) {
+							tree.push({ type: "truncated", hiddenFiles: fileCounter.hidden });
+						}
+						console.log(JSON.stringify(tree, null, 2));
 					} else {
-						printTree(root, "", "", symbolsByFile, 0, maxDepth);
+						printTree(
+							root,
+							"",
+							"",
+							symbolsByFile,
+							0,
+							maxDepth,
+							fileCounter,
+							maxFiles,
+						);
+						if (fileCounter && fileCounter.hidden > 0) {
+							console.log(
+								`\n... and ${fileCounter.hidden} more files (use --max-files to see more)`,
+							);
+						}
 					}
 				} catch (error) {
 					const message =

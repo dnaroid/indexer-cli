@@ -136,7 +136,7 @@ export function registerSearchCommand(program: Command): void {
 		.command("search <query>")
 		.description("Search indexed code semantically")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
-		.option("--top-k <number>", "number of results to return", "10")
+		.option("--top-k <number>", "number of results to return", "3")
 		.option(
 			"--path-prefix <string>",
 			"limit search to files under a path prefix",
@@ -150,6 +150,10 @@ export function registerSearchCommand(program: Command): void {
 			"--min-score <number>",
 			"filter out results with score below the given value (0..1)",
 		)
+		.option(
+			"--omit-content",
+			"exclude content from results (token-saving shorthand)",
+		)
 		.option("--json", "output results as JSON")
 		.action(
 			async (
@@ -160,6 +164,7 @@ export function registerSearchCommand(program: Command): void {
 					chunkTypes?: string;
 					fields?: string;
 					minScore?: string;
+					omitContent?: boolean;
 					json?: boolean;
 				},
 			) => {
@@ -206,7 +211,9 @@ export function registerSearchCommand(program: Command): void {
 					}
 
 					const topK = Number.parseInt(options?.topK ?? "10", 10);
-					const fields = parseSearchFields(options?.fields);
+					const fields = options?.omitContent
+						? parseSearchFields(options?.fields).filter((f) => f !== "content")
+						: parseSearchFields(options?.fields);
 					const minScore = parseMinScore(options?.minScore);
 					const chunkTypes = options?.chunkTypes
 						?.split(",")

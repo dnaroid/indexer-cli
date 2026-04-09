@@ -1,13 +1,17 @@
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function loadInternals<T>(
 	filePath: string,
 	matcher: RegExp,
 	exportNames: string[],
 ): Promise<T> {
-	const source = readFileSync(filePath, "utf8");
+	const source = readFileSync(path.resolve(__dirname, filePath), "utf8");
 	const match = source.match(matcher);
 	if (!match) {
 		throw new Error(`Unable to extract internals from ${filePath}`);
@@ -38,7 +42,7 @@ const cliIndex = await loadInternals<{
 		files: Set<string>;
 	};
 }>(
-	"/Volumes/128GBSSD/Projects/indexer-cli/src/cli/commands/index.ts",
+	"../../../src/cli/commands/index.ts",
 	/function countChangedFiles[\s\S]*?(?=function printFileTree)/,
 	["countChangedFiles", "buildFileTree"],
 );
@@ -48,7 +52,7 @@ const architecture = await loadInternals<{
 		values: Record<string, string[]>,
 	) => Record<string, number>;
 }>(
-	"/Volumes/128GBSSD/Projects/indexer-cli/src/cli/commands/architecture.ts",
+	"../../../src/cli/commands/architecture.ts",
 	/function summarizeExternalDependencies[\s\S]*?(?=function formatPlain)/,
 	["summarizeExternalDependencies"],
 );
@@ -68,7 +72,7 @@ const search = await loadInternals<{
 		fields: string[],
 	) => Record<string, number | string | null>;
 }>(
-	"/Volumes/128GBSSD/Projects/indexer-cli/src/cli/commands/search.ts",
+	"../../../src/cli/commands/search.ts",
 	/const SEARCH_FIELDS[\s\S]*?(?=export function registerSearchCommand)/,
 	["parseSearchFields", "parseMinScore", "projectSearchResult"],
 );
@@ -84,20 +88,23 @@ const context = await loadInternals<{
 		total: number;
 		truncated: boolean;
 	};
+	estimateTokens: (data: unknown) => number;
 }>(
-	"/Volumes/128GBSSD/Projects/indexer-cli/src/cli/commands/context.ts",
+	"../../../src/cli/commands/context.ts",
 	/type ContextData = [\s\S]*?(?=export function registerContextCommand)/,
-	["parseMaxDeps", "limitDependencies"],
+	["parseMaxDeps", "limitDependencies", "estimateTokens"],
 );
 
 const structure = await loadInternals<{
 	parseMaxDepth: (value?: string) => number | undefined;
+	parseMaxFiles: (value?: string) => number | undefined;
 	createNode: () => {
 		files: Set<string>;
 		directories: Map<string, unknown>;
 	};
 	insertPath: (root: any, filePath: string) => void;
 	summarizeHiddenChildren: (node: any) => string;
+	countFiles: (node: any) => number;
 	treeToJson: (
 		root: any,
 		prefix: string,
@@ -107,15 +114,19 @@ const structure = await loadInternals<{
 		>,
 		depth: number,
 		maxDepth?: number,
+		fileCounter?: { printed: number; hidden: number },
+		maxFiles?: number,
 	) => object[];
 }>(
-	"/Volumes/128GBSSD/Projects/indexer-cli/src/cli/commands/structure.ts",
+	"../../../src/cli/commands/structure.ts",
 	/type TreeNode = [\s\S]*?(?=export function registerStructureCommand)/,
 	[
 		"parseMaxDepth",
+		"parseMaxFiles",
 		"createNode",
 		"insertPath",
 		"summarizeHiddenChildren",
+		"countFiles",
 		"treeToJson",
 	],
 );
@@ -209,6 +220,39 @@ describe("CLI helper functions", () => {
 				primarySymbol: "run",
 			});
 		});
+
+		it("omits content when fields are filtered (omit-content scenario)", () => {
+			const allFields = search.parseSearchFields();
+			const withoutContent = allFields.filter((f) => f !== "content");
+
+			expect(withoutContent).toEqual([
+				"filePath",
+				"startLine",
+				"endLine",
+				"score",
+				"primarySymbol",
+			]);
+
+			expect(
+				search.projectSearchResult(
+					{
+						filePath: "src/embed.ts",
+						startLine: 1,
+						endLine: 50,
+						score: 0.88,
+						primarySymbol: "embed",
+						content: "export function embed() {}",
+					},
+					withoutContent,
+				),
+			).toEqual({
+				filePath: "src/embed.ts",
+				startLine: 1,
+				endLine: 50,
+				score: 0.88,
+				primarySymbol: "embed",
+			});
+		});
 	});
 
 	describe("context helpers", () => {
@@ -237,6 +281,20 @@ describe("CLI helper functions", () => {
 				total: 3,
 				truncated: true,
 			});
+		});
+
+		it("estimates tokens from JSON stringified length / 4", () => {
+			expect(context.estimateTokens({ a: 1 })).toBe(
+				Math.ceil(JSON.stringify({ a: 1 }).length / 4),
+			);
+			expect(context.estimateTokens("hello")).toBe(
+				Math.ceil(JSON.stringify("hello").length / 4),
+			);
+			expect(context.estimateTokens(null)).toBe(
+				Math.ceil(JSON.stringify(null).length / 4),
+			);
+			// empty object => "{}" (2 chars) => ceil(2/4) = 1
+			expect(context.estimateTokens({})).toBe(1);
 		});
 	});
 
@@ -305,6 +363,60 @@ describe("CLI helper functions", () => {
 					symbols: [],
 				},
 			]);
+		});
+
+		it("parses max-files and rejects invalid values", () => {
+			expect(structure.parseMaxFiles()).toBeUndefined();
+			expect(structure.parseMaxFiles("5")).toBe(5);
+			expect(structure.parseMaxFiles("100")).toBe(100);
+			expect(() => structure.parseMaxFiles("0")).toThrow(/--max-files/i);
+			expect(() => structure.parseMaxFiles("-3")).toThrow(/--max-files/i);
+		});
+
+		it("counts all files in a subtree recursively", () => {
+			const root = structure.createNode() as any;
+			structure.insertPath(root, "src/a.ts");
+			structure.insertPath(root, "src/b.ts");
+			structure.insertPath(root, "src/nested/c.ts");
+			structure.insertPath(root, "README.md");
+
+			expect(structure.countFiles(root)).toBe(4);
+
+			const src = root.directories.get("src") as any;
+			expect(structure.countFiles(src)).toBe(3);
+		});
+
+		it("treeToJson respects maxFiles via fileCounter", () => {
+			const root = structure.createNode() as any;
+			structure.insertPath(root, "src/a.ts");
+			structure.insertPath(root, "src/b.ts");
+			structure.insertPath(root, "src/c.ts");
+			structure.insertPath(root, "README.md");
+
+			const symbolsByFile = new Map<
+				string,
+				Array<{ name: string; kind: string; exported: boolean }>
+			>();
+			const fileCounter = { printed: 0, hidden: 0 };
+
+			const result = structure.treeToJson(
+				root,
+				"",
+				symbolsByFile,
+				0,
+				undefined,
+				fileCounter,
+				2,
+			);
+
+			expect(fileCounter.printed).toBe(2);
+			expect(fileCounter.hidden).toBe(2);
+
+			const srcDir = result.find((e: any) => e.type === "directory") as any;
+			expect(srcDir).toBeDefined();
+			expect(srcDir.name).toBe("src");
+			expect(srcDir.children.length).toBe(2);
+			expect(srcDir.children.every((c: any) => c.type === "file")).toBe(true);
 		});
 	});
 });
