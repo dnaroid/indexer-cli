@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 export interface IndexerConfig {
+	version: string;
 	embeddingProvider: string;
 	embeddingModel: string;
 	embeddingContextSize: number;
@@ -15,6 +16,7 @@ export interface IndexerConfig {
 }
 
 export const DEFAULT_CONFIG: IndexerConfig = {
+	version: "0.0.0",
 	embeddingProvider: "ollama",
 	embeddingModel: "jina-8k",
 	embeddingContextSize: 8192,
@@ -42,6 +44,8 @@ export class ConfigManager {
 			const raw = fs.readFileSync(configPath, "utf-8");
 			const parsed = JSON.parse(raw) as Partial<IndexerConfig>;
 
+			if (typeof parsed.version === "string")
+				this.config.version = parsed.version;
 			if (typeof parsed.embeddingProvider === "string")
 				this.config.embeddingProvider = parsed.embeddingProvider;
 			if (typeof parsed.embeddingModel === "string")

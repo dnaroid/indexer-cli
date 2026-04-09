@@ -11,6 +11,7 @@ import path from "node:path";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
+import { PACKAGE_VERSION } from "../../core/version.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
@@ -126,7 +127,7 @@ export function registerInitCommand(program: Command): void {
 
 				await writeFile(
 					configPath,
-					`${JSON.stringify(config.getAll(), null, 2)}\n`,
+					`${JSON.stringify({ ...config.getAll(), version: PACKAGE_VERSION }, null, 2)}\n`,
 					"utf8",
 				);
 				await ensureGitignoreEntries(resolvedProjectPath, [

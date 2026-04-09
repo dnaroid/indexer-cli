@@ -34,14 +34,17 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 ## Quick Start
 
 ```bash
-# 1. Initialize indexing and install the repo-discovery skill
+# 1. Check prerequisites and prepare the embedding model
+npx indexer-cli setup
+
+# 2. Initialize indexing and install the repo-discovery skill
 cd /path/to/your/project
 npx indexer-cli init
 
-# 2. Index the codebase
+# 3. Index the codebase
 npx indexer-cli index
 
-# 3. Search semantically yourself
+# 4. Search semantically yourself
 npx indexer-cli search "authentication middleware"
 ```
 
