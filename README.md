@@ -28,28 +28,28 @@ and get relevant results in seconds. It ships as a single package with no daemon
   ollama pull jina-8k
   ```
 
-## Supported Languages
-
-TypeScript, JavaScript, Python, C#, GDScript, Ruby.
-
 ## Installation
 
 ### One-liner (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/dnaroid/indexer-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dnaroid/indexer-cli/refs/heads/master/install.sh | bash
 ```
 
-Installs into `~/.indexer-cli` by default. Override with `INDEXER_INSTALL_DIR`.
+Installs into `~/.indexer-cli` by default, runs `indexer-cli setup`, and links the CLI globally. Override with `INDEXER_INSTALL_DIR`.
 
 ### From source
 
 ```bash
 git clone <repo-url>
 cd indexer-cli
-npm install
+npm ci
 npm run install:global
 ```
+
+Running `sh install.sh` from a local checkout installs that checkout into `~/.indexer-cli`; the curl one-liner installs from GitHub.
+
+If you install from source instead of `install.sh`, run `indexer-cli setup` once after `npm run install:global` to prepare Ollama and other local prerequisites.
 
 ### Uninstall
 
@@ -121,26 +121,28 @@ Index all supported source files in the current working directory.
 
 Run a semantic search against the indexed codebase. Automatically re-indexes changed files if needed.
 
-| Option                   | Default | Description                                              |
-|--------------------------|---------|----------------------------------------------------------|
-| `--top-k <number>`       | 10      | Number of results to return                              |
-| `--path-prefix <string>` | —       | Limit results to files under this path                   |
+| Option                   | Default | Description                                                                                                  |
+|--------------------------|---------|--------------------------------------------------------------------------------------------------------------|
+| `--top-k <number>`       | 10      | Number of results to return                                                                                  |
+| `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
-| `--json`                 | —       | Output results as JSON                                   |
+| `--json`                 | —       | Output results as JSON                                                                                       |
 
 ### `indexer-cli structure`
 
-Print a file tree annotated with extracted symbols for the current working directory. Automatically re-indexes changed files if needed.
+Print a file tree annotated with extracted symbols for the current working directory. Automatically re-indexes changed
+files if needed.
 
-| Option                   | Description                                              |
-|--------------------------|----------------------------------------------------------|
-| `--path-prefix <string>` | Limit output to files under this path                    |
+| Option                   | Description                                                                                               |
+|--------------------------|-----------------------------------------------------------------------------------------------------------|
+| `--path-prefix <string>` | Limit output to files under this path                                                                     |
 | `--kind <string>`        | Filter by symbol kind: `function`, `class`, `method`, `interface`, `type`, `variable`, `module`, `signal` |
-| `--json`                 | Output structure as JSON                                 |
+| `--json`                 | Output structure as JSON                                                                                  |
 
 ### `indexer-cli architecture`
 
-Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a dependency graph.
+Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a
+dependency graph.
 
 ### `indexer-cli uninstall`
 
