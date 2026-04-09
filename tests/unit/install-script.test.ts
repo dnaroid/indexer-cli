@@ -33,6 +33,9 @@ describe("install.sh helpers", () => {
 		const brewOutput = runShell(
 			`source "${scriptPath}"; detect_node_install_strategy Darwin 1 0`,
 		);
+		const pkgOutput = runShell(
+			`source "${scriptPath}"; detect_node_install_strategy Darwin 0 0`,
+		);
 		const aptOutput = runShell(
 			`source "${scriptPath}"; detect_node_install_strategy Linux 0 1`,
 		);
@@ -41,8 +44,18 @@ describe("install.sh helpers", () => {
 		);
 
 		expect(brewOutput.trim()).toBe("brew");
+		expect(pkgOutput.trim()).toBe("pkg");
 		expect(aptOutput.trim()).toBe("apt");
 		expect(unsupportedOutput.trim()).toBe("unsupported");
+	});
+
+	it("extracts the latest macOS package name from the Node.js shasums manifest", () => {
+		const output = runShell(`
+			source "${scriptPath}"
+			resolve_latest_node_pkg_name $'aaaa  node-v20.19.5.pkg\nzzzz  node-v20.19.5.tar.xz\n'
+		`);
+
+		expect(output.trim()).toBe("node-v20.19.5.pkg");
 	});
 
 	it("treats stdin-style bash execution as direct execution without unbound variables", () => {

@@ -43,7 +43,9 @@ curl -fsSL https://raw.githubusercontent.com/dnaroid/indexer-cli/refs/heads/mast
 
 Installs into `~/.indexer-cli` by default, runs `indexer-cli setup`, and links the CLI globally. Override with `INDEXER_INSTALL_DIR`.
 
-On macOS with Homebrew or Debian/Ubuntu-style Linux with `apt-get`, the installer bootstraps a supported Node.js runtime automatically if `node`/`npm` are missing or too old.
+On macOS (via Homebrew when available, otherwise the official Node.js installer package) or Debian/Ubuntu-style Linux with `apt-get`, the installer bootstraps a supported Node.js runtime automatically if `node`/`npm` are missing or too old.
+
+On fresh macOS machines without developer tools, the installer also prompts for Xcode Command Line Tools before the first `git clone`; once macOS finishes that install, rerun the same one-liner.
 
 ### From source
 

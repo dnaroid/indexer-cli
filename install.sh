@@ -7,6 +7,7 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCAL_SOURCE_DIR=""
 MIN_NODE_MAJOR="18"
 LINUX_NODE_SETUP_MAJOR="20"
+MAC_NODE_MAJOR="20"
 
 msg()  { printf "\033[1;34m→\033[0m %s\n" "$*"; }
 ok()   { printf "\033[1;32m✓\033[0m %s\n" "$*"; }
@@ -77,6 +78,8 @@ detect_node_install_strategy() {
 
 	if [ "$os_name" = "Darwin" ] && [ "$has_brew" = "1" ]; then
 		printf "brew\n"
+	elif [ "$os_name" = "Darwin" ]; then
+		printf "pkg\n"
 	elif [ "$os_name" = "Linux" ] && [ "$has_apt" = "1" ]; then
 		printf "apt\n"
 	else
@@ -107,6 +110,35 @@ fetch_remote_script() {
 	err "curl or wget is required for automatic Node.js installation"
 }
 
+download_to_file() {
+	url="$1"
+	output_path="$2"
+	if command_exists curl; then
+		curl -fsSL "$url" -o "$output_path"
+		return
+	fi
+	if command_exists wget; then
+		wget -qO "$output_path" "$url"
+		return
+	fi
+	err "curl or wget is required for automatic downloads"
+}
+
+resolve_latest_node_pkg_name() {
+	shasums="$1"
+	while IFS= read -r line; do
+		case "$line" in
+			*" node-v"*.pkg)
+				printf "%s\n" "${line##*  }"
+				return 0
+				;;
+		esac
+	done <<EOF
+$shasums
+EOF
+	return 1
+}
+
 install_node_with_brew() {
 	msg "Installing Node.js via Homebrew..."
 	brew install node || brew upgrade node || err "Homebrew failed to install Node.js"
@@ -117,6 +149,20 @@ install_node_with_apt() {
 	msg "Installing Node.js via NodeSource APT repository..."
 	fetch_remote_script "https://deb.nodesource.com/setup_${LINUX_NODE_SETUP_MAJOR}.x" | run_as_root bash -
 	run_as_root apt-get install -y -qq nodejs
+	refresh_runtime_path
+}
+
+install_node_with_mac_pkg() {
+	msg "Installing Node.js via the official macOS installer package..."
+	shasums=$(fetch_remote_script "https://nodejs.org/dist/latest-v${MAC_NODE_MAJOR}.x/SHASUMS256.txt") || err "Failed to fetch the Node.js package manifest"
+	pkg_name=$(resolve_latest_node_pkg_name "$shasums") || err "Failed to determine the latest Node.js macOS package name"
+	pkg_url="https://nodejs.org/dist/latest-v${MAC_NODE_MAJOR}.x/${pkg_name}"
+	pkg_path=$(mktemp "/tmp/indexer-cli-node.XXXXXX.pkg") || err "Failed to create a temporary file for the Node.js installer"
+	trap 'rm -f "$pkg_path"' EXIT
+	download_to_file "$pkg_url" "$pkg_path" || err "Failed to download ${pkg_url}"
+	run_as_root installer -pkg "$pkg_path" -target / || err "The macOS Node.js installer failed"
+	rm -f "$pkg_path"
+	trap - EXIT
 	refresh_runtime_path
 }
 
@@ -137,6 +183,9 @@ ensure_supported_node() {
 		brew)
 			install_node_with_brew
 			;;
+		pkg)
+			install_node_with_mac_pkg
+			;;
 		apt)
 			install_node_with_apt
 			;;
@@ -152,6 +201,35 @@ ensure_supported_node() {
 		fi
 		err "Automatic Node.js installation finished, but a supported runtime is still unavailable (${resolved_version}). Install Node.js ${MIN_NODE_MAJOR}+ manually and re-run."
 	fi
+}
+
+verify_git_runtime() {
+	refresh_runtime_path
+	command_exists git || return 1
+	git --version >/dev/null 2>&1
+}
+
+ensure_supported_git() {
+	if verify_git_runtime; then
+		return 0
+	fi
+
+	os_name=$(uname -s)
+	if [ "$os_name" = "Darwin" ] && command_exists xcode-select; then
+		msg "Git requires Xcode Command Line Tools on macOS. Requesting installation..."
+		xcode-select --install >/dev/null 2>&1 || true
+		err "Finish installing Xcode Command Line Tools, then re-run the installer."
+	fi
+
+	if [ "$os_name" = "Linux" ] && command_exists apt-get; then
+		msg "Installing git via apt-get..."
+		run_as_root apt-get update -qq
+		run_as_root apt-get install -y -qq git
+		verify_git_runtime || err "git installation completed, but git is still unavailable"
+		return 0
+	fi
+
+	err "git is required"
 }
 
 is_direct_execution() {
@@ -178,7 +256,7 @@ sync_local_source() {
 }
 main() {
 	ensure_supported_node
-	command_exists git || err "git is required"
+	ensure_supported_git
 
 	detect_local_source
 
