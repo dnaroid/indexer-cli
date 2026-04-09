@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_URL="https://github.com/dnaroid/indexer-cli.git"
 INSTALL_DIR="${INDEXER_INSTALL_DIR:-"$HOME/.indexer-cli"}"
+BIN_DIR="${INDEXER_BIN_DIR:-"$HOME/.local/bin"}"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 LOCAL_SOURCE_DIR=""
 MIN_NODE_MAJOR="18"
@@ -35,10 +36,18 @@ node_major_version() {
 prepend_to_path_if_dir() {
 	dir="$1"
 	[ -d "$dir" ] || return 0
+	path_contains_dir "$dir" && return 0
+	PATH="$dir:$PATH"
+	export PATH
+}
+
+path_contains_dir() {
+	dir="$1"
 	case ":$PATH:" in
 		*":$dir:"*) ;;
-		*) PATH="$dir:$PATH" ; export PATH ;;
+		*) return 1 ;;
 	esac
+	return 0
 }
 
 refresh_runtime_path() {
@@ -290,6 +299,24 @@ install_dependencies() {
 	err "npm ci failed"
 }
 
+install_user_launcher() {
+	mkdir -p "$BIN_DIR" || err "Failed to create $BIN_DIR"
+	launcher_path="$BIN_DIR/indexer-cli"
+	cat >"$launcher_path" <<EOF
+#!/usr/bin/env sh
+exec node "$INSTALL_DIR/bin/indexer-cli.js" "\$@"
+EOF
+	chmod +x "$launcher_path" || err "Failed to make $launcher_path executable"
+
+	if path_contains_dir "$BIN_DIR"; then
+		msg "Installed launcher at $launcher_path"
+	else
+		msg "Installed launcher at $launcher_path"
+		msg "Add this directory to your PATH to run 'indexer-cli' directly:"
+		msg "  export PATH=\"$BIN_DIR:\$PATH\""
+	fi
+}
+
 main() {
 	ensure_supported_node
 	ensure_supported_git
@@ -321,8 +348,8 @@ main() {
 	msg "Building project..."
 	(cd "$INSTALL_DIR" && npm run build) || err "Build failed"
 
-	msg "Linking globally..."
-	(cd "$INSTALL_DIR" && npm link) 2>/dev/null || (cd "$INSTALL_DIR" && npm link) || err "npm link failed"
+	msg "Installing user-local launcher..."
+	install_user_launcher
 
 	if [ "${INDEXER_SKIP_SETUP:-0}" = "1" ]; then
 		msg "Skipping 'indexer-cli setup' because INDEXER_SKIP_SETUP=1"

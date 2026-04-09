@@ -41,13 +41,15 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 curl -fsSL https://raw.githubusercontent.com/dnaroid/indexer-cli/refs/heads/master/install.sh | bash
 ```
 
-Installs into `~/.indexer-cli` by default, runs `indexer-cli setup`, and links the CLI globally. Override with `INDEXER_INSTALL_DIR`.
+Installs into `~/.indexer-cli` by default, runs `indexer-cli setup`, and writes a user-local `indexer-cli` launcher into `~/.local/bin` by default. Override with `INDEXER_INSTALL_DIR` and `INDEXER_BIN_DIR`.
 
 On macOS (via Homebrew when available, otherwise the official Node.js installer package) or Debian/Ubuntu-style Linux with `apt-get`, the installer bootstraps a supported Node.js runtime automatically if `node`/`npm` are missing or too old.
 
 On fresh macOS machines without developer tools, the installer also prompts for Xcode Command Line Tools before the first `git clone`; once macOS finishes that install, rerun the same one-liner.
 
 The installer prefers `npm ci` for reproducible installs and automatically falls back to `npm install` when the published lockfile metadata is temporarily out of sync with `package.json`.
+
+To avoid global npm permission issues, the installer writes a small launcher script into your user bin directory instead of relying on `npm link`.
 
 ### From source
 

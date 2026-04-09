@@ -112,4 +112,44 @@ describe("install.sh helpers", () => {
 		expect(matchOutput.trim()).toBe("fallback");
 		expect(nonMatchOutput.trim()).toBe("fail");
 	});
+
+	it("installs a user-local launcher without requiring npm link", () => {
+		const output = runShell(`
+			set -euo pipefail
+			source "${scriptPath}"
+			tmp_dir=$(mktemp -d)
+			INSTALL_DIR="$tmp_dir/install"
+			BIN_DIR="$tmp_dir/bin"
+			mkdir -p "$INSTALL_DIR/bin"
+			touch "$INSTALL_DIR/bin/indexer-cli.js"
+			msg() { :; }
+			install_user_launcher
+			launcher_path="$BIN_DIR/indexer-cli"
+			printf '%s\n' "$(test -x "$launcher_path" && printf executable)"
+			printf '%s\n' "$(cat "$launcher_path")"
+		`);
+
+		expect(output).toContain("executable");
+		expect(output).toContain("exec node ");
+		expect(output).toContain("/install/bin/indexer-cli.js");
+	});
+
+	it("detects whether a directory is already on PATH", () => {
+		const output = runShell(`
+			source "${scriptPath}"
+			PATH='/usr/local/bin:/tmp/example/bin:/usr/bin'
+			if path_contains_dir '/tmp/example/bin'; then
+				printf 'present\n'
+			else
+				printf 'missing\n'
+			fi
+			if path_contains_dir '/tmp/other/bin'; then
+				printf 'present\n'
+			else
+				printf 'missing\n'
+			fi
+		`);
+
+		expect(output.trim().split("\n")).toEqual(["present", "missing"]);
+	});
 });
