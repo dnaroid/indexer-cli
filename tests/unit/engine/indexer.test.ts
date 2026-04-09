@@ -246,8 +246,15 @@ function mockConfig(values: Partial<Record<string, unknown>> = {}) {
 		.mockImplementation((key: keyof typeof defaults) => defaults[key] as never);
 }
 
-const indexerPath =
-	"/Volumes/128GBSSD/Projects/indexer-cli/src/engine/indexer.ts";
+const indexerPath = join(
+	import.meta.dirname,
+	"..",
+	"..",
+	"..",
+	"src",
+	"engine",
+	"indexer.ts",
+);
 const normalizeImportKind = await loadInternalFunction<
 	(kind: string) => "import" | "require" | "dynamic_import"
 >(
