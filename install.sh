@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_URL="https://github.com/buzz/indexer-cli.git"
+REPO_URL="https://github.com/dnaroid/indexer-cli.git"
 INSTALL_DIR="${INDEXER_INSTALL_DIR:-"$HOME/.indexer-cli"}"
 
 msg()  { printf "\033[1;34m→\033[0m %s\n" "$*"; }

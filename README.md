@@ -36,7 +36,7 @@ TypeScript, JavaScript, Python, C#, GDScript, Ruby.
 ### One-liner (recommended)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/buzz/indexer-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/dnaroid/indexer-cli/main/install.sh | bash
 ```
 
 Installs into `~/.indexer-cli` by default. Override with `INDEXER_INSTALL_DIR`.
