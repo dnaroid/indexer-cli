@@ -26,7 +26,8 @@
 		"install:global": "npm run build && npm link --force",
 		"uninstall:global": "npm unlink -g indexer-cli",
 		"test": "vitest run",
-		"test:watch": "vitest"
+		"test:watch": "vitest",
+		"release": "bash scripts/publish.sh"
 	},
 	"dependencies": {
 		"@apache-arrow/ts": "^18.1.0",
