@@ -47,6 +47,8 @@ On macOS (via Homebrew when available, otherwise the official Node.js installer 
 
 On fresh macOS machines without developer tools, the installer also prompts for Xcode Command Line Tools before the first `git clone`; once macOS finishes that install, rerun the same one-liner.
 
+The installer prefers `npm ci` for reproducible installs and automatically falls back to `npm install` when the published lockfile metadata is temporarily out of sync with `package.json`.
+
 ### From source
 
 ```bash

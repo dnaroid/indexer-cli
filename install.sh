@@ -254,6 +254,42 @@ sync_local_source() {
 		--exclude ".indexer-cli/" \
 		"$source_dir/" "$INSTALL_DIR/" || err "Failed to copy local source into $INSTALL_DIR"
 }
+
+is_npm_ci_lockfile_sync_error() {
+	output="${1:-}"
+	case "$output" in
+		*'`npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync.'*|*'npm error code EUSAGE'*|*'Missing: @esbuild/'*)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+install_dependencies() {
+	log_file=$(mktemp "/tmp/indexer-cli-npm-ci.XXXXXX.log") || err "Failed to create npm log file"
+
+	if (cd "$INSTALL_DIR" && npm ci --include=dev) >"$log_file" 2>&1; then
+		cat_output=$(<"$log_file")
+		[ -z "$cat_output" ] || printf "%s\n" "$cat_output"
+		rm -f "$log_file"
+		return 0
+	fi
+
+	ci_output=$(<"$log_file")
+	[ -z "$ci_output" ] || printf "%s\n" "$ci_output" >&2
+	rm -f "$log_file"
+
+	if is_npm_ci_lockfile_sync_error "$ci_output"; then
+		msg "Lockfile install failed because package metadata is out of sync. Retrying with 'npm install'..."
+		(cd "$INSTALL_DIR" && npm install) || err "npm install fallback failed"
+		return 0
+	fi
+
+	err "npm ci failed"
+}
+
 main() {
 	ensure_supported_node
 	ensure_supported_git
@@ -280,7 +316,7 @@ main() {
 	fi
 
 	msg "Installing dependencies from lockfile..."
-	(cd "$INSTALL_DIR" && npm ci --include=dev) || err "npm ci failed"
+	install_dependencies
 
 	msg "Building project..."
 	(cd "$INSTALL_DIR" && npm run build) || err "Build failed"

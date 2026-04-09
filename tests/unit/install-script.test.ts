@@ -90,4 +90,26 @@ describe("install.sh helpers", () => {
 
 		expect(output.trim()).toBe("1");
 	});
+
+	it("detects npm ci lockfile sync errors for fallback", () => {
+		const matchOutput = runShell(`
+			source "${scriptPath}"
+			if is_npm_ci_lockfile_sync_error $'npm error code EUSAGE\nMissing: @esbuild/darwin-x64@0.27.7 from lock file'; then
+				printf 'fallback\n'
+			else
+				printf 'fail\n'
+			fi
+		`);
+		const nonMatchOutput = runShell(`
+			source "${scriptPath}"
+			if is_npm_ci_lockfile_sync_error 'network timeout'; then
+				printf 'fallback\n'
+			else
+				printf 'fail\n'
+			fi
+		`);
+
+		expect(matchOutput.trim()).toBe("fallback");
+		expect(nonMatchOutput.trim()).toBe("fail");
+	});
 });
