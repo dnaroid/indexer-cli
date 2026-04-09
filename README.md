@@ -22,7 +22,6 @@ and get relevant results in seconds. It ships as a single package with no daemon
 
 ## Prerequisites
 
-- Node.js 18+
 - [Ollama](https://ollama.ai) running locally with the `jina-8k` model pulled:
   ```bash
   ollama pull jina-8k
@@ -38,6 +37,8 @@ curl -fsSL https://raw.githubusercontent.com/dnaroid/indexer-cli/refs/heads/mast
 
 Installs into `~/.indexer-cli` by default, runs `indexer-cli setup`, and links the CLI globally. Override with `INDEXER_INSTALL_DIR`.
 
+On macOS with Homebrew or Debian/Ubuntu-style Linux with `apt-get`, the installer bootstraps a supported Node.js runtime automatically if `node`/`npm` are missing or too old.
+
 ### From source
 
 ```bash
@@ -46,6 +47,8 @@ cd indexer-cli
 npm ci
 npm run install:global
 ```
+
+From-source installs still require a working local Node.js 18+ toolchain before `npm ci`.
 
 Running `sh install.sh` from a local checkout installs that checkout into `~/.indexer-cli`; the curl one-liner installs from GitHub.
 

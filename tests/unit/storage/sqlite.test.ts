@@ -625,6 +625,134 @@ describe("SqliteMetadataStore", () => {
 		expect(await store.getSnapshot(keep.id)).toBeNull();
 	});
 
+	it("keeps retained snapshot data usable for the next incremental copy after cleanup", async () => {
+		const keep = await createSnapshot();
+		const remove = await createSnapshot();
+
+		await store.upsertFile(PROJECT_ID, {
+			snapshotId: keep.id,
+			path: "src/keep.ts",
+			sha256: "keep",
+			mtimeMs: 1,
+			size: 10,
+			languageId: "typescript",
+		});
+		await store.replaceChunks(PROJECT_ID, keep.id, "src/keep.ts", [
+			{
+				chunkId: "keep-chunk-1",
+				startLine: 1,
+				endLine: 2,
+				contentHash: "keep-chunk-hash",
+				tokenEstimate: 5,
+				chunkType: "impl",
+			},
+		]);
+		await store.replaceSymbols(PROJECT_ID, keep.id, "src/keep.ts", [
+			{
+				id: "keep-symbol-1",
+				kind: "function",
+				name: "kept",
+				exported: true,
+				range: {
+					start: { line: 1, character: 0 },
+					end: { line: 2, character: 0 },
+				},
+			},
+		]);
+		await store.replaceDependencies(PROJECT_ID, keep.id, "src/keep.ts", [
+			{
+				id: "keep-dep-1",
+				toSpecifier: "./dep",
+				toPath: "src/dep.ts",
+				kind: "import",
+				dependencyType: "internal",
+			},
+		]);
+		await store.upsertFileMetrics(PROJECT_ID, {
+			snapshotId: keep.id,
+			filePath: "src/keep.ts",
+			metrics: {
+				complexity: 2,
+				maintainability: 95,
+				churn: 1,
+				testCoverage: 100,
+			},
+		});
+
+		await store.upsertFile(PROJECT_ID, {
+			snapshotId: remove.id,
+			path: "src/remove.ts",
+			sha256: "remove",
+			mtimeMs: 2,
+			size: 20,
+			languageId: "typescript",
+		});
+
+		await store.clearProjectMetadata(PROJECT_ID, keep.id);
+
+		const next = await createSnapshot();
+		await store.copyUnchangedFileData(PROJECT_ID, keep.id, next.id, [
+			"src/keep.ts",
+		]);
+
+		expect(await store.getSnapshot(keep.id)).not.toBeNull();
+		expect(await store.getSnapshot(remove.id)).toBeNull();
+		expect(await store.getFile(PROJECT_ID, keep.id, "src/keep.ts")).toEqual({
+			snapshotId: keep.id,
+			path: "src/keep.ts",
+			sha256: "keep",
+			mtimeMs: 1,
+			size: 10,
+			languageId: "typescript",
+		});
+		expect(
+			await store.listChunks(PROJECT_ID, keep.id, "src/keep.ts"),
+		).toHaveLength(1);
+		expect(
+			await store.listSymbols(PROJECT_ID, keep.id, "src/keep.ts"),
+		).toHaveLength(1);
+		expect(
+			await store.listDependencies(PROJECT_ID, keep.id, "src/keep.ts"),
+		).toHaveLength(1);
+		expect(await store.listFileMetrics(PROJECT_ID, keep.id)).toEqual([
+			{
+				snapshotId: keep.id,
+				filePath: "src/keep.ts",
+				metrics: {
+					complexity: 2,
+					maintainability: 95,
+					churn: 1,
+					testCoverage: 100,
+				},
+			},
+		]);
+		expect(await store.listFiles(PROJECT_ID, next.id)).toEqual([
+			{
+				snapshotId: next.id,
+				path: "src/keep.ts",
+				sha256: "keep",
+				mtimeMs: 1,
+				size: 10,
+				languageId: "typescript",
+			},
+		]);
+		expect(await store.listChunks(PROJECT_ID, next.id)).toHaveLength(1);
+		expect(await store.listSymbols(PROJECT_ID, next.id)).toHaveLength(1);
+		expect(await store.listDependencies(PROJECT_ID, next.id)).toHaveLength(1);
+		expect(await store.listFileMetrics(PROJECT_ID, next.id)).toEqual([
+			{
+				snapshotId: next.id,
+				filePath: "src/keep.ts",
+				metrics: {
+					complexity: 2,
+					maintainability: 95,
+					churn: 1,
+					testCoverage: 100,
+				},
+			},
+		]);
+	});
+
 	it("rolls back a failed top-level transaction", async () => {
 		await expect(
 			store.transaction(async () => {

@@ -150,7 +150,7 @@ export class SqliteMetadataStore implements MetadataStore {
 	async getLatestSnapshot(projectId: ProjectId): Promise<Snapshot | null> {
 		const row = this.db
 			.prepare(
-				"SELECT * FROM snapshots WHERE project_id = ? ORDER BY created_at DESC LIMIT 1",
+				"SELECT * FROM snapshots WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
 			)
 			.get(projectId) as
 			| {
@@ -173,7 +173,7 @@ export class SqliteMetadataStore implements MetadataStore {
 	): Promise<Snapshot | null> {
 		const row = this.db
 			.prepare(
-				"SELECT * FROM snapshots WHERE project_id = ? AND status = ? ORDER BY created_at DESC LIMIT 1",
+				"SELECT * FROM snapshots WHERE project_id = ? AND status = ? ORDER BY created_at DESC, id DESC LIMIT 1",
 			)
 			.get(projectId, this.mapToDbStatus("completed")) as
 			| {
@@ -199,7 +199,7 @@ export class SqliteMetadataStore implements MetadataStore {
 		const offset = options?.offset ?? 0;
 		const rows = this.db
 			.prepare(
-				"SELECT * FROM snapshots WHERE project_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+				"SELECT * FROM snapshots WHERE project_id = ? ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
 			)
 			.all(projectId, limit, offset) as Array<{
 			id: string;

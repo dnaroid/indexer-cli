@@ -749,7 +749,8 @@ export class IndexerEngine {
 
 		await this.loadChurnByFile(repoRoot);
 
-		const latestSnapshot = await this.metadata.getLatestSnapshot(projectId);
+		const latestSnapshot =
+			await this.metadata.getLatestCompletedSnapshot(projectId);
 		const shouldDoFullReindex =
 			options.isFullReindex ||
 			!latestSnapshot ||
@@ -807,6 +808,7 @@ export class IndexerEngine {
 				);
 				await this.architectureGenerator.generate(projectId, snapshotId);
 				await this.metadata.updateSnapshotStatus(snapshotId, "completed");
+				await this.pruneHistoricalSnapshots(projectId, snapshotId);
 				return { snapshotId, filesIndexed: totalFiles, errors: [] };
 			}
 
@@ -824,12 +826,18 @@ export class IndexerEngine {
 			});
 
 			await this.architectureGenerator.generate(projectId, snapshotId);
+			if (errors.length > 0) {
+				const message = `Incremental indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`;
+				await this.metadata.updateSnapshotStatus(snapshotId, "failed", message);
+				throw new Error(message);
+			}
 			await this.metadata.updateSnapshotStatus(snapshotId, "completed");
 			await this.metadataWithProgress.updateSnapshotProgress(
 				snapshotId,
 				totalFiles,
 				totalFiles,
 			);
+			await this.pruneHistoricalSnapshots(projectId, snapshotId);
 			return { snapshotId, filesIndexed: filesToIndex.length, errors };
 		} catch (error) {
 			await this.metadata.updateSnapshotStatus(
@@ -1301,6 +1309,74 @@ export class IndexerEngine {
 				) {
 					throw error;
 				}
+			}
+		}
+	}
+
+	private async deleteSnapshotVectorsWithRetry(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+	): Promise<void> {
+		const delays = [0, 300, 1200];
+		for (let attempt = 0; attempt < delays.length; attempt += 1) {
+			if (delays[attempt] > 0) {
+				await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+			}
+			try {
+				await this.vectors.deleteBySnapshot(projectId, snapshotId);
+				return;
+			} catch (error) {
+				if (
+					!this.isTransientVectorDeleteError(error) ||
+					attempt === delays.length - 1
+				) {
+					throw error;
+				}
+			}
+		}
+	}
+
+	private async pruneHistoricalSnapshots(
+		projectId: ProjectId,
+		keepSnapshotId: SnapshotId,
+	): Promise<void> {
+		const staleSnapshotIds = await this.listStaleSnapshotIds(
+			projectId,
+			keepSnapshotId,
+		);
+
+		if (staleSnapshotIds.length === 0) {
+			return;
+		}
+
+		for (const snapshotId of staleSnapshotIds) {
+			await this.deleteSnapshotVectorsWithRetry(projectId, snapshotId);
+		}
+
+		await this.metadata.clearProjectMetadata(projectId, keepSnapshotId);
+	}
+
+	private async listStaleSnapshotIds(
+		projectId: ProjectId,
+		keepSnapshotId: SnapshotId,
+	): Promise<SnapshotId[]> {
+		const staleSnapshotIds: SnapshotId[] = [];
+		const pageSize = 100;
+
+		for (let offset = 0; ; offset += pageSize) {
+			const snapshots = await this.metadata.listSnapshots(projectId, {
+				limit: pageSize,
+				offset,
+			});
+
+			for (const snapshot of snapshots) {
+				if (snapshot.id !== keepSnapshotId) {
+					staleSnapshotIds.push(snapshot.id);
+				}
+			}
+
+			if (snapshots.length < pageSize) {
+				return staleSnapshotIds;
 			}
 		}
 	}

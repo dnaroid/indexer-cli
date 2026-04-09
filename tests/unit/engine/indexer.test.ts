@@ -1038,13 +1038,16 @@ describe("IndexerEngine internals", () => {
 
 		it("completes incremental indexing without reprocessing when changed files are unsupported", async () => {
 			const options = createMockOptions();
-			options.metadata.getLatestSnapshot.mockResolvedValue({
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
 				id: "snapshot-prev",
 			});
 			options.metadata.listFiles
 				.mockResolvedValueOnce([{ path: "src/existing.ts" }])
 				.mockResolvedValueOnce([{ path: "src/existing.ts" }])
 				.mockResolvedValueOnce([{ path: "src/existing.ts" }]);
+			options.metadata.listSnapshots
+				.mockResolvedValueOnce([{ id: "snapshot-1" }, { id: "snapshot-prev" }])
+				.mockResolvedValueOnce([]);
 			const engine = new IndexerEngine(options as any);
 			const generateSpy = vi
 				.spyOn((engine as any).architectureGenerator, "generate")
@@ -1072,11 +1075,19 @@ describe("IndexerEngine internals", () => {
 				1,
 			);
 			expect(generateSpy).toHaveBeenCalledWith("project-id", "snapshot-1");
+			expect(options.vectors.deleteBySnapshot).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-prev",
+			);
+			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-1",
+			);
 		});
 
 		it("processes incremental code changes and returns indexed file count", async () => {
 			const options = createMockOptions();
-			options.metadata.getLatestSnapshot.mockResolvedValue({
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
 				id: "snapshot-prev",
 			});
 			options.metadata.listFiles.mockResolvedValue([
@@ -1118,9 +1129,117 @@ describe("IndexerEngine internals", () => {
 			);
 		});
 
+		it("prunes older snapshots after successful incremental indexing", async () => {
+			const options = createMockOptions();
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
+				id: "snapshot-prev",
+			});
+			options.metadata.listFiles.mockResolvedValue([
+				{ path: "src/existing.ts" },
+				{ path: "src/changed.ts" },
+			]);
+			options.metadata.listSnapshots
+				.mockResolvedValueOnce([
+					{ id: "snapshot-1" },
+					{ id: "snapshot-prev" },
+					{ id: "snapshot-failed" },
+				])
+				.mockResolvedValueOnce([]);
+			const engine = new IndexerEngine(options as any);
+			vi.spyOn(engine as any, "prepareIncrementalSnapshot").mockResolvedValue(
+				undefined,
+			);
+			vi.spyOn(engine as any, "indexPreparedFiles").mockResolvedValue(
+				undefined,
+			);
+			vi.spyOn(
+				(engine as any).architectureGenerator,
+				"generate",
+			).mockResolvedValue(undefined);
+
+			await engine.indexProject({
+				isFullReindex: false,
+				changedFiles: { added: [], modified: ["src/changed.ts"], deleted: [] },
+			});
+
+			expect(options.metadata.listSnapshots).toHaveBeenNthCalledWith(
+				1,
+				"project-id",
+				{
+					limit: 100,
+					offset: 0,
+				},
+			);
+			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-1",
+			);
+			expect(
+				options.vectors.deleteBySnapshot.mock.invocationCallOrder[1],
+			).toBeLessThan(
+				options.metadata.clearProjectMetadata.mock.invocationCallOrder[0],
+			);
+			expect(options.vectors.deleteBySnapshot).toHaveBeenNthCalledWith(
+				1,
+				"project-id",
+				"snapshot-prev",
+			);
+			expect(options.vectors.deleteBySnapshot).toHaveBeenNthCalledWith(
+				2,
+				"project-id",
+				"snapshot-failed",
+			);
+		});
+
+		it("fails incremental indexing without pruning when file preparation reports errors", async () => {
+			const options = createMockOptions();
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
+				id: "snapshot-prev",
+			});
+			options.metadata.listFiles.mockResolvedValue([
+				{ path: "src/existing.ts" },
+				{ path: "src/changed.ts" },
+			]);
+			const engine = new IndexerEngine(options as any);
+			vi.spyOn(engine as any, "prepareIncrementalSnapshot").mockResolvedValue(
+				undefined,
+			);
+			vi.spyOn(engine as any, "indexPreparedFiles").mockImplementation(
+				async (options: unknown) => {
+					const { errors } = options as { errors: string[] };
+					errors.push("Failed to prepare src/changed.ts: boom");
+				},
+			);
+			vi.spyOn(
+				(engine as any).architectureGenerator,
+				"generate",
+			).mockResolvedValue(undefined);
+
+			await expect(
+				engine.indexProject({
+					isFullReindex: false,
+					changedFiles: {
+						added: [],
+						modified: ["src/changed.ts"],
+						deleted: [],
+					},
+				}),
+			).rejects.toThrow(
+				"Incremental indexing completed with 1 preparation error",
+			);
+
+			expect(options.metadata.updateSnapshotStatus).toHaveBeenCalledWith(
+				"snapshot-1",
+				"failed",
+				"Incremental indexing completed with 1 preparation error",
+			);
+			expect(options.metadata.clearProjectMetadata).not.toHaveBeenCalled();
+			expect(options.vectors.deleteBySnapshot).not.toHaveBeenCalled();
+		});
+
 		it("marks the snapshot as failed when incremental indexing throws", async () => {
 			const options = createMockOptions();
-			options.metadata.getLatestSnapshot.mockResolvedValue({
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
 				id: "snapshot-prev",
 			});
 			options.metadata.listFiles.mockResolvedValue([
