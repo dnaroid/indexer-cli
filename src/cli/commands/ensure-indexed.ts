@@ -12,7 +12,7 @@ import {
 	createDefaultLanguagePlugins,
 } from "../../engine/indexer.js";
 import { computeHash } from "../../utils/hash.js";
-import { LanceDbVectorStore } from "../../storage/vectors.js";
+import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import type { SqliteMetadataStore } from "../../storage/sqlite.js";
 
 type GitDiff = Awaited<ReturnType<SimpleGitOperations["getChangedFiles"]>>;
@@ -20,9 +20,16 @@ type GitDiff = Awaited<ReturnType<SimpleGitOperations["getChangedFiles"]>>;
 // Extensions that the indexer actually processes (from language plugins).
 // Non-code files in workspace changes are irrelevant for re-index decisions.
 const INDEXED_EXTENSIONS = new Set([
-	".ts", ".tsx", ".mts", ".cts",
-	".js", ".jsx", ".mjs", ".cjs",
-	".py", ".pyi",
+	".ts",
+	".tsx",
+	".mts",
+	".cts",
+	".js",
+	".jsx",
+	".mjs",
+	".cjs",
+	".py",
+	".pyi",
 	".cs",
 	".gd",
 	".rb",
@@ -145,9 +152,9 @@ export async function ensureIndexed(
 	}
 
 	const dataDir = path.join(repoRoot, ".indexer-cli");
-	const vectorsPath = path.join(dataDir, "vectors");
-	const vectors = new LanceDbVectorStore({
-		dbPath: vectorsPath,
+	const dbPath = path.join(dataDir, "db.sqlite");
+	const vectors = new SqliteVecVectorStore({
+		dbPath,
 		vectorSize: config.get("vectorSize"),
 	});
 

@@ -30,18 +30,16 @@
 		"release": "bash scripts/publish.sh"
 	},
 	"dependencies": {
-		"@apache-arrow/ts": "^18.1.0",
-		"apache-arrow": "^18.1.0",
 		"better-sqlite3": "^12.0.0",
 		"commander": "^12.1.0",
 		"p-limit": "^4.0.0",
+		"sqlite-vec": "^0.1.9",
 		"tree-sitter": "^0.21.1",
 		"tree-sitter-c-sharp": "^0.23.1",
 		"tree-sitter-gdscript": "^6.1.0",
 		"tree-sitter-python": "^0.21.0",
 		"tree-sitter-ruby": "^0.23.1",
-		"ts-morph": "^21.0.0",
-		"@lancedb/lancedb": "^0.27.2"
+		"ts-morph": "^21.0.0"
 	},
 	"devDependencies": {
 		"@types/better-sqlite3": "^7.6.12",

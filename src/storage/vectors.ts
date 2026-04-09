@@ -1,5 +1,7 @@
 import { existsSync, rmSync } from "node:fs";
-import * as lancedb from "@lancedb/lancedb";
+import path from "node:path";
+import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import type {
 	ChunkId,
 	ProjectId,
@@ -9,16 +11,13 @@ import type {
 	VectorSearchResult,
 	VectorStore,
 } from "../core/types.js";
-import { SystemLogger } from "../core/logger.js";
 
-const logger = new SystemLogger("vector-lancedb");
-
-export interface LanceDbVectorStoreOptions {
+export interface SqliteVecVectorStoreOptions {
 	dbPath: string;
 	vectorSize: number;
-	tableName?: string;
-	cacheTTL?: number;
 }
+
+export type LanceDbVectorStoreOptions = SqliteVecVectorStoreOptions;
 
 export const REQUIRED_COLUMNS = [
 	"project_id",
@@ -30,27 +29,41 @@ export const REQUIRED_COLUMNS = [
 	"content_hash",
 	"chunk_type",
 	"primary_symbol",
-	"vector",
+	"embedding",
 ] as const;
 
-const COPY_VECTORS_QUERY_LIMIT = 1_000_000;
+const UPSERT_BATCH_SIZE = 200;
 
-export class LanceDbVectorStore implements VectorStore {
+type VectorMetaRow = {
+	chunk_id: string;
+	project_id: string;
+	snapshot_id: string;
+	file_path: string;
+	start_line: number;
+	end_line: number;
+	content_hash: string;
+	chunk_type: string;
+	primary_symbol: string;
+};
+
+type VectorCopyRow = VectorMetaRow & {
+	embedding: unknown;
+};
+
+type VectorSearchRow = VectorMetaRow & {
+	distance: number;
+};
+
+export class SqliteVecVectorStore implements VectorStore {
 	private readonly dbPath: string;
 	private readonly vectorSize: number;
-	private readonly tableName: string;
-	private readonly cacheTTL: number;
-	private db: any;
-	private table: any;
+	private db: Database.Database | null;
 	private initialized = false;
-	private lastCacheRefresh = 0;
-	private operationQueue: Promise<void> = Promise.resolve();
 
-	constructor(options: LanceDbVectorStoreOptions) {
+	constructor(options: SqliteVecVectorStoreOptions) {
 		this.dbPath = options.dbPath;
 		this.vectorSize = options.vectorSize;
-		this.tableName = options.tableName ?? "vectors";
-		this.cacheTTL = options.cacheTTL ?? 5 * 60 * 1000;
+		this.db = this.openDatabase();
 	}
 
 	async initialize(): Promise<void> {
@@ -58,63 +71,113 @@ export class LanceDbVectorStore implements VectorStore {
 			return;
 		}
 
-		this.db = await lancedb.connect(this.dbPath);
+		const db = this.getDb();
 
-		const tables = await this.db.tableNames();
-		if (!tables.includes(this.tableName)) {
-			await this.createTable();
-		} else {
-			this.table = await this.db.openTable(this.tableName);
-			const schema = await this.table.getSchema();
-			if (!this.hasRequiredSchema(schema)) {
-				logger.warn(
-					`[LanceDB] Schema mismatch for table "${this.tableName}", recreating.`,
-				);
-				await this.db.dropTable(this.tableName);
-				await this.createTable();
-			}
+		db.exec(`
+			CREATE TABLE IF NOT EXISTS vector_meta (
+				chunk_id TEXT PRIMARY KEY,
+				project_id TEXT NOT NULL,
+				snapshot_id TEXT NOT NULL,
+				file_path TEXT NOT NULL,
+				start_line INTEGER NOT NULL,
+				end_line INTEGER NOT NULL,
+				content_hash TEXT NOT NULL,
+				chunk_type TEXT NOT NULL DEFAULT '',
+				primary_symbol TEXT NOT NULL DEFAULT ''
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_vector_meta_snapshot_id
+			ON vector_meta(snapshot_id);
+
+			CREATE INDEX IF NOT EXISTS idx_vector_meta_project_id
+			ON vector_meta(project_id);
+
+			CREATE INDEX IF NOT EXISTS idx_vector_meta_file_path
+			ON vector_meta(file_path);
+		`);
+
+		const vecChunksExists = db
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'",
+			)
+			.get();
+		if (!vecChunksExists) {
+			db.exec(`
+				CREATE VIRTUAL TABLE vec_chunks USING vec0(
+					chunk_id TEXT PRIMARY KEY,
+					embedding float[${this.vectorSize}]
+				)
+			`);
 		}
 
 		this.initialized = true;
 	}
 
 	async close(): Promise<void> {
+		if (this.db) {
+			this.db.close();
+			this.db = null;
+		}
 		this.initialized = false;
-		this.db = null;
-		this.table = null;
 	}
 
 	async upsert(vectors: VectorRecord[]): Promise<void> {
-		await this.runSerialized(async () => {
-			await this.withTransientIoRetry("upsert", async () => {
-				if (vectors.length === 0) {
-					return;
-				}
+		if (vectors.length === 0) {
+			return;
+		}
 
-				if (!this.initialized) {
-					await this.initialize();
-				}
+		await this.initialize();
+		const db = this.getDb();
 
-				const batchSize = 200;
-				for (let index = 0; index < vectors.length; index += batchSize) {
-					const batch = vectors.slice(index, index + batchSize);
-					const data = batch.map((vector) => ({
-						project_id: vector.projectId,
-						chunk_id: vector.chunkId,
-						snapshot_id: vector.snapshotId,
-						file_path: vector.filePath,
-						start_line: vector.startLine,
-						end_line: vector.endLine,
-						content_hash: vector.contentHash,
-						chunk_type: vector.chunkType ?? "",
-						primary_symbol: vector.primarySymbol ?? "",
-						vector: Array.from(vector.embedding),
-					}));
+		const deleteVectorStatement = db.prepare(
+			"DELETE FROM vec_chunks WHERE chunk_id = ?",
+		);
+		const deleteMetaStatement = db.prepare(
+			"DELETE FROM vector_meta WHERE chunk_id = ?",
+		);
+		const insertMetaStatement = db.prepare(`
+			INSERT INTO vector_meta (
+				chunk_id,
+				project_id,
+				snapshot_id,
+				file_path,
+				start_line,
+				end_line,
+				content_hash,
+				chunk_type,
+				primary_symbol
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`);
+		const insertVectorStatement = db.prepare(
+			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, vec_f32(?))",
+		);
 
-					await this.table.add(data);
-				}
-			});
+		const upsertBatch = db.transaction((batch: VectorRecord[]) => {
+			for (const vector of batch) {
+				deleteVectorStatement.run(vector.chunkId);
+				deleteMetaStatement.run(vector.chunkId);
+				insertMetaStatement.run(
+					vector.chunkId,
+					vector.projectId,
+					vector.snapshotId,
+					vector.filePath,
+					vector.startLine,
+					vector.endLine,
+					vector.contentHash,
+					vector.chunkType ?? "",
+					vector.primarySymbol ?? "",
+				);
+				insertVectorStatement.run(
+					vector.chunkId,
+					this.embeddingToBuffer(vector.embedding),
+				);
+			}
 		});
+
+		for (let index = 0; index < vectors.length; index += UPSERT_BATCH_SIZE) {
+			const batch = vectors.slice(index, index + UPSERT_BATCH_SIZE);
+			upsertBatch(batch);
+		}
 	}
 
 	async search(
@@ -122,181 +185,90 @@ export class LanceDbVectorStore implements VectorStore {
 		topK: number,
 		filters: VectorSearchFilters,
 	): Promise<VectorSearchResult[]> {
-		return this.runSerialized(async () => {
-			return this.withTransientIoRetry("search", async () => {
-				if (!filters.projectId) {
-					throw new Error("projectId is required in filters for search");
-				}
+		if (!filters.projectId) {
+			throw new Error("projectId is required in filters for search");
+		}
 
-				if (!this.initialized) {
-					await this.initialize();
-				}
+		await this.initialize();
+		const db = this.getDb();
+		const conditions = ["vm.project_id = ?"];
+		const values: Array<string | number | Buffer> = [filters.projectId];
+		const prefilter = this.buildPrefilter(filters, "vm");
+		if (prefilter) {
+			conditions.push(prefilter);
+		}
 
-				await this.refreshCacheIfNeeded();
-				await this.reopenTableIfNeeded();
+		const rows = db
+			.prepare(`
+				SELECT vm.*, vec_distance_L2(vc.embedding, vec_f32(?)) AS distance
+				FROM vec_chunks vc
+				JOIN vector_meta vm ON vc.chunk_id = vm.chunk_id
+				WHERE ${conditions.join(" AND ")}
+				ORDER BY distance
+				LIMIT ?
+			`)
+			.all(
+				this.embeddingToBuffer(queryEmbedding),
+				...values,
+				topK,
+			) as VectorSearchRow[];
 
-				const prefilter = await this.buildPrefilter(filters);
-				let results: any[];
-
-				if (
-					prefilter &&
-					(typeof this.table.query === "function" ||
-						typeof this.table.filter === "function")
-				) {
-					const rows =
-						typeof this.table.query === "function"
-							? await this.table
-									.query()
-									.where(prefilter)
-									.limit(COPY_VECTORS_QUERY_LIMIT)
-									.select([
-										"chunk_id",
-										"snapshot_id",
-										"file_path",
-										"start_line",
-										"end_line",
-										"content_hash",
-										"chunk_type",
-										"primary_symbol",
-										"vector",
-									])
-									.toArray({ batchSize: 1024 })
-							: await this.table
-									.filter(prefilter)
-									.limit(COPY_VECTORS_QUERY_LIMIT)
-									.select([
-										"chunk_id",
-										"snapshot_id",
-										"file_path",
-										"start_line",
-										"end_line",
-										"content_hash",
-										"chunk_type",
-										"primary_symbol",
-										"vector",
-									])
-									.toArray();
-
-					results = rows
-						.map((row: any) => {
-							const vector = Array.isArray(row.vector)
-								? row.vector
-								: Array.from(row.vector ?? []);
-							return {
-								...row,
-								_distance: this.euclideanDistance(queryEmbedding, vector),
-							};
-						})
-						.sort((left: any, right: any) => left._distance - right._distance)
-						.slice(0, topK);
-				} else {
-					const searchQuery = this.table.search(queryEmbedding).limit(topK);
-					results = prefilter
-						? await searchQuery.where(prefilter).toArray()
-						: await searchQuery.toArray();
-				}
-
-				return results.map((result: any) => ({
-					chunkId: result.chunk_id as ChunkId,
-					snapshotId: result.snapshot_id as SnapshotId,
-					filePath: result.file_path,
-					startLine: result.start_line,
-					endLine: result.end_line,
-					contentHash: result.content_hash,
-					chunkType:
-						typeof result.chunk_type === "string"
-							? result.chunk_type
-							: undefined,
-					primarySymbol:
-						typeof result.primary_symbol === "string"
-							? result.primary_symbol
-							: undefined,
-					score:
-						1 /
-						(1 + (typeof result._distance === "number" ? result._distance : 0)),
-					distance: typeof result._distance === "number" ? result._distance : 0,
-				}));
-			});
-		});
+		return rows.map((row) => ({
+			chunkId: row.chunk_id as ChunkId,
+			snapshotId: row.snapshot_id as SnapshotId,
+			filePath: row.file_path,
+			startLine: row.start_line,
+			endLine: row.end_line,
+			contentHash: row.content_hash,
+			chunkType: row.chunk_type || undefined,
+			primarySymbol: row.primary_symbol || undefined,
+			score: 1 / (1 + row.distance),
+			distance: row.distance,
+		}));
 	}
 
 	async countVectors(filters: VectorSearchFilters): Promise<number> {
-		return this.runSerialized(async () => {
-			return this.withTransientIoRetry("countVectors", async () => {
-				if (!filters.projectId) {
-					throw new Error("projectId is required in filters for countVectors");
-				}
+		if (!filters.projectId) {
+			throw new Error("projectId is required in filters for countVectors");
+		}
 
-				if (!this.initialized) {
-					await this.initialize();
-				}
+		await this.initialize();
+		const db = this.getDb();
+		const conditions = ["project_id = ?"];
+		const values: string[] = [filters.projectId];
+		const prefilter = this.buildPrefilter(filters);
+		if (prefilter) {
+			conditions.push(prefilter);
+		}
 
-				await this.refreshCacheIfNeeded();
-				await this.reopenTableIfNeeded();
+		const row = db
+			.prepare(
+				`SELECT COUNT(*) AS count FROM vector_meta WHERE ${conditions.join(" AND ")}`,
+			)
+			.get(...values) as { count: number };
 
-				const prefilter = await this.buildPrefilter(filters);
-				if (typeof this.table.countRows === "function") {
-					return prefilter
-						? await this.table.countRows(prefilter)
-						: await this.table.countRows();
-				}
-
-				if (typeof this.table.filter === "function") {
-					logger.warn(
-						"[LanceDB] countRows not available, falling back to filter-based count",
-					);
-					const results = await this.table
-						.filter(prefilter || "1 = 1")
-						.limit(COPY_VECTORS_QUERY_LIMIT)
-						.select(["chunk_id"])
-						.toArray();
-					return results.length;
-				}
-
-				if (typeof this.table.query === "function") {
-					logger.warn(
-						"[LanceDB] countRows not available, falling back to query-based count",
-					);
-					const query = this.table.query();
-					const results = prefilter
-						? await query
-								.where(prefilter)
-								.limit(COPY_VECTORS_QUERY_LIMIT)
-								.select(["chunk_id"])
-								.toArray({ batchSize: 1024 })
-						: await query
-								.limit(COPY_VECTORS_QUERY_LIMIT)
-								.select(["chunk_id"])
-								.toArray({
-									batchSize: 1024,
-								});
-					return results.length;
-				}
-
-				throw new Error(
-					"[LanceDB] countVectors requires countRows(), filter(), or query() support for exhaustive results",
-				);
-			});
-		});
+		return row.count;
 	}
 
 	async deleteBySnapshot(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
 	): Promise<void> {
-		await this.runSerialized(async () => {
-			await this.withTransientIoRetry("deleteBySnapshot", async () => {
-				void projectId;
+		await this.initialize();
+		const db = this.getDb();
 
-				if (!this.initialized) {
-					await this.initialize();
-				}
-
-				await this.table.delete(
-					`snapshot_id = '${this.escapeSqlLiteral(snapshotId.toString())}'`,
-				);
-			});
-		});
+		db.transaction(() => {
+			db.prepare(`
+				DELETE FROM vec_chunks
+				WHERE chunk_id IN (
+					SELECT chunk_id FROM vector_meta
+					WHERE project_id = ? AND snapshot_id = ?
+				)
+			`).run(projectId, snapshotId);
+			db.prepare(
+				"DELETE FROM vector_meta WHERE project_id = ? AND snapshot_id = ?",
+			).run(projectId, snapshotId);
+		})();
 	}
 
 	async copyVectors(
@@ -305,178 +277,154 @@ export class LanceDbVectorStore implements VectorStore {
 		toSnapshotId: SnapshotId,
 		excludeFilePaths: string[],
 	): Promise<void> {
-		await this.runSerialized(async () => {
-			await this.withTransientIoRetry("copyVectors", async () => {
-				if (!this.initialized) {
-					await this.initialize();
-				}
+		await this.initialize();
+		const db = this.getDb();
 
-				await this.refreshCacheIfNeeded();
-				await this.reopenTableIfNeeded();
-
-				const filter = `snapshot_id = '${this.escapeSqlLiteral(fromSnapshotId.toString())}'`;
-				const results =
-					typeof this.table.query === "function"
-						? await this.table
-								.query()
-								.where(filter)
-								.limit(COPY_VECTORS_QUERY_LIMIT)
-								.select([
-									"project_id",
-									"chunk_id",
-									"snapshot_id",
-									"file_path",
-									"start_line",
-									"end_line",
-									"content_hash",
-									"chunk_type",
-									"primary_symbol",
-									"vector",
-								])
-								.toArray({ batchSize: 1024 })
-						: typeof this.table.filter === "function"
-							? await this.table
-									.filter(filter)
-									.limit(COPY_VECTORS_QUERY_LIMIT)
-									.select([
-										"project_id",
-										"chunk_id",
-										"snapshot_id",
-										"file_path",
-										"start_line",
-										"end_line",
-										"content_hash",
-										"chunk_type",
-										"primary_symbol",
-										"vector",
-									])
-									.toArray()
-							: await this.table
-									.search(Array(this.vectorSize).fill(0))
-									.limit(COPY_VECTORS_QUERY_LIMIT)
-									.where(filter)
-									.toArray();
-
-				const filtered = results.filter(
-					(row: any) => !excludeFilePaths.includes(String(row.file_path)),
-				);
-				if (filtered.length === 0) {
-					return;
-				}
-
-				await this.table.add(
-					filtered.map((row: any) => ({
-						project_id:
-							(row.project_id as string | undefined) ?? projectId.toString(),
-						chunk_id: row.chunk_id as ChunkId,
-						snapshot_id: toSnapshotId.toString(),
-						file_path: row.file_path,
-						start_line: row.start_line,
-						end_line: row.end_line,
-						content_hash: row.content_hash,
-						chunk_type: row.chunk_type ?? "",
-						primary_symbol: row.primary_symbol ?? "",
-						vector: row.vector,
-					})),
-				);
-			});
-		});
-	}
-
-	async deleteByProject(projectId: ProjectId): Promise<void> {
-		await this.runSerialized(async () => {
-			await this.withTransientIoRetry("deleteByProject", async () => {
-				void projectId;
-				await this.close();
-
-				if (!existsSync(this.dbPath)) {
-					return;
-				}
-
-				rmSync(this.dbPath, { recursive: true, force: true });
-			});
-		});
-	}
-
-	private async runSerialized<T>(operation: () => Promise<T>): Promise<T> {
-		const run = this.operationQueue.then(operation, operation);
-		this.operationQueue = run.then(
-			() => undefined,
-			() => undefined,
-		);
-		return run;
-	}
-
-	private isTransientIoError(error: unknown): boolean {
-		const message = error instanceof Error ? error.message : String(error);
-		return (
-			message.includes("LanceError(IO)") &&
-			(message.includes("Not found:") ||
-				message.includes("Did not find any data files") ||
-				message.includes("/vectors.lance/data/"))
-		);
-	}
-
-	private async withTransientIoRetry<T>(
-		operationName: string,
-		operation: () => Promise<T>,
-	): Promise<T> {
-		try {
-			return await operation();
-		} catch (error) {
-			if (!this.isTransientIoError(error)) {
-				throw error;
-			}
-
-			const message = error instanceof Error ? error.message : String(error);
-			logger.warn(
-				`[LanceDB] ${operationName} hit transient IO error, reopening and retrying once: ${message}`,
-			);
-			await this.close();
-			await this.initialize();
-			return operation();
+		const conditions = ["vm.project_id = ?", "vm.snapshot_id = ?"];
+		const values: string[] = [projectId, fromSnapshotId];
+		if (excludeFilePaths.length > 0) {
+			const placeholders = excludeFilePaths.map(() => "?").join(", ");
+			conditions.push(`vm.file_path NOT IN (${placeholders})`);
+			values.push(...excludeFilePaths);
 		}
-	}
 
-	private async refreshCacheIfNeeded(): Promise<void> {
-		const now = Date.now();
-		if (this.cacheTTL <= 0) {
-			if (this.table) {
-				this.table = null;
-			}
-			this.lastCacheRefresh = now;
+		const rows = db
+			.prepare(`
+				SELECT vm.*, vc.embedding
+				FROM vector_meta vm
+				JOIN vec_chunks vc ON vc.chunk_id = vm.chunk_id
+				WHERE ${conditions.join(" AND ")}
+			`)
+			.all(...values) as VectorCopyRow[];
+
+		if (rows.length === 0) {
 			return;
 		}
 
-		if (this.table && now - this.lastCacheRefresh > this.cacheTTL) {
-			this.table = null;
-			this.lastCacheRefresh = now;
-			logger.debug(`[LanceDB] Cache refreshed (TTL: ${this.cacheTTL}ms)`);
+		const deleteVectorStatement = db.prepare(
+			"DELETE FROM vec_chunks WHERE chunk_id = ?",
+		);
+		const deleteMetaStatement = db.prepare(
+			"DELETE FROM vector_meta WHERE chunk_id = ?",
+		);
+		const insertMetaStatement = db.prepare(`
+			INSERT INTO vector_meta (
+				chunk_id,
+				project_id,
+				snapshot_id,
+				file_path,
+				start_line,
+				end_line,
+				content_hash,
+				chunk_type,
+				primary_symbol
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`);
+		const insertVectorStatement = db.prepare(
+			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, vec_f32(?))",
+		);
+
+		const copyBatch = db.transaction((batch: VectorCopyRow[]) => {
+			for (const row of batch) {
+				deleteVectorStatement.run(row.chunk_id);
+				deleteMetaStatement.run(row.chunk_id);
+				insertMetaStatement.run(
+					row.chunk_id,
+					row.project_id,
+					toSnapshotId,
+					row.file_path,
+					row.start_line,
+					row.end_line,
+					row.content_hash,
+					row.chunk_type,
+					row.primary_symbol,
+				);
+				insertVectorStatement.run(
+					row.chunk_id,
+					this.normalizeEmbeddingValue(row.embedding),
+				);
+			}
+		});
+
+		for (let index = 0; index < rows.length; index += UPSERT_BATCH_SIZE) {
+			const batch = rows.slice(index, index + UPSERT_BATCH_SIZE);
+			copyBatch(batch);
 		}
 	}
 
-	private async reopenTableIfNeeded(): Promise<void> {
-		if (!this.table) {
-			this.table = await this.db.openTable(this.tableName);
+	async deleteByProject(projectId: ProjectId): Promise<void> {
+		await this.initialize();
+		const db = this.getDb();
+
+		db.transaction(() => {
+			db.prepare(`
+				DELETE FROM vec_chunks
+				WHERE chunk_id IN (
+					SELECT chunk_id FROM vector_meta WHERE project_id = ?
+				)
+			`).run(projectId);
+			db.prepare("DELETE FROM vector_meta WHERE project_id = ?").run(projectId);
+		})();
+
+		const legacyVectorsPath = path.join(path.dirname(this.dbPath), "vectors");
+		if (existsSync(legacyVectorsPath)) {
+			rmSync(legacyVectorsPath, { recursive: true, force: true });
 		}
 	}
 
-	private async buildPrefilter(filters: VectorSearchFilters): Promise<string> {
+	private openDatabase(): Database.Database {
+		const db = new Database(this.dbPath);
+		sqliteVec.load(db);
+		return db;
+	}
+
+	private getDb(): Database.Database {
+		if (!this.db) {
+			this.db = this.openDatabase();
+		}
+
+		return this.db;
+	}
+
+	private embeddingToBuffer(embedding: number[]): Buffer {
+		return Buffer.from(new Float32Array(embedding).buffer);
+	}
+
+	private normalizeEmbeddingValue(embedding: unknown): Buffer {
+		if (Buffer.isBuffer(embedding)) {
+			return embedding;
+		}
+
+		if (embedding instanceof Uint8Array) {
+			return Buffer.from(embedding);
+		}
+
+		if (embedding instanceof ArrayBuffer) {
+			return Buffer.from(embedding);
+		}
+
+		throw new Error(
+			"Unsupported sqlite-vec embedding value returned from database",
+		);
+	}
+
+	private buildPrefilter(filters: VectorSearchFilters, alias?: string): string {
 		const conditions: string[] = [];
+		const prefix = alias ? `${alias}.` : "";
 
 		if (filters.snapshotId) {
 			conditions.push(
-				`snapshot_id = '${this.escapeSqlLiteral(filters.snapshotId)}'`,
+				`${prefix}snapshot_id = '${this.escapeSqlLiteral(filters.snapshotId)}'`,
 			);
 		}
 
 		if (filters.filePath) {
 			conditions.push(
-				`file_path = '${this.escapeSqlLiteral(filters.filePath)}'`,
+				`${prefix}file_path = '${this.escapeSqlLiteral(filters.filePath)}'`,
 			);
 		} else if (filters.pathPrefix) {
 			conditions.push(
-				`file_path LIKE '${this.escapeSqlLike(filters.pathPrefix)}%'`,
+				`${prefix}file_path LIKE '${this.escapeSqlLike(filters.pathPrefix)}%'`,
 			);
 		}
 
@@ -486,53 +434,13 @@ export class LanceDbVectorStore implements VectorStore {
 				.filter((chunkType) => chunkType.length > 0)
 				.map((chunkType) => `'${this.escapeSqlLiteral(chunkType)}'`);
 			if (normalizedChunkTypes.length > 0) {
-				conditions.push(`chunk_type IN (${normalizedChunkTypes.join(", ")})`);
+				conditions.push(
+					`${prefix}chunk_type IN (${normalizedChunkTypes.join(", ")})`,
+				);
 			}
 		}
 
 		return conditions.join(" AND ");
-	}
-
-	private euclideanDistance(a: number[], b: number[]): number {
-		const length = Math.min(a.length, b.length);
-		let sum = 0;
-		for (let index = 0; index < length; index += 1) {
-			const delta = a[index] - b[index];
-			sum += delta * delta;
-		}
-		return Math.sqrt(sum);
-	}
-
-	private async createTable(): Promise<void> {
-		this.table = await this.db.createTable(this.tableName, [
-			{
-				project_id: "",
-				chunk_id: "",
-				snapshot_id: "",
-				file_path: "",
-				start_line: 0,
-				end_line: 0,
-				content_hash: "",
-				chunk_type: "",
-				primary_symbol: "",
-				vector: Array(this.vectorSize).fill(0),
-			},
-		]);
-	}
-
-	private hasRequiredSchema(schema: any): boolean {
-		if (!schema?.fields) {
-			return false;
-		}
-
-		const fields = new Set(schema.fields.map((field: any) => field.name));
-		for (const column of REQUIRED_COLUMNS) {
-			if (!fields.has(column)) {
-				return false;
-			}
-		}
-
-		return true;
 	}
 
 	private escapeSqlLiteral(value: string): string {
@@ -543,3 +451,5 @@ export class LanceDbVectorStore implements VectorStore {
 		return this.escapeSqlLiteral(value).replace(/[%_]/g, (char) => `\\${char}`);
 	}
 }
+
+export { SqliteVecVectorStore as LanceDbVectorStore };

@@ -12,7 +12,7 @@ import {
 } from "../../engine/indexer.js";
 import { scanProjectFiles } from "../../engine/scanner.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
-import { LanceDbVectorStore } from "../../storage/vectors.js";
+import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 
 function countChangedFiles(diff: GitDiff): number {
@@ -79,7 +79,6 @@ export function registerIndexCommand(program: Command): void {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
-				const vectorsPath = path.join(dataDir, "vectors");
 
 				initLogger(dataDir);
 				config.load(dataDir);
@@ -110,8 +109,8 @@ export function registerIndexCommand(program: Command): void {
 							metadata.listDependencies(DEFAULT_PROJECT_ID, snapshot.id),
 						]);
 
-						const vectors = new LanceDbVectorStore({
-							dbPath: vectorsPath,
+						const vectors = new SqliteVecVectorStore({
+							dbPath,
 							vectorSize: config.get("vectorSize"),
 						});
 						let vectorCount = 0;
@@ -200,8 +199,8 @@ export function registerIndexCommand(program: Command): void {
 					const startedAt = Date.now();
 					console.log("Preparing indexer...");
 
-					const vectors = new LanceDbVectorStore({
-						dbPath: vectorsPath,
+					const vectors = new SqliteVecVectorStore({
+						dbPath,
 						vectorSize: config.get("vectorSize"),
 					});
 					const embedder = new OllamaEmbeddingProvider(

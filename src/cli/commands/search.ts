@@ -6,7 +6,7 @@ import { initLogger } from "../../core/logger.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SearchEngine } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
-import { LanceDbVectorStore } from "../../storage/vectors.js";
+import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
@@ -176,14 +176,13 @@ export function registerSearchCommand(program: Command): void {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
-				const vectorsPath = path.join(dataDir, "vectors");
 
 				initLogger(dataDir);
 				config.load(dataDir);
 
 				const metadata = new SqliteMetadataStore(dbPath);
-				const vectors = new LanceDbVectorStore({
-					dbPath: vectorsPath,
+				const vectors = new SqliteVecVectorStore({
+					dbPath,
 					vectorSize: config.get("vectorSize"),
 				});
 				const embedder = new OllamaEmbeddingProvider(

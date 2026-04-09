@@ -1,11 +1,18 @@
 import { constants as fsConstants } from "node:fs";
-import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+	access,
+	chmod,
+	mkdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import path from "node:path";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
-import { LanceDbVectorStore } from "../../storage/vectors.js";
+import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { SKILL_MD } from "./skill-template.js";
@@ -96,24 +103,23 @@ export function registerInitCommand(program: Command): void {
 			const resolvedProjectPath = process.cwd();
 			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 			const dbPath = path.join(dataDir, "db.sqlite");
-			const vectorsPath = path.join(dataDir, "vectors");
+			const legacyVectorsPath = path.join(dataDir, "vectors");
 			const configPath = path.join(dataDir, "config.json");
 
 			initLogger(dataDir);
 			config.load(dataDir);
 
 			let metadata: SqliteMetadataStore | null = null;
-			let vectors: LanceDbVectorStore | null = null;
+			let vectors: SqliteVecVectorStore | null = null;
 
 			try {
 				await mkdir(dataDir, { recursive: true });
-				await mkdir(vectorsPath, { recursive: true });
 
 				metadata = new SqliteMetadataStore(dbPath);
 				await metadata.initialize();
 
-				vectors = new LanceDbVectorStore({
-					dbPath: vectorsPath,
+				vectors = new SqliteVecVectorStore({
+					dbPath,
 					vectorSize: config.get("vectorSize"),
 				});
 				await vectors.initialize();
@@ -132,10 +138,16 @@ export function registerInitCommand(program: Command): void {
 				console.log(`Initialized indexer-cli in ${resolvedProjectPath}`);
 				await writeClaudeSkill(resolvedProjectPath);
 				console.log(`  SQLite: ${dbPath}`);
-				console.log(`  Vectors: ${vectorsPath}`);
 				console.log(`  Config: ${configPath}`);
 
 				await ensureIndexed(metadata, resolvedProjectPath);
+
+				if (await pathExists(legacyVectorsPath)) {
+					await rm(legacyVectorsPath, { recursive: true, force: true });
+					console.log(
+						`  Removed legacy vectors directory: ${legacyVectorsPath}`,
+					);
+				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Failed to initialize project: ${message}`);
