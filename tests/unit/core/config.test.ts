@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ConfigManager, config } from "../../../src/core/config.js";
 
 const DEFAULT_CONFIG = {
+	version: "0.0.0",
 	embeddingProvider: "ollama",
 	embeddingModel: "jina-8k",
 	embeddingContextSize: 8192,
