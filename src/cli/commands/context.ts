@@ -241,18 +241,28 @@ export function registerContextCommand(program: Command): void {
 						);
 					}
 
+					const filesWithExports = new Set(
+						visibleSymbols
+							.filter((symbol) => symbol.exported)
+							.map((symbol) => symbol.filePath),
+					);
+
 					const contextData: ContextData = {
 						architecture: {
 							fileStats: architecture?.file_stats ?? {},
 							entrypoints: architecture?.entrypoints ?? [],
 						},
-						modules: visibleFiles.map((file) => ({ path: file.path })),
-						symbols: visibleSymbols.map((symbol) => ({
-							file: symbol.filePath,
-							name: symbol.name,
-							kind: symbol.kind,
-							signature: symbol.signature,
-						})),
+						modules: visibleFiles
+							.filter((file) => filesWithExports.has(file.path))
+							.map((file) => ({ path: file.path })),
+						symbols: visibleSymbols
+							.filter((symbol) => symbol.exported)
+							.map((symbol) => ({
+								file: symbol.filePath,
+								name: symbol.name,
+								kind: symbol.kind,
+								signature: symbol.signature,
+							})),
 						dependencies: limitedDependencies.dependencies,
 					};
 

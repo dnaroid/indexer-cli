@@ -24,7 +24,7 @@ export const DEFAULT_CONFIG: IndexerConfig = {
 	indexConcurrency: 2,
 	indexBatchSize: 8,
 	logLevel: "error",
-	excludePaths: ["fixtures/**", "vendor/**"],
+	excludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
 };
 
 export class ConfigManager {

@@ -19,6 +19,27 @@ export function registerExplainCommand(program: Command): void {
 			const dbPath = path.join(dataDir, "db.sqlite");
 			const isJson = Boolean(options?.json);
 
+			const rankSymbolMatch = (
+				candidateName: string,
+				query: string,
+			): number => {
+				if (candidateName === query) {
+					return 0;
+				}
+
+				const candidateNameLower = candidateName.toLowerCase();
+				const queryLower = query.toLowerCase();
+
+				if (candidateNameLower === queryLower) {
+					return 1;
+				}
+				if (candidateNameLower.startsWith(queryLower)) {
+					return 2;
+				}
+
+				return 3;
+			};
+
 			initLogger(dataDir);
 			config.load(dataDir);
 
@@ -47,20 +68,48 @@ export function registerExplainCommand(program: Command): void {
 				}
 
 				// Search symbols by name
-				const symbols = await metadata.searchSymbols(
+				let symbols = await metadata.searchSymbols(
 					DEFAULT_PROJECT_ID,
 					snapshot.id,
 					symbolName,
 				);
 
+				if (symbols.length === 0) {
+					const camelCaseParts = symbolName
+						.replace(/([a-z])([A-Z])/g, "$1 $2")
+						.split(/\s+/)
+						.filter(Boolean);
+					const fallbackQuery = camelCaseParts[0];
+
+					if (fallbackQuery && fallbackQuery !== symbolName) {
+						symbols = await metadata.searchSymbols(
+							DEFAULT_PROJECT_ID,
+							snapshot.id,
+							fallbackQuery,
+						);
+					}
+				}
+
 				const matches = filterFilePath
 					? symbols.filter((s) => s.filePath === filterFilePath)
-					: symbols.filter(
-							(s) => s.name.toLowerCase() === symbolName.toLowerCase(),
-						);
+					: [...symbols].sort((a, b) => {
+							const rankDiff =
+								rankSymbolMatch(a.name, symbolName) -
+								rankSymbolMatch(b.name, symbolName);
+
+							if (rankDiff !== 0) {
+								return rankDiff;
+							}
+
+							return a.name.localeCompare(b.name);
+						});
 
 				if (matches.length === 0) {
-					const fuzzy = symbols.slice(0, 5);
+					const fuzzy = symbols.slice(0, 5).map((s) => ({
+						name: s.name,
+						kind: s.kind,
+						filePath: s.filePath,
+					}));
 					if (isJson) {
 						console.log(
 							JSON.stringify({ error: "Symbol not found", suggestions: fuzzy }),
@@ -69,7 +118,7 @@ export function registerExplainCommand(program: Command): void {
 						console.error(`Symbol "${symbolName}" not found.`);
 						if (fuzzy.length > 0) {
 							console.error(
-								`Did you mean: ${fuzzy.map((s) => s.name).join(", ")}?`,
+								`Did you mean: ${fuzzy.map((s) => `${s.name} (${s.kind}) in ${s.filePath}`).join(", ")}?`,
 							);
 						}
 					}
@@ -102,6 +151,7 @@ export function registerExplainCommand(program: Command): void {
 							},
 							exported: sym.exported,
 							signature: sym.signature,
+							docComment: sym.docComment ?? null,
 							callers: dependents
 								.map((d) => d.fromPath)
 								.filter((v, i, arr) => arr.indexOf(v) === i),
@@ -134,6 +184,9 @@ export function registerExplainCommand(program: Command): void {
 					);
 					if (result.signature) {
 						console.log(`Signature: ${result.signature}`);
+					}
+					if (result.docComment) {
+						console.log(`Docs:   ${result.docComment.split("\n")[0]}`);
 					}
 					if (result.callers.length > 0) {
 						console.log(`\nCallers (${result.callers.length}):`);

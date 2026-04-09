@@ -14,7 +14,7 @@ const DEFAULT_CONFIG = {
 	indexConcurrency: 2,
 	indexBatchSize: 8,
 	logLevel: "error",
-	excludePaths: ["fixtures/**", "vendor/**"],
+	excludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
 };
 
 describe("ConfigManager", () => {
