@@ -4,6 +4,7 @@ import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID, type SymbolRecord } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
+import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 type TreeNode = {
@@ -95,7 +96,10 @@ function treeToJson(
 export function registerStructureCommand(program: Command): void {
 	program
 		.command("structure")
-		.description("Print indexed file and symbol structure")
+		.description(
+			"Print indexed file and symbol structure (run from the target project root)",
+		)
+		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("--path-prefix <string>", "limit output to a path prefix")
 		.option("--kind <string>", "filter symbols by kind")
 		.option("--json", "output results as JSON")

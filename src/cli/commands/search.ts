@@ -7,12 +7,16 @@ import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SearchEngine } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
+import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 export function registerSearchCommand(program: Command): void {
 	program
 		.command("search <query>")
-		.description("Search indexed code semantically")
+		.description(
+			"Search indexed code semantically (run from the target project root)",
+		)
+		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("--top-k <number>", "number of results to return", "10")
 		.option(
 			"--path-prefix <string>",

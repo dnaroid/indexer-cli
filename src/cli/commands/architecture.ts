@@ -4,6 +4,7 @@ import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
+import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 type ArchitectureSnapshot = {
@@ -98,7 +99,10 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 export function registerArchitectureCommand(program: Command): void {
 	program
 		.command("architecture")
-		.description("Print the latest architecture snapshot")
+		.description(
+			"Print the latest architecture snapshot (run from the target project root)",
+		)
+		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("--json", "output results as JSON")
 		.action(async (options?: { json?: boolean }) => {
 			const resolvedProjectPath = process.cwd();

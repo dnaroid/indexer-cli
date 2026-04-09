@@ -405,7 +405,9 @@ function printSummary(): void {
 export function registerSetupCommand(program: Command): void {
 	program
 		.command("setup")
-		.description("Check and install all dependencies for indexer-cli")
+		.description(
+			"Check and install all dependencies for indexer-cli (can be run from anywhere)",
+		)
 		.action(() => {
 			console.log(bold("\n  indexer-cli dependency setup\n"));
 			console.log(`  Platform: ${os.type()} ${os.release()} (${os.arch()})\n`);

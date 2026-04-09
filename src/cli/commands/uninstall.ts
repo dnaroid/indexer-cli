@@ -4,6 +4,7 @@ import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Command } from "commander";
+import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
@@ -78,7 +79,10 @@ async function removeFromGitignore(
 export function registerUninstallCommand(program: Command): void {
 	program
 		.command("uninstall")
-		.description("Remove indexer data for a project")
+		.description(
+			"Remove indexer data for a project (run from the target project root)",
+		)
+		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("-f, --force", "Skip confirmation prompt")
 		.action(async (options: { force?: boolean }) => {
 			const resolvedProjectPath = process.cwd();

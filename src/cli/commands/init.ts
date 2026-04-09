@@ -6,6 +6,7 @@ import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
+import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { SKILL_MD } from "./skill-template.js";
 
@@ -63,7 +64,10 @@ async function ensureGitignoreEntries(
 export function registerInitCommand(program: Command): void {
 	program
 		.command("init")
-		.description("Initialize indexer storage for a project")
+		.description(
+			"Initialize indexer storage for a project (run from the target project root)",
+		)
+		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.action(async () => {
 			const resolvedProjectPath = process.cwd();
 			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");

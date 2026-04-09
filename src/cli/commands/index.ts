@@ -14,6 +14,7 @@ import { scanProjectFiles } from "../../engine/scanner.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { LanceDbVectorStore } from "../../storage/vectors.js";
 import type { GitDiff } from "../../core/types.js";
+import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 
 function countChangedFiles(diff: GitDiff): number {
 	return diff.added.length + diff.modified.length + diff.deleted.length;
@@ -61,7 +62,10 @@ function printFileTree(node: TreeNode, indent: string): void {
 export function registerIndexCommand(program: Command): void {
 	program
 		.command("index")
-		.description("Index project files for semantic search")
+		.description(
+			"Index project files for semantic search (run from the target project root)",
+		)
+		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("--full", "force a full reindex")
 		.option("--dry-run", "show what would change without indexing")
 		.option("--status", "show indexing status for the current project")

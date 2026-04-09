@@ -6,6 +6,7 @@ import { registerStructureCommand } from "./commands/structure.js";
 import { registerArchitectureCommand } from "./commands/architecture.js";
 import { registerUninstallCommand } from "./commands/uninstall.js";
 import { registerSetupCommand } from "./commands/setup.js";
+import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.helpDisplayed",
@@ -24,8 +25,11 @@ function isHandledCommanderExit(error: unknown): boolean {
 
 program
 	.name("indexer-cli")
-	.description("Lightweight project indexer with semantic search")
+	.description(
+		"Lightweight project indexer with semantic search. Run project commands from the root of the target project; `setup` can run anywhere.",
+	)
 	.version("0.1.0")
+	.addHelpText("after", `\n${PROJECT_ROOT_PROGRAM_HELP}\n`)
 	.exitOverride();
 registerSetupCommand(program);
 registerInitCommand(program);
