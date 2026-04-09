@@ -28,6 +28,10 @@ type Migration = {
 	up: (db: Database.Database) => void;
 };
 
+// To add a new migration:
+// 1. Add an entry to this array with the next sequential version number
+// 2. Use PRAGMA table_info / IF NOT EXISTS patterns to make migrations idempotent
+// 3. Add a test case in tests/unit/storage/sqlite.test.ts
 const migrations: Migration[] = [
 	{
 		version: 1,

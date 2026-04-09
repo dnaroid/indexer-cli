@@ -9,6 +9,8 @@ import { registerSetupCommand } from "./commands/setup.js";
 import { registerContextCommand } from "./commands/context.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
+import { VERSION } from "./version.js";
+import { checkForUpdates } from "../core/update-check.js";
 import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
@@ -32,7 +34,7 @@ program
 	.description(
 		"Lightweight project indexer with semantic search. Run project commands from the root of the target project; `setup` can run anywhere.",
 	)
-	.version("0.1.0")
+	.version(VERSION)
 	.addHelpText("after", `\n${PROJECT_ROOT_PROGRAM_HELP}\n`)
 	.exitOverride();
 registerSetupCommand(program);
@@ -53,3 +55,5 @@ try {
 		throw error;
 	}
 }
+
+checkForUpdates().catch(() => {});
