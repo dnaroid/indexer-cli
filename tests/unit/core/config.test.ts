@@ -14,8 +14,6 @@ const DEFAULT_CONFIG = {
 	indexConcurrency: 2,
 	indexBatchSize: 8,
 	logLevel: "error",
-	enrichModel: "qwen2.5-coder:1.5b",
-	enrichConcurrency: 1,
 	excludePaths: ["fixtures/**", "vendor/**"],
 };
 

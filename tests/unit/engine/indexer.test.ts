@@ -1082,6 +1082,9 @@ describe("IndexerEngine internals", () => {
 			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
 				"project-id",
 				"snapshot-1",
+				{
+					preserveActiveIndexing: true,
+				},
 			);
 		});
 
@@ -1173,6 +1176,9 @@ describe("IndexerEngine internals", () => {
 			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
 				"project-id",
 				"snapshot-1",
+				{
+					preserveActiveIndexing: true,
+				},
 			);
 			expect(
 				options.vectors.deleteBySnapshot.mock.invocationCallOrder[1],

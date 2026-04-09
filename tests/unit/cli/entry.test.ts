@@ -42,6 +42,7 @@ describe("CLI entry error handling", () => {
 				"commander.helpDisplayed",
 				"commander.help",
 				"commander.version",
+				"commander.unknownCommand",
 			]),
 		);
 		expect(
@@ -54,6 +55,11 @@ describe("CLI entry error handling", () => {
 		).toBe(true);
 		expect(
 			entryInternals.isHandledCommanderExit({ code: "commander.version" }),
+		).toBe(true);
+		expect(
+			entryInternals.isHandledCommanderExit({
+				code: "commander.unknownCommand",
+			}),
 		).toBe(true);
 	});
 

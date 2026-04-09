@@ -10,9 +10,7 @@ import { ensureIndexed } from "./ensure-indexed.js";
 export function registerExplainCommand(program: Command): void {
 	program
 		.command("explain <symbol>")
-		.description(
-			"Show context for a symbol: signature, description, callers, and module",
-		)
+		.description("Show context for a symbol: signature, callers, and module")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("--json", "output as JSON")
 		.action(async (symbolArg: string, options?: { json?: boolean }) => {
@@ -81,12 +79,7 @@ export function registerExplainCommand(program: Command): void {
 
 				const results = await Promise.all(
 					matches.map(async (sym) => {
-						const [enrichment, deps, dependents] = await Promise.all([
-							metadata.getSymbolEnrichment(
-								DEFAULT_PROJECT_ID,
-								sym.filePath,
-								sym.name,
-							),
+						const [deps, dependents] = await Promise.all([
 							metadata.listDependencies(
 								DEFAULT_PROJECT_ID,
 								snapshot.id,
@@ -109,7 +102,6 @@ export function registerExplainCommand(program: Command): void {
 							},
 							exported: sym.exported,
 							signature: sym.signature,
-							description: enrichment?.description ?? null,
 							callers: dependents
 								.map((d) => d.fromPath)
 								.filter((v, i, arr) => arr.indexOf(v) === i),
@@ -123,24 +115,25 @@ export function registerExplainCommand(program: Command): void {
 
 				if (isJson) {
 					console.log(
-						JSON.stringify(results.length === 1 ? results[0] : results, null, 2),
+						JSON.stringify(
+							results.length === 1 ? results[0] : results,
+							null,
+							2,
+						),
 					);
 					return;
 				}
 
 				for (const result of results) {
 					console.log(`Symbol: ${result.name}`);
-					console.log(`File:   ${result.file} (lines ${result.lines.start}-${result.lines.end})`);
-					console.log(`Kind:   ${result.kind}${result.exported ? " (exported)" : ""}`);
+					console.log(
+						`File:   ${result.file} (lines ${result.lines.start}-${result.lines.end})`,
+					);
+					console.log(
+						`Kind:   ${result.kind}${result.exported ? " (exported)" : ""}`,
+					);
 					if (result.signature) {
 						console.log(`Signature: ${result.signature}`);
-					}
-					if (result.description) {
-						console.log(`\nDescription: ${result.description}`);
-					} else {
-						console.log(
-							"\n(No description yet. Run `indexer-cli enrich` to generate.)",
-						);
 					}
 					if (result.callers.length > 0) {
 						console.log(`\nCallers (${result.callers.length}):`);
@@ -157,8 +150,7 @@ export function registerExplainCommand(program: Command): void {
 					if (results.length > 1) console.log("");
 				}
 			} catch (error) {
-				const message =
-					error instanceof Error ? error.message : String(error);
+				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Explain failed: ${message}`);
 				process.exitCode = 1;
 			} finally {

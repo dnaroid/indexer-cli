@@ -33,7 +33,7 @@ describe("SqliteMetadataStore", () => {
 			.prepare("PRAGMA table_info(symbols)")
 			.all() as Array<{ name: string }>;
 
-		expect(migrationRow.version).toBe(2);
+		expect(migrationRow.version).toBe(1);
 		expect(symbolColumns.map((column) => column.name)).toContain(
 			"metadata_json",
 		);
@@ -623,6 +623,36 @@ describe("SqliteMetadataStore", () => {
 
 		await store.clearProjectMetadata(PROJECT_ID);
 		expect(await store.getSnapshot(keep.id)).toBeNull();
+	});
+
+	it("preserveActiveIndexing skips recent 'indexing' snapshots but removes old ones", async () => {
+		const db = (store as any).db;
+
+		// A recent (< 5 min) "indexing" snapshot — simulates a concurrent process
+		const recentMs = Date.now() - 60_000; // 1 minute ago
+		db.prepare(
+			"INSERT INTO snapshots (id, project_id, git_ref, status, created_at) VALUES (?, ?, 'head', 'indexing', ?)",
+		).run("snap-recent-indexing", PROJECT_ID, recentMs);
+
+		// An old (> 5 min) stale "indexing" snapshot — safe to remove
+		const oldMs = Date.now() - 10 * 60_000; // 10 minutes ago
+		db.prepare(
+			"INSERT INTO snapshots (id, project_id, git_ref, status, created_at) VALUES (?, ?, 'head', 'indexing', ?)",
+		).run("snap-old-indexing", PROJECT_ID, oldMs);
+
+		// The "keep" snapshot (current process's completed snapshot)
+		const keep = await store.createSnapshot(PROJECT_ID, {
+			headCommit: "head",
+			indexedAt: 0,
+		});
+
+		await store.clearProjectMetadata(PROJECT_ID, keep.id, {
+			preserveActiveIndexing: true,
+		});
+
+		expect(await store.getSnapshot(keep.id)).not.toBeNull();
+		expect(await store.getSnapshot("snap-recent-indexing")).not.toBeNull();
+		expect(await store.getSnapshot("snap-old-indexing")).toBeNull();
 	});
 
 	it("keeps retained snapshot data usable for the next incremental copy after cleanup", async () => {

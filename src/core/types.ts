@@ -259,32 +259,8 @@ export interface MetadataStore {
 	clearProjectMetadata(
 		id: ProjectId,
 		keepSnapshotId?: SnapshotId,
+		options?: { preserveActiveIndexing?: boolean },
 	): Promise<void>;
-	upsertFileEnrichment(
-		projectId: ProjectId,
-		record: FileEnrichmentRecord,
-	): Promise<void>;
-	getFileEnrichment(
-		projectId: ProjectId,
-		filePath: string,
-	): Promise<FileEnrichmentRecord | null>;
-	listFileEnrichments(
-		projectId: ProjectId,
-		filePaths?: string[],
-	): Promise<FileEnrichmentRecord[]>;
-	upsertSymbolEnrichment(
-		projectId: ProjectId,
-		record: SymbolEnrichmentRecord,
-	): Promise<void>;
-	getSymbolEnrichment(
-		projectId: ProjectId,
-		filePath: string,
-		symbolName: string,
-	): Promise<SymbolEnrichmentRecord | null>;
-	listSymbolEnrichments(
-		projectId: ProjectId,
-		filePath?: string,
-	): Promise<SymbolEnrichmentRecord[]>;
 }
 
 export interface VectorStore {
@@ -305,23 +281,6 @@ export interface VectorStore {
 		excludeFilePaths: string[],
 	): Promise<void>;
 	deleteByProject(projectId: ProjectId): Promise<void>;
-}
-
-export interface FileEnrichmentRecord {
-	projectId: ProjectId;
-	filePath: string;
-	contentHash: string;
-	moduleSummary: string;
-	enrichedAt: number;
-}
-
-export interface SymbolEnrichmentRecord {
-	projectId: ProjectId;
-	filePath: string;
-	symbolName: string;
-	contentHash: string;
-	description: string;
-	enrichedAt: number;
 }
 
 export interface GitDiff {

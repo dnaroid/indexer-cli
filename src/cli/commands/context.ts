@@ -14,21 +14,18 @@ import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 type ContextData = {
-	enriched: boolean;
 	architecture: {
 		fileStats: Record<string, number>;
 		entrypoints: string[];
 	};
 	modules: Array<{
 		path: string;
-		summary?: string;
 	}>;
 	symbols: Array<{
 		file: string;
 		name: string;
 		kind: string;
 		signature?: string;
-		description?: string;
 	}>;
 	dependencies: Record<string, string[]>;
 };
@@ -90,17 +87,10 @@ function formatPlain(data: ContextData): void {
 	}
 
 	if (data.modules.length > 0) {
-		console.log(data.enriched ? "\n## Module Summaries\n" : "\n## Modules\n");
+		console.log("\n## Modules\n");
 		for (const mod of data.modules) {
-			console.log(`${mod.path}`);
-			if (mod.summary) {
-				console.log(`  ${mod.summary}`);
-			}
+			console.log(mod.path);
 		}
-	} else if (data.enriched) {
-		console.log(
-			"\n(No module summaries yet. Run `indexer-cli enrich` to generate them.)",
-		);
 	}
 
 	if (data.symbols.length > 0) {
@@ -108,9 +98,6 @@ function formatPlain(data: ContextData): void {
 		for (const sym of data.symbols) {
 			const sig = sym.signature ? ` — ${sym.signature}` : "";
 			console.log(`${sym.file}::${sym.name} (${sym.kind})${sig}`);
-			if (sym.description) {
-				console.log(`  ${sym.description}`);
-			}
 		}
 	}
 
@@ -128,9 +115,7 @@ function formatPlain(data: ContextData): void {
 export function registerContextCommand(program: Command): void {
 	program
 		.command("context")
-		.description(
-			"Output dense project context aggregated from the enriched index",
-		)
+		.description("Output dense project context aggregated from the index")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("--format <format>", "output format: plain or json", "plain")
 		.option(
@@ -184,13 +169,7 @@ export function registerContextCommand(program: Command): void {
 						scopeFilePaths = new Set([...changes.added, ...changes.modified]);
 					}
 
-					const [
-						files,
-						allSymbols,
-						archArtifact,
-						fileEnrichments,
-						symbolEnrichments,
-					] = await Promise.all([
+					const [files, allSymbols, archArtifact] = await Promise.all([
 						metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id),
 						metadata.listSymbols(DEFAULT_PROJECT_ID, snapshot.id),
 						metadata.getArtifact(
@@ -199,16 +178,7 @@ export function registerContextCommand(program: Command): void {
 							"architecture_snapshot",
 							"project",
 						),
-						metadata.listFileEnrichments(DEFAULT_PROJECT_ID),
-						metadata.listSymbolEnrichments(DEFAULT_PROJECT_ID),
 					]);
-
-					const enrichmentByPath = new Map(
-						fileEnrichments.map((e) => [e.filePath, e]),
-					);
-					const symbolEnrichmentMap = new Map(
-						symbolEnrichments.map((e) => [`${e.filePath}::${e.symbolName}`, e]),
-					);
 
 					const scopedFiles =
 						scopeFilePaths !== null
@@ -237,21 +207,6 @@ export function registerContextCommand(program: Command): void {
 					const visibleSymbols = allSymbols.filter((symbol) =>
 						filePathSet.has(symbol.filePath),
 					);
-					const hasEnrichmentData =
-						visibleFiles.some((file) => {
-							const summary = enrichmentByPath.get(file.path)?.moduleSummary;
-							return typeof summary === "string" && summary.length > 0;
-						}) ||
-						visibleSymbols.some((symbol) =>
-							symbolEnrichmentMap.has(`${symbol.filePath}::${symbol.name}`),
-						);
-
-					if (!hasEnrichmentData) {
-						console.error(
-							"No enrichment data found. Run 'indexer-cli enrich' for descriptions and module summaries.",
-						);
-					}
-
 					const dependencyCandidates =
 						architecture?.dependency_map?.internal ?? {};
 					const moduleFiles = architecture?.module_files ?? {};
@@ -287,46 +242,17 @@ export function registerContextCommand(program: Command): void {
 					}
 
 					const contextData: ContextData = {
-						enriched: hasEnrichmentData,
 						architecture: {
 							fileStats: architecture?.file_stats ?? {},
 							entrypoints: architecture?.entrypoints ?? [],
 						},
-						modules: hasEnrichmentData
-							? visibleFiles.map((file) => {
-									const summary = enrichmentByPath.get(
-										file.path,
-									)?.moduleSummary;
-									return summary
-										? { path: file.path, summary }
-										: { path: file.path };
-								})
-							: visibleFiles.map((file) => ({ path: file.path })),
-						symbols: hasEnrichmentData
-							? visibleSymbols.flatMap((symbol) => {
-									const enrichment = symbolEnrichmentMap.get(
-										`${symbol.filePath}::${symbol.name}`,
-									);
-									if (!enrichment) {
-										return [];
-									}
-
-									return [
-										{
-											file: symbol.filePath,
-											name: symbol.name,
-											kind: symbol.kind,
-											signature: symbol.signature,
-											description: enrichment.description,
-										},
-									];
-								})
-							: visibleSymbols.map((symbol) => ({
-									file: symbol.filePath,
-									name: symbol.name,
-									kind: symbol.kind,
-									signature: symbol.signature,
-								})),
+						modules: visibleFiles.map((file) => ({ path: file.path })),
+						symbols: visibleSymbols.map((symbol) => ({
+							file: symbol.filePath,
+							name: symbol.name,
+							kind: symbol.kind,
+							signature: symbol.signature,
+						})),
 						dependencies: limitedDependencies.dependencies,
 					};
 

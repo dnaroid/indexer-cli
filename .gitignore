@@ -13,6 +13,6 @@ yarn-error.log*
 /.idea/
 /dist/
 /coverage/
+/.sisyphus/
 .indexer-cli/
 .claude/
-/.sisyphus/

@@ -1353,7 +1353,9 @@ export class IndexerEngine {
 			await this.deleteSnapshotVectorsWithRetry(projectId, snapshotId);
 		}
 
-		await this.metadata.clearProjectMetadata(projectId, keepSnapshotId);
+		await this.metadata.clearProjectMetadata(projectId, keepSnapshotId, {
+			preserveActiveIndexing: true,
+		});
 	}
 
 	private async listStaleSnapshotIds(

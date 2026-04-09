@@ -132,4 +132,33 @@ describe("setup command helpers", () => {
 		]);
 		expect(checkJinaModel).not.toHaveBeenCalled();
 	});
+
+	it("checks the embedding model when Ollama is ready", () => {
+		const checkJinaModel = vi.fn(() => ({
+			name: "Model jina-8k",
+			status: "ok" as const,
+			detail: "pulled",
+		}));
+
+		const results = setupInternals.collectOllamaResults({
+			checkOllama: () => ({
+				name: "Ollama",
+				status: "ok",
+				detail: "installed",
+			}),
+			ensureOllamaRunning: () => ({
+				name: "Ollama daemon",
+				status: "ok",
+				detail: "running",
+			}),
+			checkJinaModel,
+		});
+
+		expect(results).toEqual([
+			{ name: "Ollama", status: "ok", detail: "installed" },
+			{ name: "Ollama daemon", status: "ok", detail: "running" },
+			{ name: "Model jina-8k", status: "ok", detail: "pulled" },
+		]);
+		expect(checkJinaModel).toHaveBeenCalledTimes(1);
+	});
 });

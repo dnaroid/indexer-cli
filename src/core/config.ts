@@ -11,12 +11,10 @@ export interface IndexerConfig {
 	indexConcurrency: number;
 	indexBatchSize: number;
 	logLevel: string;
-	enrichModel: string;
-	enrichConcurrency: number;
 	excludePaths: string[];
 }
 
-const DEFAULT_CONFIG: IndexerConfig = {
+export const DEFAULT_CONFIG: IndexerConfig = {
 	embeddingProvider: "ollama",
 	embeddingModel: "jina-8k",
 	embeddingContextSize: 8192,
@@ -26,8 +24,6 @@ const DEFAULT_CONFIG: IndexerConfig = {
 	indexConcurrency: 2,
 	indexBatchSize: 8,
 	logLevel: "error",
-	enrichModel: "qwen2.5-coder:1.5b",
-	enrichConcurrency: 1,
 	excludePaths: ["fixtures/**", "vendor/**"],
 };
 
@@ -73,13 +69,6 @@ export class ConfigManager {
 				this.config.indexBatchSize = parsed.indexBatchSize;
 			if (typeof parsed.logLevel === "string")
 				this.config.logLevel = parsed.logLevel;
-			if (typeof parsed.enrichModel === "string")
-				this.config.enrichModel = parsed.enrichModel;
-			if (
-				typeof parsed.enrichConcurrency === "number" &&
-				parsed.enrichConcurrency > 0
-			)
-				this.config.enrichConcurrency = parsed.enrichConcurrency;
 			if (Array.isArray(parsed.excludePaths)) {
 				const excludePaths = parsed.excludePaths
 					.filter((value): value is string => typeof value === "string")

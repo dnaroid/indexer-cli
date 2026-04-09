@@ -46,12 +46,6 @@ function createMetadataStoreMock(
 		listArtifacts: vi.fn(),
 		copyUnchangedFileData: vi.fn(),
 		clearProjectMetadata: vi.fn(),
-		upsertFileEnrichment: vi.fn(),
-		getFileEnrichment: vi.fn(),
-		listFileEnrichments: vi.fn(),
-		upsertSymbolEnrichment: vi.fn(),
-		getSymbolEnrichment: vi.fn(),
-		listSymbolEnrichments: vi.fn(),
 	};
 }
 
