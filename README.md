@@ -78,14 +78,14 @@ indexer-cli search "authentication middleware"
 
 Check and install all dependencies (Node.js, Git, build tools, Ollama, embedding model). Works on macOS and Linux.
 
-### `indexer-cli init [projectPath]`
+### `indexer-cli init`
 
 Create the `.indexer-cli/` directory, initialize the SQLite database and LanceDB vector store, and add `.indexer-cli/`
-to `.gitignore`.
+to `.gitignore` in the current working directory.
 
-### `indexer-cli index [projectPath]`
+### `indexer-cli index`
 
-Index all supported source files in the project.
+Index all supported source files in the current working directory.
 
 | Option      | Description                                            |
 |-------------|--------------------------------------------------------|
@@ -106,9 +106,9 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
 | `--json`                 | —       | Output results as JSON                                   |
 
-### `indexer-cli structure [projectPath]`
+### `indexer-cli structure`
 
-Print a file tree annotated with extracted symbols. Automatically re-indexes changed files if needed.
+Print a file tree annotated with extracted symbols for the current working directory. Automatically re-indexes changed files if needed.
 
 | Option                   | Description                                              |
 |--------------------------|----------------------------------------------------------|
@@ -116,13 +116,13 @@ Print a file tree annotated with extracted symbols. Automatically re-indexes cha
 | `--kind <string>`        | Filter by symbol kind: `function`, `class`, `method`, `interface`, `type`, `variable`, `module`, `signal` |
 | `--json`                 | Output structure as JSON                                 |
 
-### `indexer-cli architecture [projectPath]`
+### `indexer-cli architecture`
 
-Print an architecture snapshot: file statistics, detected entry points, and a dependency graph.
+Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a dependency graph.
 
-### `indexer-cli uninstall [projectPath]`
+### `indexer-cli uninstall`
 
-Remove the `.indexer-cli/` directory. Prompts for confirmation before deleting.
+Remove the `.indexer-cli/` directory from the current working directory. Prompts for confirmation before deleting.
 
 ## License
 
