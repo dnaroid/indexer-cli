@@ -154,6 +154,10 @@ export function registerSearchCommand(program: Command): void {
 			"--omit-content",
 			"exclude content from results (token-saving shorthand)",
 		)
+		.option(
+			"--include-content",
+			"include content in JSON output (omitted by default)",
+		)
 		.option("--json", "output results as JSON")
 		.action(
 			async (
@@ -165,6 +169,7 @@ export function registerSearchCommand(program: Command): void {
 					fields?: string;
 					minScore?: string;
 					omitContent?: boolean;
+					includeContent?: boolean;
 					json?: boolean;
 				},
 			) => {
@@ -211,9 +216,12 @@ export function registerSearchCommand(program: Command): void {
 					}
 
 					const topK = Number.parseInt(options?.topK ?? "10", 10);
+					const rawFields = parseSearchFields(options?.fields);
 					const fields = options?.omitContent
-						? parseSearchFields(options?.fields).filter((f) => f !== "content")
-						: parseSearchFields(options?.fields);
+						? rawFields.filter((f) => f !== "content")
+						: options?.json && !options?.includeContent
+							? rawFields.filter((f) => f !== "content")
+							: rawFields;
 					const minScore = parseMinScore(options?.minScore);
 					const chunkTypes = options?.chunkTypes
 						?.split(",")

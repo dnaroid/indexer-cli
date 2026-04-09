@@ -311,7 +311,7 @@ export function registerStructureCommand(program: Command): void {
 					}
 
 					if (options?.json) {
-						const tree = treeToJson(
+						let tree = treeToJson(
 							root,
 							"",
 							symbolsByFile,
@@ -320,6 +320,30 @@ export function registerStructureCommand(program: Command): void {
 							fileCounter,
 							maxFiles,
 						);
+
+						if (options?.pathPrefix) {
+							const parts = options.pathPrefix.split("/").filter(Boolean);
+							let current: object[] = tree;
+							for (const part of parts) {
+								const dir = current.find(
+									(
+										entry,
+									): entry is {
+										type: string;
+										name: string;
+										children?: object[];
+									} =>
+										"type" in entry &&
+										"name" in entry &&
+										(entry as { type: string; name: string }).type ===
+											"directory" &&
+										(entry as { type: string; name: string }).name === part,
+								);
+								current = dir?.children ?? [];
+							}
+							tree = current;
+						}
+
 						if (fileCounter && fileCounter.hidden > 0) {
 							tree.push({ type: "truncated", hiddenFiles: fileCounter.hidden });
 						}

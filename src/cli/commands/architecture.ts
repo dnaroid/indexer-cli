@@ -93,63 +93,146 @@ export function registerArchitectureCommand(program: Command): void {
 		.command("architecture")
 		.description("Print the latest architecture snapshot")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
+		.option(
+			"--path-prefix <string>",
+			"limit output to files under a path prefix",
+		)
 		.option("--json", "output results as JSON")
 		.option("--include-fixtures", "include fixture/vendor paths in output")
-		.action(async (options?: { json?: boolean; includeFixtures?: boolean }) => {
-			const resolvedProjectPath = process.cwd();
-			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
-			const dbPath = path.join(dataDir, "db.sqlite");
+		.action(
+			async (options?: {
+				json?: boolean;
+				includeFixtures?: boolean;
+				pathPrefix?: string;
+			}) => {
+				const resolvedProjectPath = process.cwd();
+				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
+				const dbPath = path.join(dataDir, "db.sqlite");
 
-			initLogger(dataDir);
-			config.load(dataDir);
+				initLogger(dataDir);
+				config.load(dataDir);
 
-			const metadata = new SqliteMetadataStore(dbPath);
+				const metadata = new SqliteMetadataStore(dbPath);
 
-			try {
-				await metadata.initialize();
-				await ensureIndexed(metadata, resolvedProjectPath, {
-					silent: Boolean(options?.json),
-				});
-				const snapshot =
-					await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
-				if (!snapshot) {
-					throw new Error(
-						"Auto-indexing did not produce a completed snapshot.",
-					);
-				}
-
-				const artifact = await metadata.getArtifact(
-					DEFAULT_PROJECT_ID,
-					snapshot.id,
-					"architecture_snapshot",
-					"project",
-				);
-
-				if (!artifact) {
-					throw new Error("Architecture snapshot unavailable after indexing.");
-				}
-
-				const architecture = JSON.parse(
-					artifact.dataJson,
-				) as ArchitectureSnapshot;
-				const visibleArchitecture = options?.includeFixtures
-					? architecture
-					: filterArchitectureSnapshot(
-							architecture,
-							config.get("excludePaths"),
+				try {
+					await metadata.initialize();
+					await ensureIndexed(metadata, resolvedProjectPath, {
+						silent: Boolean(options?.json),
+					});
+					const snapshot =
+						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+					if (!snapshot) {
+						throw new Error(
+							"Auto-indexing did not produce a completed snapshot.",
 						);
+					}
 
-				if (options?.json) {
-					console.log(JSON.stringify(visibleArchitecture, null, 2));
-				} else {
-					formatPlain(visibleArchitecture);
+					const artifact = await metadata.getArtifact(
+						DEFAULT_PROJECT_ID,
+						snapshot.id,
+						"architecture_snapshot",
+						"project",
+					);
+
+					if (!artifact) {
+						throw new Error(
+							"Architecture snapshot unavailable after indexing.",
+						);
+					}
+
+					const architecture = JSON.parse(
+						artifact.dataJson,
+					) as ArchitectureSnapshot;
+					let visibleArchitecture = options?.includeFixtures
+						? architecture
+						: filterArchitectureSnapshot(
+								architecture,
+								config.get("excludePaths"),
+							);
+
+					if (options?.pathPrefix) {
+						const prefix = options.pathPrefix;
+						const allFiles = visibleArchitecture.files ?? [];
+						const matchingFiles = allFiles.filter((f) =>
+							f.path.startsWith(prefix),
+						);
+						const matchingPaths = new Set(matchingFiles.map((f) => f.path));
+						const matchingModules = Object.fromEntries(
+							Object.entries(visibleArchitecture.module_files ?? {})
+								.map(([key, paths]) => [
+									key,
+									paths.filter((p) => matchingPaths.has(p)),
+								])
+								.filter(([, paths]) => paths.length > 0),
+						);
+						const matchingModuleKeys = new Set(Object.keys(matchingModules));
+						const filteredDeps = (
+							bucket: Record<string, string[]>,
+						): Record<string, string[]> =>
+							Object.fromEntries(
+								Object.entries(bucket)
+									.filter(([from]) => matchingModuleKeys.has(from))
+									.map(([from, to]) => [
+										from,
+										to.filter((t) => matchingModuleKeys.has(t)),
+									]),
+							);
+
+						visibleArchitecture = {
+							...visibleArchitecture,
+							files: matchingFiles,
+							module_files: matchingModules,
+							entrypoints: (visibleArchitecture.entrypoints ?? []).filter(
+								(ep) => matchingPaths.has(ep),
+							),
+							dependency_map: {
+								internal: filteredDeps(
+									visibleArchitecture.dependency_map?.internal ?? {},
+								),
+								external: Object.fromEntries(
+									Object.entries(
+										visibleArchitecture.dependency_map?.external ?? {},
+									).filter(([from]) => matchingModuleKeys.has(from)),
+								),
+								builtin: Object.fromEntries(
+									Object.entries(
+										visibleArchitecture.dependency_map?.builtin ?? {},
+									).filter(([from]) => matchingModuleKeys.has(from)),
+								),
+								unresolved: Object.fromEntries(
+									Object.entries(
+										visibleArchitecture.dependency_map?.unresolved ?? {},
+									).filter(([from]) => matchingModuleKeys.has(from)),
+								),
+							},
+							file_stats: Object.fromEntries(
+								Object.entries(
+									matchingFiles.reduce(
+										(acc, f) => {
+											const lang = f.language || "unknown";
+											acc[lang] = (acc[lang] || 0) + 1;
+											return acc;
+										},
+										{} as Record<string, number>,
+									),
+								).sort((a, b) => a[0].localeCompare(b[0])),
+							),
+						};
+					}
+
+					if (options?.json) {
+						console.log(JSON.stringify(visibleArchitecture, null, 2));
+					} else {
+						formatPlain(visibleArchitecture);
+					}
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					console.error(`Architecture command failed: ${message}`);
+					process.exitCode = 1;
+				} finally {
+					await metadata.close().catch(() => undefined);
 				}
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				console.error(`Architecture command failed: ${message}`);
-				process.exitCode = 1;
-			} finally {
-				await metadata.close().catch(() => undefined);
-			}
-		});
+			},
+		);
 }
