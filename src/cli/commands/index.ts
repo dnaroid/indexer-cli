@@ -14,6 +14,7 @@ import { scanProjectFiles } from "../../engine/scanner.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
+import { isJsonOutput } from "../output-mode.js";
 
 function countChangedFiles(diff: GitDiff): number {
 	return diff.added.length + diff.modified.length + diff.deleted.length;
@@ -67,14 +68,14 @@ export function registerIndexCommand(program: Command): void {
 		.option("--dry-run", "show what would change without indexing")
 		.option("--status", "show indexing status for the current project")
 		.option("--tree", "show indexed file tree (use with --status)")
-		.option("--json", "output status as JSON (use with --status)")
+		.option("--txt", "output status as human-readable text (use with --status)")
 		.action(
 			async (options?: {
 				full?: boolean;
 				dryRun?: boolean;
 				status?: boolean;
 				tree?: boolean;
-				json?: boolean;
+				txt?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
@@ -89,11 +90,12 @@ export function registerIndexCommand(program: Command): void {
 					await metadata.initialize();
 
 					if (options?.status) {
+						const isJson = isJsonOutput(options);
 						const snapshot =
 							await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 
 						if (!snapshot) {
-							if (options?.json) {
+							if (isJson) {
 								console.log(JSON.stringify({ indexed: false }, null, 2));
 							} else {
 								console.log(
@@ -138,7 +140,7 @@ export function registerIndexCommand(program: Command): void {
 							);
 						}
 
-						if (options?.json) {
+						if (isJson) {
 							const output: Record<string, unknown> = {
 								indexed: true,
 								snapshot: {

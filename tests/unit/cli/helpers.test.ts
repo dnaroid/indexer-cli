@@ -60,6 +60,14 @@ const architecture = await loadInternals<{
 const search = await loadInternals<{
 	parseSearchFields: (input?: string) => string[];
 	parseMinScore: (input?: string) => number | undefined;
+	resolveOutputFields: (
+		rawFields: string[],
+		options: {
+			omitContent?: boolean;
+			includeContent?: boolean;
+			isJson: boolean;
+		},
+	) => string[];
 	projectSearchResult: (
 		result: {
 			filePath: string;
@@ -74,7 +82,12 @@ const search = await loadInternals<{
 }>(
 	"../../../src/cli/commands/search.ts",
 	/const SEARCH_FIELDS[\s\S]*?(?=export function registerSearchCommand)/,
-	["parseSearchFields", "parseMinScore", "projectSearchResult"],
+	[
+		"parseSearchFields",
+		"parseMinScore",
+		"resolveOutputFields",
+		"projectSearchResult",
+	],
 );
 
 const context = await loadInternals<{
@@ -102,6 +115,10 @@ const structure = await loadInternals<{
 		files: Set<string>;
 		directories: Map<string, unknown>;
 	};
+	narrowJsonTreeToPathPrefix: (
+		entries: object[],
+		pathPrefix?: string,
+	) => object[];
 	insertPath: (root: any, filePath: string) => void;
 	summarizeHiddenChildren: (node: any) => string;
 	countFiles: (node: any) => number;
@@ -124,6 +141,7 @@ const structure = await loadInternals<{
 		"parseMaxDepth",
 		"parseMaxFiles",
 		"createNode",
+		"narrowJsonTreeToPathPrefix",
 		"insertPath",
 		"summarizeHiddenChildren",
 		"countFiles",
@@ -252,6 +270,24 @@ describe("CLI helper functions", () => {
 				score: 0.88,
 				primarySymbol: "embed",
 			});
+		});
+
+		it("requires --include-content when JSON output requests content", () => {
+			const allFields = search.parseSearchFields();
+
+			expect(() =>
+				search.resolveOutputFields(allFields, {
+					isJson: true,
+					includeContent: false,
+				}),
+			).toThrow(/JSON output omits content by default/i);
+
+			expect(
+				search.resolveOutputFields(allFields, {
+					isJson: true,
+					includeContent: true,
+				}),
+			).toEqual(allFields);
 		});
 	});
 
@@ -417,6 +453,34 @@ describe("CLI helper functions", () => {
 			expect(srcDir.name).toBe("src");
 			expect(srcDir.children.length).toBe(2);
 			expect(srcDir.children.every((c: any) => c.type === "file")).toBe(true);
+		});
+
+		it("narrows JSON tree output to an exact file path", () => {
+			const tree = [
+				{
+					type: "directory",
+					name: "src",
+					children: [
+						{
+							type: "file",
+							name: "index.ts",
+							path: "src/index.ts",
+							symbols: [],
+						},
+					],
+				},
+			] as object[];
+
+			expect(
+				structure.narrowJsonTreeToPathPrefix(tree, "src/index.ts"),
+			).toEqual([
+				{
+					type: "file",
+					name: "index.ts",
+					path: "src/index.ts",
+					symbols: [],
+				},
+			]);
 		});
 	});
 });

@@ -11,6 +11,7 @@ import {
 import { SimpleGitOperations } from "../../engine/git.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
+import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 type ContextData = {
@@ -34,6 +35,10 @@ type ContextOutputMeta = {
 	estimatedTokens: number;
 	scope: string;
 	warning?: string;
+	truncatedDependencies?: {
+		shown: number;
+		total: number;
+	};
 };
 
 function parseMaxDeps(input?: string): number | undefined {
@@ -138,7 +143,7 @@ export function registerContextCommand(program: Command): void {
 		.command("context")
 		.description("Output dense project context aggregated from the index")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
-		.option("--format <format>", "output format: plain or json", "plain")
+		.option("--txt", "output results as human-readable text")
 		.option(
 			"--scope <scope>",
 			"scope: all, changed (uncommitted changes), or relevant-to:<path>",
@@ -150,19 +155,17 @@ export function registerContextCommand(program: Command): void {
 			"30",
 		)
 		.option("--include-fixtures", "include fixture/vendor paths in output")
-		.option("--json", "output as JSON (shorthand for --format=json)")
 		.action(
 			async (options?: {
-				format?: string;
+				txt?: boolean;
 				scope?: string;
 				maxDeps?: string;
 				includeFixtures?: boolean;
-				json?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
-				const isJson = options?.json || options?.format === "json";
+				const isJson = isJsonOutput(options);
 				const maxDeps = parseMaxDeps(options?.maxDeps);
 				const scope = options?.scope ?? "all";
 				const relevantToPrefix = "relevant-to:";
@@ -298,9 +301,11 @@ export function registerContextCommand(program: Command): void {
 					);
 
 					if (limitedDependencies.truncated) {
-						console.error(
-							`Showing ${limitedDependencies.shown} of ${limitedDependencies.total} dependencies. Use --max-deps to see more.`,
-						);
+						if (!isJson) {
+							console.error(
+								`Showing ${limitedDependencies.shown} of ${limitedDependencies.total} dependencies. Use --max-deps to see more.`,
+							);
+						}
 					}
 
 					const filesWithExports = new Set(
@@ -336,6 +341,14 @@ export function registerContextCommand(program: Command): void {
 						estimatedTokens: 0,
 						scope,
 						...(scopeWarning ? { warning: scopeWarning } : {}),
+						...(limitedDependencies.truncated
+							? {
+									truncatedDependencies: {
+										shown: limitedDependencies.shown,
+										total: limitedDependencies.total,
+									},
+								}
+							: {}),
 					};
 
 					const outputData = {

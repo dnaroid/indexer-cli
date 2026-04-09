@@ -8,6 +8,7 @@ import { SearchEngine } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
+import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 const SEARCH_FIELDS = [
@@ -21,6 +22,12 @@ const SEARCH_FIELDS = [
 
 type SearchField = (typeof SEARCH_FIELDS)[number];
 type SearchResult = Awaited<ReturnType<SearchEngine["search"]>>[number];
+
+type SearchOutputOptions = {
+	omitContent?: boolean;
+	includeContent?: boolean;
+	isJson: boolean;
+};
 
 function parseSearchFields(input?: string): SearchField[] {
 	if (!input) {
@@ -98,6 +105,27 @@ function projectSearchResult(
 	return projected;
 }
 
+function resolveOutputFields(
+	rawFields: SearchField[],
+	options: SearchOutputOptions,
+): SearchField[] {
+	if (options.omitContent) {
+		return rawFields.filter((field) => field !== "content");
+	}
+
+	if (
+		options.isJson &&
+		rawFields.includes("content") &&
+		!options.includeContent
+	) {
+		throw new Error(
+			"JSON output omits content by default. Use --include-content to include it, --omit-content to remove it explicitly, or --txt for human-readable output.",
+		);
+	}
+
+	return rawFields;
+}
+
 function formatCustomPlainSummary(
 	result: SearchResult,
 	fields: SearchField[],
@@ -158,7 +186,7 @@ export function registerSearchCommand(program: Command): void {
 			"--include-content",
 			"include content in JSON output (omitted by default)",
 		)
-		.option("--json", "output results as JSON")
+		.option("--txt", "output results as human-readable text")
 		.action(
 			async (
 				query: string,
@@ -170,12 +198,13 @@ export function registerSearchCommand(program: Command): void {
 					minScore?: string;
 					omitContent?: boolean;
 					includeContent?: boolean;
-					json?: boolean;
+					txt?: boolean;
 				},
 			) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
+				const isJson = isJsonOutput(options);
 
 				initLogger(dataDir);
 				config.load(dataDir);
@@ -202,7 +231,7 @@ export function registerSearchCommand(program: Command): void {
 				try {
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
-						silent: Boolean(options?.json),
+						silent: isJson,
 					});
 					await Promise.all([vectors.initialize(), embedder.initialize()]);
 
@@ -216,11 +245,11 @@ export function registerSearchCommand(program: Command): void {
 
 					const topK = Number.parseInt(options?.topK ?? "10", 10);
 					const rawFields = parseSearchFields(options?.fields);
-					const fields = options?.omitContent
-						? rawFields.filter((f) => f !== "content")
-						: options?.json && !options?.includeContent
-							? rawFields.filter((f) => f !== "content")
-							: rawFields;
+					const fields = resolveOutputFields(rawFields, {
+						omitContent: options?.omitContent,
+						includeContent: options?.includeContent,
+						isJson,
+					});
 					const minScore = parseMinScore(options?.minScore);
 					const chunkTypes = options?.chunkTypes
 						?.split(",")
@@ -241,7 +270,7 @@ export function registerSearchCommand(program: Command): void {
 					);
 
 					if (results.length === 0) {
-						if (options?.json) {
+						if (isJson) {
 							console.log("[]");
 						} else {
 							console.log("No results found.");
@@ -249,7 +278,7 @@ export function registerSearchCommand(program: Command): void {
 						return;
 					}
 
-					if (options?.json) {
+					if (isJson) {
 						console.log(
 							JSON.stringify(
 								results.map((result) => projectSearchResult(result, fields)),
@@ -282,7 +311,11 @@ export function registerSearchCommand(program: Command): void {
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
-					console.error(`Search failed: ${message}`);
+					if (isJson) {
+						console.error(JSON.stringify({ error: message }, null, 2));
+					} else {
+						console.error(`Search failed: ${message}`);
+					}
 					process.exitCode = 1;
 				} finally {
 					await Promise.allSettled([

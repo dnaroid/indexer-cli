@@ -5,6 +5,7 @@ import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
+import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 export function registerExplainCommand(program: Command): void {
@@ -12,12 +13,12 @@ export function registerExplainCommand(program: Command): void {
 		.command("explain <symbol>")
 		.description("Show context for a symbol: signature, callers, and module")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
-		.option("--json", "output as JSON")
-		.action(async (symbolArg: string, options?: { json?: boolean }) => {
+		.option("--txt", "output results as human-readable text")
+		.action(async (symbolArg: string, options?: { txt?: boolean }) => {
 			const resolvedProjectPath = process.cwd();
 			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 			const dbPath = path.join(dataDir, "db.sqlite");
-			const isJson = Boolean(options?.json);
+			const isJson = isJsonOutput(options);
 
 			const rankSymbolMatch = (
 				candidateName: string,
@@ -112,7 +113,11 @@ export function registerExplainCommand(program: Command): void {
 					}));
 					if (isJson) {
 						console.log(
-							JSON.stringify({ error: "Symbol not found", suggestions: fuzzy }),
+							JSON.stringify(
+								{ error: "Symbol not found", suggestions: fuzzy },
+								null,
+								2,
+							),
 						);
 					} else {
 						console.error(`Symbol "${symbolName}" not found.`);
@@ -204,7 +209,11 @@ export function registerExplainCommand(program: Command): void {
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				console.error(`Explain failed: ${message}`);
+				if (isJson) {
+					console.error(JSON.stringify({ error: message }, null, 2));
+				} else {
+					console.error(`Explain failed: ${message}`);
+				}
 				process.exitCode = 1;
 			} finally {
 				await metadata.close().catch(() => undefined);

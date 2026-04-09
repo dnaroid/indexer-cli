@@ -5,14 +5,13 @@ import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
+import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 export function registerDepsCommand(program: Command): void {
 	program
 		.command("deps <path>")
-		.description(
-			"Show callers and callees for a module or symbol",
-		)
+		.description("Show callers and callees for a module or symbol")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option(
 			"--direction <dir>",
@@ -20,20 +19,20 @@ export function registerDepsCommand(program: Command): void {
 			"both",
 		)
 		.option("--depth <n>", "traversal depth (default: 1)", "1")
-		.option("--json", "output as JSON")
+		.option("--txt", "output results as human-readable text")
 		.action(
 			async (
 				targetPath: string,
 				options?: {
 					direction?: string;
 					depth?: string;
-					json?: boolean;
+					txt?: boolean;
 				},
 			) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
-				const isJson = Boolean(options?.json);
+				const isJson = isJsonOutput(options);
 
 				initLogger(dataDir);
 				config.load(dataDir);
@@ -42,7 +41,9 @@ export function registerDepsCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath, { silent: isJson });
+					await ensureIndexed(metadata, resolvedProjectPath, {
+						silent: isJson,
+					});
 
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
@@ -153,7 +154,11 @@ export function registerDepsCommand(program: Command): void {
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
-					console.error(`Deps failed: ${message}`);
+					if (isJson) {
+						console.error(JSON.stringify({ error: message }, null, 2));
+					} else {
+						console.error(`Deps failed: ${message}`);
+					}
 					process.exitCode = 1;
 				} finally {
 					await metadata.close().catch(() => undefined);

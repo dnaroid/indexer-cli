@@ -73,11 +73,13 @@ When you run `npx indexer-cli init`, the CLI creates a project-local repo-discov
 That skill tells coding agents to start repository discovery with commands like:
 
 ```bash
-npx indexer-cli search "<query>" --json
-npx indexer-cli structure --json --path-prefix src/<area>
-npx indexer-cli architecture --json
-npx indexer-cli index --status --json
+npx indexer-cli search "<query>"
+npx indexer-cli structure --path-prefix src/<area>
+npx indexer-cli architecture
+npx indexer-cli index --status
 ```
+
+By default, discovery commands now return JSON. Use `--txt` whenever you want human-readable output instead.
 
 This is especially useful in Claude and OpenCode setups, where project-local skills can guide the agent away from
 blind `grep`/`find` usage and toward indexed search first, which usually means less wasted context and lower token
@@ -105,7 +107,7 @@ Index all supported source files in the current working directory.
 | `--dry-run` | Preview what would be indexed without writing anything |
 | `--status`  | Show indexing status for the current project           |
 | `--tree`    | Show indexed file tree (use with `--status`)           |
-| `--json`    | Output status as JSON (use with `--status`)            |
+| `--txt`     | Output status as human-readable text (use with `--status`) |
 
 ### `npx indexer-cli search <query>`
 
@@ -119,8 +121,10 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 | `--fields <list>`        | —       | Comma-separated output fields: `filePath`, `startLine`, `endLine`, `score`, `primarySymbol`, `content`       |
 | `--min-score <number>`   | —       | Filter out results below this score (0..1)                                                                   |
 | `--omit-content`         | —       | Exclude content from results (token-saving)                                                                  |
-| `--include-content`      | —       | Include content in JSON output                                                                               |
-| `--json`                 | —       | Output results as JSON                                                                                       |
+| `--include-content`      | —       | Include `content` in JSON output (JSON omits it by default)                                                  |
+| `--txt`                  | —       | Output results as human-readable text                                                                        |
+
+`search` returns JSON by default. In JSON mode, `content` is omitted unless you pass `--include-content`; use `--txt` for the older human-readable layout.
 
 ### `npx indexer-cli structure`
 
@@ -133,7 +137,7 @@ files if needed.
 | `--kind <string>`        | Filter by symbol kind: `function`, `class`, `method`, `interface`, `type`, `variable`, `module`, `signal` |
 | `--max-depth <number>`   | Limit directory traversal depth in the rendered tree                                                      |
 | `--max-files <number>`   | Limit number of files shown in output                                                                     |
-| `--json`                 | Output structure as JSON                                                                                  |
+| `--txt`                  | Output structure as human-readable text                                                                   |
 
 ### `npx indexer-cli architecture`
 
@@ -144,7 +148,7 @@ dependency graph.
 |--------------------------|----------------------------------------------|
 | `--path-prefix <string>` | Limit output to files under this path        |
 | `--include-fixtures`     | Include fixture/vendor paths in output       |
-| `--json`                 | Output as JSON                               |
+| `--txt`                  | Output as human-readable text                |
 
 ### `npx indexer-cli context`
 
@@ -153,11 +157,10 @@ without pulling in entire files.
 
 | Option                | Default | Description                                                              |
 |-----------------------|---------|--------------------------------------------------------------------------|
-| `--format <format>`   | plain   | Output format: `plain` or `json`                                         |
+| `--txt`               | —       | Output results as human-readable text                                    |
 | `--scope <scope>`     | all     | `all`, `changed` (uncommitted changes), or `relevant-to:<path>`          |
 | `--max-deps <number>` | 30      | Maximum number of dependency edges to output                             |
 | `--include-fixtures`  | —       | Include fixture/vendor paths in output                                   |
-| `--json`              | —       | Shorthand for `--format=json`                                            |
 
 ### `npx indexer-cli explain <symbol>`
 
@@ -166,7 +169,7 @@ specific function, class, or type does and how it is used.
 
 | Option   | Description          |
 |----------|----------------------|
-| `--json` | Output as JSON       |
+| `--txt`  | Output as human-readable text |
 
 ### `npx indexer-cli deps <path>`
 
@@ -177,7 +180,7 @@ of changes and understanding dependency chains.
 |---------------------|---------|---------------------------------------------------|
 | `--direction <dir>` | both    | `callers`, `callees`, or `both`                   |
 | `--depth <n>`       | 1       | Traversal depth                                   |
-| `--json`            | —       | Output as JSON                                    |
+| `--txt`             | —       | Output as human-readable text                     |
 
 ### `npx indexer-cli uninstall`
 
