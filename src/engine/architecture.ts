@@ -8,19 +8,216 @@ import type {
 } from "../core/types.js";
 import type { LanguagePlugin } from "../languages/plugin.js";
 
-interface DirectoryNode {
+export interface DirectoryNode {
 	name: string;
 	path: string;
 	type: "directory";
 	children: (DirectoryNode | FileNode)[];
 }
 
-interface FileNode {
+export interface FileNode {
 	name: string;
 	path: string;
 	type: "file";
 	size: number;
 	language: string;
+}
+
+export interface ArchitectureDependencyMap {
+	internal: Record<string, string[]>;
+	external: Record<string, string[]>;
+	builtin: Record<string, string[]>;
+	unresolved: Record<string, string[]>;
+}
+
+export interface ArchitectureFileSummary {
+	path: string;
+	language: string;
+}
+
+export interface ArchitectureSnapshot {
+	structure: DirectoryNode;
+	entrypoints: string[];
+	dependencies: Record<string, number>;
+	dependency_map: ArchitectureDependencyMap;
+	file_stats: Record<string, number>;
+	files?: ArchitectureFileSummary[];
+	module_files?: Record<string, string[]>;
+}
+
+function normalizePath(value: string): string {
+	return value.replace(/\\/g, "/");
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+}
+
+function pathPatternToRegExp(pattern: string): RegExp {
+	const normalized = normalizePath(pattern.trim()).replace(/^\.\//, "");
+	const doubleWildcardToken = "__INDEXER_DOUBLE_WILDCARD__";
+	const regexSource = escapeRegExp(normalized)
+		.replace(/\*\*/g, doubleWildcardToken)
+		.replace(/\*/g, "[^/]*")
+		.replace(/\?/g, "[^/]")
+		.replace(new RegExp(doubleWildcardToken, "g"), ".*");
+	return new RegExp(`^${regexSource}$`);
+}
+
+export function matchesPathPatterns(
+	filePath: string,
+	patterns: string[],
+): boolean {
+	const normalizedPath = normalizePath(filePath);
+
+	for (const pattern of patterns) {
+		const trimmedPattern = pattern.trim();
+		if (!trimmedPattern) {
+			continue;
+		}
+
+		const regex = pathPatternToRegExp(trimmedPattern);
+		if (regex.test(normalizedPath)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+function calculateFileStatsFromSummary(
+	files: ArchitectureFileSummary[],
+): Record<string, number> {
+	const stats: Record<string, number> = {};
+	for (const file of files) {
+		const language = file.language || "unknown";
+		stats[language] = (stats[language] || 0) + 1;
+	}
+	return stats;
+}
+
+function summarizeDependencies(
+	detail: ArchitectureDependencyMap,
+): Record<string, number> {
+	const summary = new Map<string, number>();
+	const bump = (name: string) =>
+		summary.set(name, (summary.get(name) || 0) + 1);
+
+	for (const bucket of Object.values(detail) as Array<
+		Record<string, string[]>
+	>) {
+		for (const deps of Object.values(bucket) as string[][]) {
+			for (const dep of new Set(deps)) {
+				bump(dep);
+			}
+		}
+	}
+
+	return Object.fromEntries(
+		Array.from(summary.entries()).sort((a, b) => a[0].localeCompare(b[0])),
+	);
+}
+
+function filterStructure(
+	node: DirectoryNode,
+	includedFilePaths: Set<string>,
+): DirectoryNode | null {
+	const children: (DirectoryNode | FileNode)[] = [];
+
+	for (const child of node.children) {
+		if (child.type === "file") {
+			if (includedFilePaths.has(normalizePath(child.path))) {
+				children.push(child);
+			}
+			continue;
+		}
+
+		const filteredChild = filterStructure(child, includedFilePaths);
+		if (filteredChild) {
+			children.push(filteredChild);
+		}
+	}
+
+	if (node.path !== "." && children.length === 0) {
+		return null;
+	}
+
+	return {
+		...node,
+		children,
+	};
+}
+
+export function filterArchitectureSnapshot(
+	snapshot: ArchitectureSnapshot,
+	excludePathPatterns: string[],
+): ArchitectureSnapshot {
+	if (excludePathPatterns.length === 0) {
+		return snapshot;
+	}
+
+	const files = snapshot.files ?? [];
+	const includedFiles = files.filter(
+		(file) => !matchesPathPatterns(file.path, excludePathPatterns),
+	);
+	const includedFilePaths = new Set(
+		includedFiles.map((file) => normalizePath(file.path)),
+	);
+	const filteredModuleFiles = Object.fromEntries(
+		Object.entries(snapshot.module_files ?? {})
+			.map(([moduleKey, filePaths]) => [
+				moduleKey,
+				filePaths.filter((filePath) =>
+					includedFilePaths.has(normalizePath(filePath)),
+				),
+			])
+			.filter(([, filePaths]) => filePaths.length > 0),
+	) as Record<string, string[]>;
+	const includedModules = new Set(Object.keys(filteredModuleFiles));
+	const dependencyMap: ArchitectureDependencyMap = {
+		internal: Object.fromEntries(
+			Object.entries(snapshot.dependency_map.internal ?? {})
+				.filter(
+					([fromModule, toModules]) =>
+						includedModules.has(fromModule) &&
+						toModules.some((toModule) => includedModules.has(toModule)),
+				)
+				.map(([fromModule, toModules]) => [
+					fromModule,
+					toModules.filter((toModule) => includedModules.has(toModule)),
+				]),
+		),
+		external: Object.fromEntries(
+			Object.entries(snapshot.dependency_map.external ?? {}).filter(
+				([fromModule]) => includedModules.has(fromModule),
+			),
+		),
+		builtin: Object.fromEntries(
+			Object.entries(snapshot.dependency_map.builtin ?? {}).filter(
+				([fromModule]) => includedModules.has(fromModule),
+			),
+		),
+		unresolved: Object.fromEntries(
+			Object.entries(snapshot.dependency_map.unresolved ?? {}).filter(
+				([fromModule]) => includedModules.has(fromModule),
+			),
+		),
+	};
+
+	return {
+		...snapshot,
+		structure:
+			filterStructure(snapshot.structure, includedFilePaths) ??
+			snapshot.structure,
+		entrypoints: (snapshot.entrypoints ?? []).filter((entrypoint) =>
+			includedFilePaths.has(normalizePath(entrypoint)),
+		),
+		dependencies: summarizeDependencies(dependencyMap),
+		dependency_map: dependencyMap,
+		file_stats: calculateFileStatsFromSummary(includedFiles),
+		files: includedFiles,
+		module_files: filteredModuleFiles,
+	};
 }
 
 export class ArchitectureGenerator {
@@ -39,6 +236,11 @@ export class ArchitectureGenerator {
 		const structure = this.buildDirectoryTree(files);
 		const file_stats = this.calculateFileStats(files);
 		const entrypoints = this.findEntrypoints(files);
+		const filesSummary = files.map((file) => ({
+			path: file.path,
+			language: file.languageId || "unknown",
+		}));
+		const module_files = this.buildModuleFiles(files);
 
 		await this.metadataStore.upsertArtifact(projectId, {
 			snapshotId,
@@ -51,8 +253,31 @@ export class ArchitectureGenerator {
 				dependencies: dependencies.summary,
 				dependency_map: dependencies.detail,
 				file_stats,
+				files: filesSummary,
+				module_files,
 			}),
 		});
+	}
+
+	private buildModuleFiles(files: FileRecord[]): Record<string, string[]> {
+		const moduleFiles = new Map<string, Set<string>>();
+
+		for (const file of files) {
+			const moduleKey = this.getModuleKey(file.path);
+			if (!moduleFiles.has(moduleKey)) {
+				moduleFiles.set(moduleKey, new Set());
+			}
+			moduleFiles.get(moduleKey)?.add(file.path);
+		}
+
+		return Object.fromEntries(
+			Array.from(moduleFiles.entries())
+				.sort((a, b) => a[0].localeCompare(b[0]))
+				.map(([moduleKey, filePaths]) => [
+					moduleKey,
+					Array.from(filePaths).sort(),
+				]),
+		);
 	}
 
 	private buildDirectoryTree(files: FileRecord[]): DirectoryNode {
@@ -244,21 +469,7 @@ export class ArchitectureGenerator {
 		builtin: Record<string, string[]>;
 		unresolved: Record<string, string[]>;
 	}): Record<string, number> {
-		const summary = new Map<string, number>();
-		const bump = (name: string) =>
-			summary.set(name, (summary.get(name) || 0) + 1);
-
-		for (const bucket of Object.values(detail)) {
-			for (const deps of Object.values(bucket)) {
-				for (const dep of new Set(deps)) {
-					bump(dep);
-				}
-			}
-		}
-
-		return Object.fromEntries(
-			Array.from(summary.entries()).sort((a, b) => a[0].localeCompare(b[0])),
-		);
+		return summarizeDependencies(detail);
 	}
 
 	private mapToSortedRecord(
@@ -273,7 +484,7 @@ export class ArchitectureGenerator {
 	}
 
 	private normalizePath(value: string): string {
-		return value.replace(/\\/g, "/");
+		return normalizePath(value);
 	}
 
 	private canonicalizePath(value: string, fileSet: Set<string>): string {

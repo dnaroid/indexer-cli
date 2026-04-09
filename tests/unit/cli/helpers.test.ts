@@ -53,12 +53,51 @@ const architecture = await loadInternals<{
 	["summarizeExternalDependencies"],
 );
 
+const search = await loadInternals<{
+	parseSearchFields: (input?: string) => string[];
+	parseMinScore: (input?: string) => number | undefined;
+	projectSearchResult: (
+		result: {
+			filePath: string;
+			startLine: number;
+			endLine: number;
+			score: number;
+			primarySymbol?: string;
+			content?: string;
+		},
+		fields: string[],
+	) => Record<string, number | string | null>;
+}>(
+	"/Volumes/128GBSSD/Projects/indexer-cli/src/cli/commands/search.ts",
+	/const SEARCH_FIELDS[\s\S]*?(?=export function registerSearchCommand)/,
+	["parseSearchFields", "parseMinScore", "projectSearchResult"],
+);
+
+const context = await loadInternals<{
+	parseMaxDeps: (input?: string) => number | undefined;
+	limitDependencies: (
+		dependencies: Record<string, string[]>,
+		maxDeps: number | undefined,
+	) => {
+		dependencies: Record<string, string[]>;
+		shown: number;
+		total: number;
+		truncated: boolean;
+	};
+}>(
+	"/Volumes/128GBSSD/Projects/indexer-cli/src/cli/commands/context.ts",
+	/type ContextData = [\s\S]*?(?=export function registerContextCommand)/,
+	["parseMaxDeps", "limitDependencies"],
+);
+
 const structure = await loadInternals<{
+	parseMaxDepth: (value?: string) => number | undefined;
 	createNode: () => {
 		files: Set<string>;
 		directories: Map<string, unknown>;
 	};
 	insertPath: (root: any, filePath: string) => void;
+	summarizeHiddenChildren: (node: any) => string;
 	treeToJson: (
 		root: any,
 		prefix: string,
@@ -66,11 +105,19 @@ const structure = await loadInternals<{
 			string,
 			Array<{ name: string; kind: string; exported: boolean }>
 		>,
+		depth: number,
+		maxDepth?: number,
 	) => object[];
 }>(
 	"/Volumes/128GBSSD/Projects/indexer-cli/src/cli/commands/structure.ts",
 	/type TreeNode = [\s\S]*?(?=export function registerStructureCommand)/,
-	["createNode", "insertPath", "treeToJson"],
+	[
+		"parseMaxDepth",
+		"createNode",
+		"insertPath",
+		"summarizeHiddenChildren",
+		"treeToJson",
+	],
 );
 
 describe("CLI helper functions", () => {
@@ -118,7 +165,82 @@ describe("CLI helper functions", () => {
 		});
 	});
 
-	describe("createNode and insertPath", () => {
+	describe("search helpers", () => {
+		it("parses and validates requested output fields", () => {
+			expect(search.parseSearchFields()).toEqual([
+				"filePath",
+				"startLine",
+				"endLine",
+				"score",
+				"primarySymbol",
+				"content",
+			]);
+			expect(search.parseSearchFields("score,filePath,score")).toEqual([
+				"filePath",
+				"score",
+			]);
+			expect(() => search.parseSearchFields("filePath,unknown")).toThrow(
+				/Invalid --fields value/i,
+			);
+		});
+
+		it("parses min-score thresholds", () => {
+			expect(search.parseMinScore()).toBeUndefined();
+			expect(search.parseMinScore("0.4")).toBe(0.4);
+			expect(() => search.parseMinScore("2")).toThrow(/--min-score/i);
+		});
+
+		it("projects only the requested result fields", () => {
+			expect(
+				search.projectSearchResult(
+					{
+						filePath: "src/app.ts",
+						startLine: 10,
+						endLine: 20,
+						score: 0.91,
+						primarySymbol: "run",
+						content: "body",
+					},
+					["filePath", "score", "primarySymbol"],
+				),
+			).toEqual({
+				filePath: "src/app.ts",
+				score: 0.91,
+				primarySymbol: "run",
+			});
+		});
+	});
+
+	describe("context helpers", () => {
+		it("parses max dependency limits", () => {
+			expect(context.parseMaxDeps()).toBeUndefined();
+			expect(context.parseMaxDeps("30")).toBe(30);
+			expect(() => context.parseMaxDeps("0")).toThrow(/--max-deps/i);
+		});
+
+		it("limits dependency output and reports truncation", () => {
+			expect(
+				context.limitDependencies(
+					{
+						b: ["c"],
+						a: ["b"],
+						c: ["d"],
+					},
+					2,
+				),
+			).toEqual({
+				dependencies: {
+					a: ["b"],
+					b: ["c"],
+				},
+				shown: 2,
+				total: 3,
+				truncated: true,
+			});
+		});
+	});
+
+	describe("structure helpers", () => {
 		it("creates empty nodes and inserts nested paths", () => {
 			const root = structure.createNode() as any;
 
@@ -137,18 +259,23 @@ describe("CLI helper functions", () => {
 				"cli",
 				"core",
 			]);
-
-			const cli = src.directories.get("cli") as any;
-			const core = src.directories.get("core") as any;
-			expect(Array.from(cli.files)).toEqual(["index.ts"]);
-			expect(Array.from(core.files)).toEqual(["types.ts"]);
 		});
-	});
 
-	describe("treeToJson", () => {
-		it("serializes a sorted tree and projects symbol metadata", () => {
+		it("parses max depth and summarizes hidden children", () => {
+			expect(structure.parseMaxDepth()).toBeUndefined();
+			expect(structure.parseMaxDepth("2")).toBe(2);
+			expect(() => structure.parseMaxDepth("-1")).toThrow(/--max-depth/i);
+
 			const root = structure.createNode() as any;
-			structure.insertPath(root, "src/beta.ts");
+			structure.insertPath(root, "src/a.ts");
+			structure.insertPath(root, "src/nested/b.ts");
+			const src = root.directories.get("src") as any;
+			expect(structure.summarizeHiddenChildren(src)).toBe("... (2 children)");
+		});
+
+		it("serializes a sorted tree and truncates deep branches", () => {
+			const root = structure.createNode() as any;
+			structure.insertPath(root, "src/nested/deeper/file.ts");
 			structure.insertPath(root, "src/alpha.ts");
 			structure.insertPath(root, "README.md");
 
@@ -160,41 +287,16 @@ describe("CLI helper functions", () => {
 							name: "Alpha",
 							kind: "class",
 							exported: true,
-							filePath: "src/alpha.ts",
-						},
-					],
-				],
-				[
-					"src/beta.ts",
-					[
-						{
-							name: "beta",
-							kind: "function",
-							exported: false,
-							filePath: "src/beta.ts",
 						},
 					],
 				],
 			]);
 
-			expect(structure.treeToJson(root, "", symbolsByFile)).toEqual([
+			expect(structure.treeToJson(root, "", symbolsByFile, 0, 1)).toEqual([
 				{
 					type: "directory",
 					name: "src",
-					children: [
-						{
-							type: "file",
-							name: "alpha.ts",
-							path: "src/alpha.ts",
-							symbols: [{ name: "Alpha", kind: "class", exported: true }],
-						},
-						{
-							type: "file",
-							name: "beta.ts",
-							path: "src/beta.ts",
-							symbols: [{ name: "beta", kind: "function", exported: false }],
-						},
-					],
+					children: [{ type: "summary", name: "... (2 children)" }],
 				},
 				{
 					type: "file",

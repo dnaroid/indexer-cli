@@ -3,41 +3,79 @@ import type { Command } from "commander";
 import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
+import {
+	filterArchitectureSnapshot,
+	matchesPathPatterns,
+	type ArchitectureSnapshot,
+} from "../../engine/architecture.js";
 import { SimpleGitOperations } from "../../engine/git.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
-type ArchitectureSnapshot = {
-	file_stats?: Record<string, number>;
-	entrypoints?: string[];
-	dependency_map?: {
-		internal?: Record<string, string[]>;
-		external?: Record<string, string[]>;
-	};
-};
-
 type ContextData = {
+	enriched: boolean;
 	architecture: {
 		fileStats: Record<string, number>;
 		entrypoints: string[];
 	};
 	modules: Array<{
 		path: string;
-		summary: string | null;
+		summary?: string;
 	}>;
 	symbols: Array<{
 		file: string;
 		name: string;
 		kind: string;
 		signature?: string;
-		description: string | null;
+		description?: string;
 	}>;
 	dependencies: Record<string, string[]>;
 };
 
+function parseMaxDeps(input?: string): number | undefined {
+	if (!input) {
+		return undefined;
+	}
+
+	const parsed = Number.parseInt(input, 10);
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		throw new Error("--max-deps must be a positive integer.");
+	}
+
+	return parsed;
+}
+
+function limitDependencies(
+	dependencies: Record<string, string[]>,
+	maxDeps: number | undefined,
+): {
+	dependencies: Record<string, string[]>;
+	shown: number;
+	total: number;
+	truncated: boolean;
+} {
+	const entries = Object.entries(dependencies).sort((a, b) =>
+		a[0].localeCompare(b[0]),
+	);
+	if (maxDeps === undefined || entries.length <= maxDeps) {
+		return {
+			dependencies: Object.fromEntries(entries),
+			shown: entries.length,
+			total: entries.length,
+			truncated: false,
+		};
+	}
+
+	return {
+		dependencies: Object.fromEntries(entries.slice(0, maxDeps)),
+		shown: maxDeps,
+		total: entries.length,
+		truncated: true,
+	};
+}
+
 function formatPlain(data: ContextData): void {
-	// Architecture overview
 	console.log("## Architecture\n");
 	const stats = Object.entries(data.architecture.fileStats)
 		.sort((a, b) => b[1] - a[1])
@@ -51,35 +89,34 @@ function formatPlain(data: ContextData): void {
 		);
 	}
 
-	// Module summaries
-	const enrichedModules = data.modules.filter((m) => m.summary);
-	if (enrichedModules.length > 0) {
-		console.log("\n## Module Summaries\n");
-		for (const mod of enrichedModules) {
+	if (data.modules.length > 0) {
+		console.log(data.enriched ? "\n## Module Summaries\n" : "\n## Modules\n");
+		for (const mod of data.modules) {
 			console.log(`${mod.path}`);
-			console.log(`  ${mod.summary}`);
+			if (mod.summary) {
+				console.log(`  ${mod.summary}`);
+			}
 		}
-	} else {
+	} else if (data.enriched) {
 		console.log(
 			"\n(No module summaries yet. Run `indexer-cli enrich` to generate them.)",
 		);
 	}
 
-	// Key symbols
-	const enrichedSymbols = data.symbols.filter((s) => s.description);
-	if (enrichedSymbols.length > 0) {
+	if (data.symbols.length > 0) {
 		console.log("\n## Key Symbols\n");
-		for (const sym of enrichedSymbols) {
+		for (const sym of data.symbols) {
 			const sig = sym.signature ? ` — ${sym.signature}` : "";
 			console.log(`${sym.file}::${sym.name} (${sym.kind})${sig}`);
-			console.log(`  ${sym.description}`);
+			if (sym.description) {
+				console.log(`  ${sym.description}`);
+			}
 		}
 	}
 
-	// Dependency graph (internal)
-	const depEntries = Object.entries(data.dependencies)
-		.sort((a, b) => a[0].localeCompare(b[0]))
-		.slice(0, 30);
+	const depEntries = Object.entries(data.dependencies).sort((a, b) =>
+		a[0].localeCompare(b[0]),
+	);
 	if (depEntries.length > 0) {
 		console.log("\n## Module Dependencies\n");
 		for (const [from, to] of depEntries) {
@@ -101,17 +138,26 @@ export function registerContextCommand(program: Command): void {
 			"scope: all or changed (uncommitted changes)",
 			"all",
 		)
+		.option(
+			"--max-deps <number>",
+			"maximum number of dependency edges to output",
+			"30",
+		)
+		.option("--include-fixtures", "include fixture/vendor paths in output")
 		.option("--json", "output as JSON (shorthand for --format=json)")
 		.action(
 			async (options?: {
 				format?: string;
 				scope?: string;
+				maxDeps?: string;
+				includeFixtures?: boolean;
 				json?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
 				const isJson = options?.json || options?.format === "json";
+				const maxDeps = parseMaxDeps(options?.maxDeps);
 
 				initLogger(dataDir);
 				config.load(dataDir);
@@ -127,37 +173,35 @@ export function registerContextCommand(program: Command): void {
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) {
-						throw new Error(
-							"No completed snapshot found.",
-						);
+						throw new Error("No completed snapshot found.");
 					}
 
-					// Determine scope
 					let scopeFilePaths: Set<string> | null = null;
 					if (options?.scope === "changed") {
 						const git = new SimpleGitOperations();
-						const changes = await git.getWorkingTreeChanges(
-							resolvedProjectPath,
-						);
-						scopeFilePaths = new Set([
-							...changes.added,
-							...changes.modified,
-						]);
+						const changes =
+							await git.getWorkingTreeChanges(resolvedProjectPath);
+						scopeFilePaths = new Set([...changes.added, ...changes.modified]);
 					}
 
-					// Fetch data in parallel
-					const [files, archArtifact, fileEnrichments, symbolEnrichments] =
-						await Promise.all([
-							metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id),
-							metadata.getArtifact(
-								DEFAULT_PROJECT_ID,
-								snapshot.id,
-								"architecture_snapshot",
-								"project",
-							),
-							metadata.listFileEnrichments(DEFAULT_PROJECT_ID),
-							metadata.listSymbolEnrichments(DEFAULT_PROJECT_ID),
-						]);
+					const [
+						files,
+						allSymbols,
+						archArtifact,
+						fileEnrichments,
+						symbolEnrichments,
+					] = await Promise.all([
+						metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id),
+						metadata.listSymbols(DEFAULT_PROJECT_ID, snapshot.id),
+						metadata.getArtifact(
+							DEFAULT_PROJECT_ID,
+							snapshot.id,
+							"architecture_snapshot",
+							"project",
+						),
+						metadata.listFileEnrichments(DEFAULT_PROJECT_ID),
+						metadata.listSymbolEnrichments(DEFAULT_PROJECT_ID),
+					]);
 
 					const enrichmentByPath = new Map(
 						fileEnrichments.map((e) => [e.filePath, e]),
@@ -166,61 +210,125 @@ export function registerContextCommand(program: Command): void {
 						symbolEnrichments.map((e) => [`${e.filePath}::${e.symbolName}`, e]),
 					);
 
-					// Filter by scope if needed
-					const filteredFiles =
+					const scopedFiles =
 						scopeFilePaths !== null
-							? files.filter((f) => scopeFilePaths!.has(f.path))
+							? files.filter((file) => scopeFilePaths!.has(file.path))
 							: files;
+					const visibleFiles = options?.includeFixtures
+						? scopedFiles
+						: scopedFiles.filter(
+								(file) =>
+									!matchesPathPatterns(file.path, config.get("excludePaths")),
+							);
+					const filePathSet = new Set(visibleFiles.map((file) => file.path));
 
-					const arch = archArtifact
+					const rawArchitecture = archArtifact
 						? (JSON.parse(archArtifact.dataJson) as ArchitectureSnapshot)
 						: null;
+					const architecture = rawArchitecture
+						? options?.includeFixtures
+							? rawArchitecture
+							: filterArchitectureSnapshot(
+									rawArchitecture,
+									config.get("excludePaths"),
+								)
+						: null;
+
+					const visibleSymbols = allSymbols.filter((symbol) =>
+						filePathSet.has(symbol.filePath),
+					);
+					const hasEnrichmentData =
+						visibleFiles.some((file) => {
+							const summary = enrichmentByPath.get(file.path)?.moduleSummary;
+							return typeof summary === "string" && summary.length > 0;
+						}) ||
+						visibleSymbols.some((symbol) =>
+							symbolEnrichmentMap.has(`${symbol.filePath}::${symbol.name}`),
+						);
+
+					if (!hasEnrichmentData) {
+						console.error(
+							"No enrichment data found. Run 'indexer-cli enrich' for descriptions and module summaries.",
+						);
+					}
+
+					const dependencyCandidates =
+						architecture?.dependency_map?.internal ?? {};
+					const moduleFiles = architecture?.module_files ?? {};
+					const scopedModuleKeys =
+						scopeFilePaths === null
+							? null
+							: new Set(
+									Object.entries(moduleFiles)
+										.filter(([, moduleFilePaths]) =>
+											moduleFilePaths.some((filePath) =>
+												filePathSet.has(filePath),
+											),
+										)
+										.map(([moduleKey]) => moduleKey),
+								);
+					const scopedDependencies =
+						scopedModuleKeys === null
+							? dependencyCandidates
+							: Object.fromEntries(
+									Object.entries(dependencyCandidates).filter(([fromModule]) =>
+										scopedModuleKeys.has(fromModule),
+									),
+								);
+					const limitedDependencies = limitDependencies(
+						scopedDependencies,
+						maxDeps,
+					);
+
+					if (limitedDependencies.truncated) {
+						console.error(
+							`Showing ${limitedDependencies.shown} of ${limitedDependencies.total} dependencies. Use --max-deps to see more.`,
+						);
+					}
 
 					const contextData: ContextData = {
+						enriched: hasEnrichmentData,
 						architecture: {
-							fileStats: arch?.file_stats ?? {},
-							entrypoints: arch?.entrypoints ?? [],
+							fileStats: architecture?.file_stats ?? {},
+							entrypoints: architecture?.entrypoints ?? [],
 						},
-						modules: filteredFiles.map((f) => ({
-							path: f.path,
-							summary: enrichmentByPath.get(f.path)?.moduleSummary ?? null,
-						})),
-						symbols: [],
-						dependencies: arch?.dependency_map?.internal ?? {},
+						modules: hasEnrichmentData
+							? visibleFiles.map((file) => {
+									const summary = enrichmentByPath.get(
+										file.path,
+									)?.moduleSummary;
+									return summary
+										? { path: file.path, summary }
+										: { path: file.path };
+								})
+							: visibleFiles.map((file) => ({ path: file.path })),
+						symbols: hasEnrichmentData
+							? visibleSymbols.flatMap((symbol) => {
+									const enrichment = symbolEnrichmentMap.get(
+										`${symbol.filePath}::${symbol.name}`,
+									);
+									if (!enrichment) {
+										return [];
+									}
+
+									return [
+										{
+											file: symbol.filePath,
+											name: symbol.name,
+											kind: symbol.kind,
+											signature: symbol.signature,
+											description: enrichment.description,
+										},
+									];
+								})
+							: visibleSymbols.map((symbol) => ({
+									file: symbol.filePath,
+									name: symbol.name,
+									kind: symbol.kind,
+									signature: symbol.signature,
+								})),
+						dependencies: limitedDependencies.dependencies,
 					};
-
-					// Gather enriched symbols for the scoped files
-					const filePathSet = new Set(filteredFiles.map((f) => f.path));
-					for (const [key, enrichment] of symbolEnrichmentMap) {
-						const filePath = enrichment.filePath;
-						if (scopeFilePaths !== null && !filePathSet.has(filePath)) continue;
-
-						// Look up symbol kind/signature from the snapshot
-						contextData.symbols.push({
-							file: filePath,
-							name: enrichment.symbolName,
-							kind: "symbol",
-							description: enrichment.description,
-						});
-					}
-
-					// Enrich symbols with kind/signature from DB
-					if (contextData.symbols.length > 0) {
-						const allSymbols = await metadata.listSymbols(
-							DEFAULT_PROJECT_ID,
-							snapshot.id,
-						);
-						const symbolMeta = new Map(
-							allSymbols.map((s) => [`${s.filePath}::${s.name}`, s]),
-						);
-						for (const sym of contextData.symbols) {
-							const meta = symbolMeta.get(`${sym.file}::${sym.name}`);
-							if (meta) {
-								sym.kind = meta.kind;
-								sym.signature = meta.signature;
-							}
-						}
-					}
 
 					if (isJson) {
 						console.log(JSON.stringify(contextData, null, 2));

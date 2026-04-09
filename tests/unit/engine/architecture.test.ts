@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { ArchitectureGenerator } from "../../../src/engine/architecture.js";
+import {
+	ArchitectureGenerator,
+	filterArchitectureSnapshot,
+	matchesPathPatterns,
+	type ArchitectureSnapshot,
+} from "../../../src/engine/architecture.js";
 import type {
 	DependencyRecord,
 	FileRecord,
@@ -41,6 +46,12 @@ function createMetadataStoreMock(
 		listArtifacts: vi.fn(),
 		copyUnchangedFileData: vi.fn(),
 		clearProjectMetadata: vi.fn(),
+		upsertFileEnrichment: vi.fn(),
+		getFileEnrichment: vi.fn(),
+		listFileEnrichments: vi.fn(),
+		upsertSymbolEnrichment: vi.fn(),
+		getSymbolEnrichment: vi.fn(),
+		listSymbolEnrichments: vi.fn(),
 	};
 }
 
@@ -201,6 +212,26 @@ describe("ArchitectureGenerator", () => {
 			typescript: 5,
 			unknown: 1,
 		});
+		expect(data.files).toEqual([
+			{ path: "apps/web/src/index.ts", language: "typescript" },
+			{ path: "apps/web/src/components/Button.tsx", language: "typescript" },
+			{ path: "apps/web/tests/app.test.ts", language: "typescript" },
+			{ path: "apps/web/fixtures/mock.ts", language: "typescript" },
+			{ path: "packages/shared/src/util.ts", language: "typescript" },
+			{ path: "scripts/build.js", language: "javascript" },
+			{ path: "docs/notes.txt", language: "unknown" },
+		]);
+		expect(data.module_files).toEqual({
+			"apps/web": [
+				"apps/web/fixtures/mock.ts",
+				"apps/web/src/components/Button.tsx",
+				"apps/web/src/index.ts",
+				"apps/web/tests/app.test.ts",
+			],
+			"packages/shared": ["packages/shared/src/util.ts"],
+			"scripts/build.js": ["scripts/build.js"],
+			"docs/notes.txt": ["docs/notes.txt"],
+		});
 		expect(data.entrypoints).toEqual([
 			"apps/web/src/index.ts",
 			"packages/shared/src/util.ts",
@@ -309,5 +340,105 @@ describe("ArchitectureGenerator", () => {
 			"src/index.ts",
 		);
 		expect((generator as any).getModuleKey("README.md")).toBe("root");
+	});
+
+	it("matches path patterns and filters architecture snapshots by excluded files", () => {
+		expect(matchesPathPatterns("fixtures/app/main.ts", ["fixtures/**"])).toBe(
+			true,
+		);
+		expect(matchesPathPatterns("src/app.ts", ["fixtures/**"])).toBe(false);
+
+		const snapshot: ArchitectureSnapshot = {
+			structure: {
+				name: "root",
+				path: ".",
+				type: "directory",
+				children: [
+					{
+						name: "fixtures",
+						path: "fixtures",
+						type: "directory",
+						children: [
+							{
+								name: "demo.ts",
+								path: "fixtures/demo.ts",
+								type: "file",
+								size: 1,
+								language: "typescript",
+							},
+						],
+					},
+					{
+						name: "src",
+						path: "src",
+						type: "directory",
+						children: [
+							{
+								name: "app.ts",
+								path: "src/app.ts",
+								type: "file",
+								size: 1,
+								language: "typescript",
+							},
+						],
+					},
+				],
+			},
+			entrypoints: ["fixtures/demo.ts", "src/app.ts"],
+			dependencies: { react: 1, root: 1 },
+			dependency_map: {
+				internal: { root: ["src"] },
+				external: { root: ["react"] },
+				builtin: {},
+				unresolved: {},
+			},
+			file_stats: { typescript: 2 },
+			files: [
+				{ path: "fixtures/demo.ts", language: "typescript" },
+				{ path: "src/app.ts", language: "typescript" },
+			],
+			module_files: {
+				root: ["fixtures/demo.ts"],
+				src: ["src/app.ts"],
+			},
+		};
+
+		expect(filterArchitectureSnapshot(snapshot, ["fixtures/**"])).toEqual({
+			...snapshot,
+			structure: {
+				name: "root",
+				path: ".",
+				type: "directory",
+				children: [
+					{
+						name: "src",
+						path: "src",
+						type: "directory",
+						children: [
+							{
+								name: "app.ts",
+								path: "src/app.ts",
+								type: "file",
+								size: 1,
+								language: "typescript",
+							},
+						],
+					},
+				],
+			},
+			entrypoints: ["src/app.ts"],
+			dependencies: {},
+			dependency_map: {
+				internal: {},
+				external: {},
+				builtin: {},
+				unresolved: {},
+			},
+			file_stats: { typescript: 1 },
+			files: [{ path: "src/app.ts", language: "typescript" }],
+			module_files: {
+				src: ["src/app.ts"],
+			},
+		});
 	});
 });

@@ -13,6 +13,7 @@ export interface IndexerConfig {
 	logLevel: string;
 	enrichModel: string;
 	enrichConcurrency: number;
+	excludePaths: string[];
 }
 
 const DEFAULT_CONFIG: IndexerConfig = {
@@ -27,6 +28,7 @@ const DEFAULT_CONFIG: IndexerConfig = {
 	logLevel: "error",
 	enrichModel: "qwen2.5-coder:1.5b",
 	enrichConcurrency: 1,
+	excludePaths: ["fixtures/**", "vendor/**"],
 };
 
 export class ConfigManager {
@@ -78,6 +80,15 @@ export class ConfigManager {
 				parsed.enrichConcurrency > 0
 			)
 				this.config.enrichConcurrency = parsed.enrichConcurrency;
+			if (Array.isArray(parsed.excludePaths)) {
+				const excludePaths = parsed.excludePaths
+					.filter((value): value is string => typeof value === "string")
+					.map((value) => value.trim())
+					.filter((value) => value.length > 0);
+				if (excludePaths.length === parsed.excludePaths.length) {
+					this.config.excludePaths = excludePaths;
+				}
+			}
 		} catch {
 			// config unreadable — keep defaults
 		}

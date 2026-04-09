@@ -16,6 +16,7 @@ const DEFAULT_CONFIG = {
 	logLevel: "error",
 	enrichModel: "qwen2.5-coder:1.5b",
 	enrichConcurrency: 1,
+	excludePaths: ["fixtures/**", "vendor/**"],
 };
 
 describe("ConfigManager", () => {
@@ -91,6 +92,7 @@ describe("ConfigManager", () => {
 			indexConcurrency: 4,
 			indexBatchSize: 16,
 			logLevel: "debug",
+			excludePaths: ["examples/**", "generated/**"],
 		});
 
 		manager.load(dir);
@@ -106,6 +108,7 @@ describe("ConfigManager", () => {
 			indexConcurrency: 4,
 			indexBatchSize: 16,
 			logLevel: "debug",
+			excludePaths: ["examples/**", "generated/**"],
 		});
 	});
 
@@ -123,6 +126,7 @@ describe("ConfigManager", () => {
 		writeConfig(dir, {
 			embeddingModel: "nomic-embed-text",
 			indexConcurrency: 6,
+			excludePaths: ["sandbox/**"],
 		});
 
 		manager.load(dir);
@@ -131,6 +135,7 @@ describe("ConfigManager", () => {
 			...DEFAULT_CONFIG,
 			embeddingModel: "nomic-embed-text",
 			indexConcurrency: 6,
+			excludePaths: ["sandbox/**"],
 		});
 	});
 
@@ -146,6 +151,7 @@ describe("ConfigManager", () => {
 			indexConcurrency: "4",
 			indexBatchSize: null,
 			logLevel: { level: "debug" },
+			excludePaths: [123, null],
 		});
 
 		manager.load(dir);
