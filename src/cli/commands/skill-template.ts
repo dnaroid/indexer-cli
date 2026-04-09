@@ -7,7 +7,7 @@ export const SKILL_MD = `\
 ---
 name: repo-discovery
 description: Mandatory for repository discovery. Before grep/glob/find, first use indexer-cli whenever the task involves finding implementations, tracing behavior, locating symbols, identifying entry points, inspecting module structure, or understanding an unfamiliar area of this repo.
-allowed-tools: Bash(indexer-cli:*)
+allowed-tools: Bash(npx indexer-cli:*)
 ---
 
 # Repository discovery with indexer-cli
@@ -37,19 +37,19 @@ Do not use grep, glob, or find until indexer-cli was insufficient, or you need a
 
 Run one of these first:
 
-\`\`\`bash
-indexer-cli search "<query>" --json
-indexer-cli search "<query>" --json --path-prefix src/<area>
-indexer-cli search "<query>" --json --chunk-types impl,types
-indexer-cli structure --json --path-prefix src/<area>
-indexer-cli structure --json --kind class
-indexer-cli architecture --json
-indexer-cli index --status --json
-\`\`\`
+ \`\`\`bash
+ npx indexer-cli search "<query>" --json
+ npx indexer-cli search "<query>" --json --path-prefix src/<area>
+ npx indexer-cli search "<query>" --json --chunk-types impl,types
+ npx indexer-cli structure --json --path-prefix src/<area>
+ npx indexer-cli structure --json --kind class
+ npx indexer-cli architecture --json
+ npx indexer-cli index --status --json
+ \`\`\`
 
 ## Reading search results
 
-\`indexer-cli search --json\` returns ranked code chunks, not whole files.
+ \`npx indexer-cli search --json\` returns ranked code chunks, not whole files.
 Each result includes \`filePath\`, \`startLine\`, \`endLine\`, \`score\`, \`primarySymbol\`, and \`content\`.
 
 - Use \`score\` to prefer the most relevant chunks first and filter obvious low-relevance noise.

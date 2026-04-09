@@ -266,7 +266,7 @@ function checkOllama(): CheckResult {
 			name: "Ollama",
 			status: "failed",
 			detail:
-				"Install Ollama manually from https://ollama.com/download and re-run `indexer-cli setup`.",
+				"Install Ollama manually from https://ollama.com/download and re-run `npx indexer-cli setup`.",
 		};
 	}
 
@@ -447,14 +447,14 @@ function printSummary(): void {
 	if (!allOk) {
 		console.log(
 			red(
-				"  Some dependencies failed. Resolve the issues above and re-run `indexer-cli setup`.",
+				"  Some dependencies failed. Resolve the issues above and re-run `npx indexer-cli setup`.",
 			),
 		);
 		process.exitCode = 1;
 	} else {
 		console.log(
 			green(
-				"  All dependencies ready. Run `indexer-cli init` in your project to start.",
+				"  All dependencies ready. Run `npx indexer-cli init` in your project to start.",
 			),
 		);
 	}

@@ -12,7 +12,7 @@ import { SKILL_MD } from "./skill-template.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
 const HOOK_MARKER_END = "# <<< indexer-cli <<<";
-const HOOK_BLOCK = `\n${HOOK_MARKER_START}\nnohup indexer-cli index > /dev/null 2>&1 &\n${HOOK_MARKER_END}\n`;
+const HOOK_BLOCK = `\n${HOOK_MARKER_START}\nnohup npx indexer-cli index > /dev/null 2>&1 &\n${HOOK_MARKER_END}\n`;
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {

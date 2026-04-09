@@ -28,40 +28,25 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 
 ## Prerequisites
 
-- [Ollama](https://ollama.ai) installed manually. `indexer-cli setup` will verify it, start the daemon if needed, and prepare the `jina-8k` model.
-
-## Installation
-
-```bash
-npm install -g indexer-cli
-```
-
-Requires Node.js 18+ and build tools (python3, make, C++ compiler) for native dependencies.
-
-After installing, run `indexer-cli setup` once to verify local prerequisites and prepare the `jina-8k` model. `setup` does not auto-install Ollama; install Ollama yourself from https://ollama.com/download first.
-
-### Uninstall
-
-```bash
-npm uninstall -g indexer-cli
-```
+- [Ollama](https://ollama.ai) installed manually. `npx indexer-cli setup` will verify it, start the daemon if needed, and prepare the `jina-8k` model.
+- Node.js 18+ and build tools (python3, make, C++ compiler) for native dependencies.
 
 ## Quick Start
 
 ```bash
 # 1. Initialize indexing and install the repo-discovery skill
 cd /path/to/your/project
-indexer-cli init
+npx indexer-cli init
 
 # 2. Index the codebase
-indexer-cli index
+npx indexer-cli index
 
 # 3. Search semantically yourself
-indexer-cli search "authentication middleware"
+npx indexer-cli search "authentication middleware"
 ```
 
 After `init`, the repo also contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents can be steered toward
-`indexer-cli search`, `indexer-cli structure`, and `indexer-cli architecture` before they start burning tokens on broad
+`npx indexer-cli search`, `npx indexer-cli structure`, and `npx indexer-cli architecture` before they start burning tokens on broad
 filesystem scans.
 
 ## Why agents save tokens with this
@@ -79,16 +64,16 @@ In practice, that means:
 
 ## Agent Integration
 
-When you run `indexer-cli init`, the CLI creates a project-local repo-discovery skill at
+When you run `npx indexer-cli init`, the CLI creates a project-local repo-discovery skill at
 `.claude/skills/repo-discovery/SKILL.md` and adds `.claude/` to `.gitignore`.
 
 That skill tells coding agents to start repository discovery with commands like:
 
 ```bash
-indexer-cli search "<query>" --json
-indexer-cli structure --json --path-prefix src/<area>
-indexer-cli architecture --json
-indexer-cli index --status --json
+npx indexer-cli search "<query>" --json
+npx indexer-cli structure --json --path-prefix src/<area>
+npx indexer-cli architecture --json
+npx indexer-cli index --status --json
 ```
 
 This is especially useful in Claude and OpenCode setups, where project-local skills can guide the agent away from
@@ -97,17 +82,17 @@ usage during repo discovery.
 
 ## CLI Commands
 
-### `indexer-cli setup`
+### `npx indexer-cli setup`
 
 Check system prerequisites and prepare the Ollama embedding model. `setup` can install some system tools where appropriate, but Ollama itself must be installed manually first. Works on macOS and Linux.
 
-### `indexer-cli init`
+### `npx indexer-cli init`
 
 Create the `.indexer-cli/` directory, initialize the SQLite database and LanceDB vector store, and add `.indexer-cli/`
 to `.gitignore` in the current working directory. Also writes the project-local repo-discovery skill to
 `.claude/skills/repo-discovery/SKILL.md` and adds `.claude/` to `.gitignore`.
 
-### `indexer-cli index`
+### `npx indexer-cli index`
 
 Index all supported source files in the current working directory.
 
@@ -119,7 +104,7 @@ Index all supported source files in the current working directory.
 | `--tree`    | Show indexed file tree (use with `--status`)           |
 | `--json`    | Output status as JSON (use with `--status`)            |
 
-### `indexer-cli search <query>`
+### `npx indexer-cli search <query>`
 
 Run a semantic search against the indexed codebase. Automatically re-indexes changed files if needed.
 
@@ -130,7 +115,7 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
 | `--json`                 | —       | Output results as JSON                                                                                       |
 
-### `indexer-cli structure`
+### `npx indexer-cli structure`
 
 Print a file tree annotated with extracted symbols for the current working directory. Automatically re-indexes changed
 files if needed.
@@ -141,12 +126,12 @@ files if needed.
 | `--kind <string>`        | Filter by symbol kind: `function`, `class`, `method`, `interface`, `type`, `variable`, `module`, `signal` |
 | `--json`                 | Output structure as JSON                                                                                  |
 
-### `indexer-cli architecture`
+### `npx indexer-cli architecture`
 
 Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a
 dependency graph.
 
-### `indexer-cli uninstall`
+### `npx indexer-cli uninstall`
 
 Remove the `.indexer-cli/` directory from the current working directory. Also removes the generated
 `.claude/skills/repo-discovery/` skill directory when present, then prompts for confirmation before deleting.
