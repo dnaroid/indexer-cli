@@ -6,7 +6,7 @@ const { connectMock, existsSyncMock, rmSyncMock } = vi.hoisted(() => ({
 	rmSyncMock: vi.fn(),
 }));
 
-vi.mock("vectordb", () => ({
+vi.mock("@lancedb/lancedb", () => ({
 	connect: connectMock,
 }));
 
@@ -52,7 +52,7 @@ function createFilterChain(rows: any[]) {
 	return {
 		limit: vi.fn().mockReturnThis(),
 		select: vi.fn().mockReturnThis(),
-		execute: vi.fn().mockResolvedValue(rows),
+		toArray: vi.fn().mockResolvedValue(rows),
 	};
 }
 
@@ -60,7 +60,7 @@ function createSearchChain(rows: any[]) {
 	return {
 		limit: vi.fn().mockReturnThis(),
 		where: vi.fn().mockReturnThis(),
-		execute: vi.fn().mockResolvedValue(rows),
+		toArray: vi.fn().mockResolvedValue(rows),
 	};
 }
 
