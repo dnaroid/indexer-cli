@@ -1,15 +1,22 @@
 # indexer-cli
 
-Lightweight CLI project indexer with semantic code search via Ollama.
+Project indexer that installs a repo-discovery skill for coding agents and helps them spend fewer tokens finding the right code.
 
 ## Overview
 
-indexer-cli indexes source code in a project, generates vector embeddings through a local Ollama instance, and stores
-everything in a per-project `.indexer-cli/` directory. You can then run natural language queries against your codebase
-and get relevant results in seconds. It ships as a single package with no daemon or background process to manage.
+The main feature of `indexer-cli` is not just search on its own: it turns your repository into something coding agents
+can navigate efficiently. Running `indexer-cli init` installs a project-local `repo-discovery` skill that nudges Claude,
+OpenCode, and similar tools to use indexed repository discovery first instead of wasting tokens on blind `grep`,
+`find`, and repeated file reads.
+
+Under the hood, `indexer-cli` indexes source code, generates vector embeddings through a local Ollama instance, and
+stores everything in a per-project `.indexer-cli/` directory. That gives both humans and agents fast natural-language
+search, repo structure snapshots, and low-friction incremental reindexing without any daemon or background service.
 
 ## Features
 
+- **Code-agent repo skill**: `init` installs a project-local `repo-discovery` skill for Claude and OpenCode workflows
+- **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated context loading
 - **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby
 - **Semantic code search**: Natural language queries over your entire codebase
 - **Incremental indexing**: Uses `git diff` to re-index only changed files, bulk-copies unchanged vectors
@@ -18,7 +25,6 @@ and get relevant results in seconds. It ships as a single package with no daemon
 - **Architecture snapshot**: Generates dependency graphs, entry points, and file stats
 - **Symbol extraction**: Functions, classes, interfaces, and imports are all indexed
 - **Adaptive chunking**: Smart code splitting at function, module, or single-file granularity
-- **Agent-ready repo skill**: `init` installs a project-local `repo-discovery` skill for Claude and OpenCode workflows
 
 ## Prerequisites
 
@@ -65,19 +71,33 @@ rm -rf ~/.indexer-cli
 ## Quick Start
 
 ```bash
-# 1. Initialize indexing in your project
+# 1. Initialize indexing and install the repo-discovery skill
 cd /path/to/your/project
 indexer-cli init
 
 # 2. Index the codebase
 indexer-cli index
 
-# 3. Search semantically
+# 3. Search semantically yourself
 indexer-cli search "authentication middleware"
 ```
 
-`indexer-cli init` also writes `.claude/skills/repo-discovery/SKILL.md`, so agentic tools such as Claude and
-OpenCode can be steered toward using `indexer-cli` first for repository discovery.
+After `init`, the repo also contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents can be steered toward
+`indexer-cli search`, `indexer-cli structure`, and `indexer-cli architecture` before they start burning tokens on broad
+filesystem scans.
+
+## Why agents save tokens with this
+
+Without a repo-local skill, agents often spend tokens on repetitive repository discovery: broad `grep`, repeated file
+reads, and trial-and-error navigation. With `indexer-cli`, the skill tells them to start from indexed search and
+structured repo views instead.
+
+In practice, that means:
+
+- less irrelevant context pulled into the prompt
+- fewer repeated search passes over the same files
+- faster navigation to the right symbol, module, or entry point
+- better reuse of a local repo index instead of raw token-heavy exploration
 
 ## Agent Integration
 
@@ -94,7 +114,8 @@ indexer-cli index --status --json
 ```
 
 This is especially useful in Claude and OpenCode setups, where project-local skills can guide the agent away from
-blind `grep`/`find` usage and toward indexed search first.
+blind `grep`/`find` usage and toward indexed search first, which usually means less wasted context and lower token
+usage during repo discovery.
 
 ## CLI Commands
 

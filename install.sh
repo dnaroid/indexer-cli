@@ -155,7 +155,7 @@ ensure_supported_node() {
 }
 
 is_direct_execution() {
-	current_source="${1:-${BASH_SOURCE[0]-$0}}"
+	current_source="${1:-${BASH_SOURCE:-$0}}"
 	invoked_as="${2:-$0}"
 	[ "$current_source" = "$invoked_as" ]
 }
