@@ -45,6 +45,18 @@ describe("install.sh helpers", () => {
 		expect(unsupportedOutput.trim()).toBe("unsupported");
 	});
 
+	it("treats stdin-style bash execution as direct execution without unbound variables", () => {
+		const directOutput = runShell(
+			`source "${scriptPath}"; is_direct_execution bash bash && printf 'direct\n'`,
+		);
+		const sourcedOutput = runShell(
+			`source "${scriptPath}"; if is_direct_execution "${scriptPath}" bash; then printf 'direct\n'; else printf 'sourced\n'; fi`,
+		);
+
+		expect(directOutput.trim()).toBe("direct");
+		expect(sourcedOutput.trim()).toBe("sourced");
+	});
+
 	it("chooses automatic bootstrap when runtime verification initially fails", () => {
 		const output = runShell(`
 			source "${scriptPath}"

@@ -154,6 +154,12 @@ ensure_supported_node() {
 	fi
 }
 
+is_direct_execution() {
+	current_source="${1:-${BASH_SOURCE[0]-$0}}"
+	invoked_as="${2:-$0}"
+	[ "$current_source" = "$invoked_as" ]
+}
+
 detect_local_source() {
 	if git -C "$SCRIPT_DIR" rev-parse --show-toplevel >/dev/null 2>&1 && [ -f "$SCRIPT_DIR/package.json" ] && [ -f "$SCRIPT_DIR/install.sh" ]; then
 		LOCAL_SOURCE_DIR=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
@@ -215,6 +221,6 @@ main() {
 	msg "Run 'indexer-cli --help' to get started."
 }
 
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+if is_direct_execution; then
 	main "$@"
 fi
