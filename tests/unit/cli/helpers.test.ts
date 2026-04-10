@@ -272,15 +272,15 @@ describe("CLI helper functions", () => {
 			});
 		});
 
-		it("requires --include-content when JSON output requests content", () => {
+		it("silently omits content by default in JSON output", () => {
 			const allFields = search.parseSearchFields();
 
-			expect(() =>
+			expect(
 				search.resolveOutputFields(allFields, {
 					isJson: true,
 					includeContent: false,
 				}),
-			).toThrow(/JSON output omits content by default/i);
+			).toEqual(allFields.filter((f) => f !== "content"));
 
 			expect(
 				search.resolveOutputFields(allFields, {

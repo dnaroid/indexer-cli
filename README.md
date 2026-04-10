@@ -1,6 +1,7 @@
 # indexer-cli
 
-Project indexer that installs a repo-discovery skill for coding agents and helps them spend fewer tokens finding the right code.
+Project indexer that installs a repo-discovery skill for coding agents and helps them spend fewer tokens finding the
+right code.
 
 ## Overview
 
@@ -16,7 +17,8 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 ## Features
 
 - **Code-agent repo skill**: `init` installs a project-local `repo-discovery` skill for Claude and OpenCode workflows
-- **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated context loading
+- **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated
+  context loading
 - **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby
 - **Semantic code search**: Natural language queries over your entire codebase
 - **Incremental indexing**: Uses `git diff` to re-index only changed files, bulk-copies unchanged vectors
@@ -28,7 +30,8 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 
 ## Prerequisites
 
-- [Ollama](https://ollama.ai) installed manually. `npx indexer-cli setup` will verify it, start the daemon if needed, and prepare the `jina-8k` model.
+- [Ollama](https://ollama.ai) installed manually. `npx indexer-cli setup` will verify it, start the daemon if needed,
+  and prepare the `jina-8k` model.
 - Node.js 18+ and build tools (python3, make, C++ compiler) for native dependencies.
 
 ## Quick Start
@@ -45,7 +48,7 @@ npx indexer-cli init
 npx indexer-cli index
 
 # 4. Search semantically yourself
-npx indexer-cli search "authentication middleware"
+npx indexer-cli search "authentication middleware" --txt
 ```
 
 After `init`, the repo also contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents can be steered toward
@@ -89,7 +92,8 @@ usage during repo discovery.
 
 ### `npx indexer-cli setup`
 
-Check system prerequisites and prepare the Ollama embedding model. `setup` can install some system tools where appropriate, but Ollama itself must be installed manually first. Works on macOS and Linux.
+Check system prerequisites and prepare the Ollama embedding model. `setup` can install some system tools where
+appropriate, but Ollama itself must be installed manually first. Works on macOS and Linux.
 
 ### `npx indexer-cli init`
 
@@ -101,12 +105,12 @@ to `.gitignore` in the current working directory. Also writes the project-local 
 
 Index all supported source files in the current working directory.
 
-| Option      | Description                                            |
-|-------------|--------------------------------------------------------|
-| `--full`    | Force a full reindex instead of incremental            |
-| `--dry-run` | Preview what would be indexed without writing anything |
-| `--status`  | Show indexing status for the current project           |
-| `--tree`    | Show indexed file tree (use with `--status`)           |
+| Option      | Description                                                |
+|-------------|------------------------------------------------------------|
+| `--full`    | Force a full reindex instead of incremental                |
+| `--dry-run` | Preview what would be indexed without writing anything     |
+| `--status`  | Show indexing status for the current project               |
+| `--tree`    | Show indexed file tree (use with `--status`)               |
 | `--txt`     | Output status as human-readable text (use with `--status`) |
 
 ### `npx indexer-cli search <query>`
@@ -115,16 +119,17 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 
 | Option                   | Default | Description                                                                                                  |
 |--------------------------|---------|--------------------------------------------------------------------------------------------------------------|
-| `--top-k <number>`       | 3       | Number of results to return                                                                                  |
+| `--max-files <number>`   | 3       | Number of results to return                                                                                  |
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
 | `--fields <list>`        | —       | Comma-separated output fields: `filePath`, `startLine`, `endLine`, `score`, `primarySymbol`, `content`       |
 | `--min-score <number>`   | —       | Filter out results below this score (0..1)                                                                   |
-| `--omit-content`         | —       | Exclude content from results (token-saving)                                                                  |
-| `--include-content`      | —       | Include `content` in JSON output (JSON omits it by default)                                                  |
+| `--omit-content`         | +       | Explicitly exclude content from results (default behavior in JSON mode)                                      |
+| `--include-content`      | —       | Include `content` in JSON output                                                                             |
 | `--txt`                  | —       | Output results as human-readable text                                                                        |
 
-`search` returns JSON by default. In JSON mode, `content` is omitted unless you pass `--include-content`; use `--txt` for the older human-readable layout.
+`search` returns JSON by default. In JSON mode, `content` is omitted unless you pass `--include-content`; use `--txt`
+for the older human-readable layout.
 
 ### `npx indexer-cli structure`
 
@@ -144,43 +149,43 @@ files if needed.
 Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a
 dependency graph.
 
-| Option                   | Description                                  |
-|--------------------------|----------------------------------------------|
-| `--path-prefix <string>` | Limit output to files under this path        |
-| `--include-fixtures`     | Include fixture/vendor paths in output       |
-| `--txt`                  | Output as human-readable text                |
+| Option                   | Description                            |
+|--------------------------|----------------------------------------|
+| `--path-prefix <string>` | Limit output to files under this path  |
+| `--include-fixtures`     | Include fixture/vendor paths in output |
+| `--txt`                  | Output as human-readable text          |
 
 ### `npx indexer-cli context`
 
 Output dense project context aggregated from the index. Useful for getting a concise overview of a codebase area
 without pulling in entire files.
 
-| Option                | Default | Description                                                              |
-|-----------------------|---------|--------------------------------------------------------------------------|
-| `--txt`               | —       | Output results as human-readable text                                    |
-| `--scope <scope>`     | all     | `all`, `changed` (uncommitted changes), or `relevant-to:<path>`          |
-| `--max-deps <number>` | 30      | Maximum number of dependency edges to output                             |
-| `--include-fixtures`  | —       | Include fixture/vendor paths in output                                   |
+| Option                | Default | Description                                                     |
+|-----------------------|---------|-----------------------------------------------------------------|
+| `--txt`               | —       | Output results as human-readable text                           |
+| `--scope <scope>`     | all     | `all`, `changed` (uncommitted changes), or `relevant-to:<path>` |
+| `--max-deps <number>` | 30      | Maximum number of dependency edges to output                    |
+| `--include-fixtures`  | —       | Include fixture/vendor paths in output                          |
 
 ### `npx indexer-cli explain <symbol>`
 
 Show context for a symbol: its signature, callers, and containing module. Use this to quickly understand what a
 specific function, class, or type does and how it is used.
 
-| Option   | Description          |
-|----------|----------------------|
-| `--txt`  | Output as human-readable text |
+| Option  | Description                   |
+|---------|-------------------------------|
+| `--txt` | Output as human-readable text |
 
 ### `npx indexer-cli deps <path>`
 
 Show callers (who imports this) and callees (what this imports) for a module or symbol. Useful for tracing impact
 of changes and understanding dependency chains.
 
-| Option              | Default | Description                                       |
-|---------------------|---------|---------------------------------------------------|
-| `--direction <dir>` | both    | `callers`, `callees`, or `both`                   |
-| `--depth <n>`       | 1       | Traversal depth                                   |
-| `--txt`             | —       | Output as human-readable text                     |
+| Option              | Default | Description                     |
+|---------------------|---------|---------------------------------|
+| `--direction <dir>` | both    | `callers`, `callees`, or `both` |
+| `--depth <n>`       | 1       | Traversal depth                 |
+| `--txt`             | —       | Output as human-readable text   |
 
 ### `npx indexer-cli uninstall`
 
