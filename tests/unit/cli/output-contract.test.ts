@@ -35,4 +35,12 @@ describe("CLI output flag contract", () => {
 		expect(source).toContain("const isJson = isJsonOutput(options);");
 		expect(source).toContain("truncatedDependencies");
 	});
+
+	it("uses the renamed search --max-files option consistently", () => {
+		const source = readSource("../../../src/cli/commands/search.ts");
+
+		expect(source).toContain('.option("--max-files <number>"');
+		expect(source).toContain('options?.maxFiles ?? "3"');
+		expect(source).not.toContain("options?.topK");
+	});
 });
