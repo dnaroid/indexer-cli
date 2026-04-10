@@ -299,3 +299,87 @@ export interface GitOperations {
 		options?: { sinceDays?: number },
 	): Promise<Record<string, number>>;
 }
+
+export type ContextPackIntent =
+	| "bugfix"
+	| "feature"
+	| "refactor"
+	| "investigation"
+	| "unknown";
+
+export type ContextPackProfile = "routing" | "balanced" | "deep";
+
+export interface SelectedScope {
+	pathPrefixes: string[];
+	confidence: number;
+	why: string[];
+}
+
+export interface ModuleGoal {
+	module: string;
+	goal: string;
+	confidence: number;
+	evidenceSources: string[];
+}
+
+export interface ContextPackDependencyEdge {
+	from: string;
+	to: string;
+}
+
+export interface ArchitectureSlice {
+	entrypoints: string[];
+	relatedModules: string[];
+	dependencies: ContextPackDependencyEdge[];
+}
+
+export interface StructureSliceFile {
+	path: string;
+	module: string;
+	language?: string;
+}
+
+export interface StructureSliceSymbol {
+	file: string;
+	name: string;
+	kind: string;
+	signature?: string;
+}
+
+export interface StructureSlice {
+	files: StructureSliceFile[];
+	keySymbols: StructureSliceSymbol[];
+}
+
+export interface SemanticHit {
+	filePath: string;
+	score: number;
+	primarySymbol?: string;
+	reason: string;
+	snippet?: string;
+}
+
+export interface NextRead {
+	file: string;
+	reason: string;
+}
+
+export interface PackMeta {
+	estimatedTokens: number;
+	budget: number;
+	profile: ContextPackProfile;
+	confidenceBand: "low" | "medium" | "high";
+	omitted: string[];
+}
+
+export interface ContextPackResult {
+	task: string;
+	intent: ContextPackIntent;
+	selected_scope: SelectedScope;
+	module_goals: ModuleGoal[];
+	architecture_slice: ArchitectureSlice;
+	structure_slice: StructureSlice;
+	semantic_hits: SemanticHit[];
+	next_reads: NextRead[];
+	_meta: PackMeta;
+}
