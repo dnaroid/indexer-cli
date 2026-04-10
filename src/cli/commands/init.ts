@@ -53,8 +53,12 @@ async function refreshClaudeSkills(
 	projectRoot: string,
 	skillDirectories = GENERATED_SKILL_DIRECTORIES,
 	skills = GENERATED_SKILLS,
+	deprecatedSkillDirectories = ["context-pack"],
 ): Promise<void> {
-	for (const skillDirectory of skillDirectories) {
+	for (const skillDirectory of [
+		...skillDirectories,
+		...deprecatedSkillDirectories,
+	]) {
 		const skillDir = path.join(
 			projectRoot,
 			".claude",

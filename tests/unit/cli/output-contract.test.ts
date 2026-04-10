@@ -17,7 +17,6 @@ describe("CLI output flag contract", () => {
 			"../../../src/cli/commands/structure.ts",
 			"../../../src/cli/commands/architecture.ts",
 			"../../../src/cli/commands/context.ts",
-			"../../../src/cli/commands/context-pack.ts",
 			"../../../src/cli/commands/explain.ts",
 			"../../../src/cli/commands/deps.ts",
 		];

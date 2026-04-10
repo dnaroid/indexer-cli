@@ -106,4 +106,37 @@ describe("init command helpers", () => {
 		expect(repoContext).toContain("name: repo-context");
 		expect(customSkill).toBe("keep me");
 	});
+
+	it("removes deprecated generated skill directories during refresh", async () => {
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-"));
+		tempDirs.push(projectRoot);
+
+		const skillsRoot = path.join(projectRoot, ".claude", "skills");
+		mkdirSync(path.join(skillsRoot, "context-pack"), { recursive: true });
+		writeFileSync(
+			path.join(skillsRoot, "context-pack", "SKILL.md"),
+			"deprecated skill",
+			"utf8",
+		);
+
+		await initInternals.refreshClaudeSkills(
+			projectRoot,
+			["semantic-search"],
+			[
+				{
+					directory: "semantic-search",
+					content: "name: semantic-search\n",
+				},
+			],
+		);
+
+		expect(() =>
+			readFileSync(path.join(skillsRoot, "context-pack", "SKILL.md"), "utf8"),
+		).toThrow();
+		const semanticSearch = readFileSync(
+			path.join(skillsRoot, "semantic-search", "SKILL.md"),
+			"utf8",
+		);
+		expect(semanticSearch).toContain("name: semantic-search");
+	});
 });

@@ -12,7 +12,10 @@ import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Command } from "commander";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
-import { GENERATED_SKILL_DIRECTORIES } from "./skills.js";
+import {
+	DEPRECATED_SKILL_DIRECTORIES,
+	GENERATED_SKILL_DIRECTORIES,
+} from "./skills.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
 const HOOK_MARKER_END = "# <<< indexer-cli <<<";
@@ -32,7 +35,10 @@ async function isDirEmpty(dirPath: string): Promise<boolean> {
 }
 
 async function removeClaudeSkill(projectRoot: string): Promise<void> {
-	for (const skillDirectory of GENERATED_SKILL_DIRECTORIES) {
+	for (const skillDirectory of [
+		...GENERATED_SKILL_DIRECTORIES,
+		...DEPRECATED_SKILL_DIRECTORIES,
+	]) {
 		const skillDir = path.join(
 			projectRoot,
 			".claude",

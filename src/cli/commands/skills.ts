@@ -178,39 +178,6 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 		],
 	},
 	{
-		name: "context-pack",
-		directory: "context-pack",
-		description:
-			"START HERE when the task is concrete, the owning repo area is unclear, and no more specific skill already matches. Load this before broad search to pick the most relevant repo area, explain why, and suggest the next files to read.",
-		heading: "Use context-pack for token-aware repo routing",
-		purpose:
-			"Use this when the agent has a concrete task but does not yet know which module to inspect first. Start here to get selected scope, module goals, compact structure, and next reads without broad blind discovery.",
-		allowedTools: ["Bash(npx indexer-cli context-pack:*)"],
-		rules: [
-			"Pass the actual task phrasing as the positional argument so routing can infer intent and likely ownership.",
-			"Prefer the default balanced profile first; switch to routing for fast triage or deep when confidence is low and you need evidence snippets.",
-			"Use --scope when you already know the search should stay near changed files or one path prefix.",
-			"Use --explain-symbols only when symbol signatures are worth the extra tokens.",
-		],
-		skipWhen: [
-			"You already know the exact file, module, or symbol to inspect next",
-			"You need raw semantic hits only; use semantic-search for that",
-		],
-		commandSamples: [
-			'npx indexer-cli context-pack "fix changed scope output"',
-			'npx indexer-cli context-pack "add search ranking debug output" --scope path-prefix:src/engine',
-			'npx indexer-cli context-pack "why is init writing stale skills" --profile deep --scope changed',
-		],
-		cliReference: [
-			"Positional args: <task>.",
-			"Output: JSON by default; use --txt for human-readable text.",
-			"Options: --budget <number>, --profile <profile>, --scope <scope>, --max-modules <number>, --max-files <number>, --max-snippets <number>, --min-score <number>, --explain-symbols, --txt.",
-			"Allowed --profile values: routing, balanced, deep.",
-			"Allowed --scope values: all, changed, relevant-to:<path>, path-prefix:<path>.",
-			"Allowed --budget values: 800, 1500, 2500.",
-		],
-	},
-	{
 		name: "symbol-explain",
 		directory: "symbol-explain",
 		description:
@@ -284,6 +251,8 @@ export const GENERATED_SKILLS: GeneratedSkill[] = SKILL_DEFINITIONS.map(
 		content: renderSkill(definition),
 	}),
 );
+
+export const DEPRECATED_SKILL_DIRECTORIES = ["context-pack"];
 
 export const GENERATED_SKILL_DIRECTORIES = GENERATED_SKILLS.map(
 	(skill) => skill.directory,

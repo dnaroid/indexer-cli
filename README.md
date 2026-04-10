@@ -53,9 +53,8 @@ npx indexer-cli search "authentication middleware" --txt
 
 After `init`, the repo contains focused skills like `.claude/skills/semantic-search/SKILL.md`,
 `.claude/skills/repo-structure/SKILL.md`, `.claude/skills/repo-context/SKILL.md`, and
-`.claude/skills/dependency-trace/SKILL.md`, plus `.claude/skills/context-pack/SKILL.md`, so coding agents can load
-the right indexed discovery workflow for `npx indexer-cli search`, `npx indexer-cli structure`,
-`npx indexer-cli architecture`, `npx indexer-cli context`, `npx indexer-cli context-pack`,
+`.claude/skills/dependency-trace/SKILL.md`, so coding agents can load the right indexed discovery workflow for
+`npx indexer-cli search`, `npx indexer-cli structure`, `npx indexer-cli architecture`, `npx indexer-cli context`,
 `npx indexer-cli explain`, and `npx indexer-cli deps` before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
@@ -83,7 +82,6 @@ npx indexer-cli search "<query>"
 npx indexer-cli structure --path-prefix src/<area>
 npx indexer-cli architecture
 npx indexer-cli context --scope relevant-to:src/<area>
-npx indexer-cli context-pack "fix changed scope output"
 ```
 
 By default, discovery commands now return JSON. Use `--txt` whenever you want human-readable output instead.
@@ -175,29 +173,6 @@ without pulling in entire files.
 | `--max-deps <number>` | 30      | Maximum number of dependency edges to output                    |
 | `--include-fixtures`  | —       | Include fixture/vendor paths in output                          |
 
-### `npx indexer-cli context-pack <task>`
-
-Build a token-aware routing pack for a coding task. The command selects likely modules, explains why they were chosen,
-returns a compact architecture and structure slice, and suggests the next files to read before deeper exploration.
-
-| Option                 | Default   | Description                                                      |
-|------------------------|-----------|------------------------------------------------------------------|
-| `--budget <number>`    | profile   | Token budget: `800`, `1500`, or `2500`                           |
-| `--profile <profile>`  | balanced  | `routing`, `balanced`, or `deep`                                 |
-| `--scope <scope>`      | all       | `all`, `changed`, `relevant-to:<path>`, or `path-prefix:<path>`  |
-| `--max-modules <n>`    | profile   | Maximum number of routed modules                                 |
-| `--max-files <n>`      | profile   | Maximum number of files in the structure slice                   |
-| `--max-snippets <n>`   | profile   | Maximum number of semantic evidence snippets                     |
-| `--min-score <number>` | —         | Filter out semantic hits below this score (0..1)                 |
-| `--explain-symbols`    | —         | Include symbol signatures in the pack output                     |
-| `--txt`                | —         | Output as human-readable text                                    |
-
-Budget profiles are tuned for agent workflows:
-
-- `routing` (~800 tokens): selected scope, module goals, next reads
-- `balanced` (~1500 tokens): routing plus compact structure and architecture slices
-- `deep` (~2500 tokens): balanced output plus evidence snippets when confidence is low or investigation is deeper
-
 ### `npx indexer-cli explain <symbol>`
 
 Show context for a symbol: its signature, callers, and containing module. Use this to quickly understand what a
@@ -222,6 +197,8 @@ of changes and understanding dependency chains.
 
 Remove the `.indexer-cli/` directory from the current working directory. Also removes the generated
 `.claude/skills/` directories created by `indexer-cli` when present. Prompts for confirmation unless `-f` is given.
+
+Deprecated generated skill directories such as `context-pack` are cleaned up when present.
 
 ## License
 
