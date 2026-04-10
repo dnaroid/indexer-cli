@@ -16,7 +16,7 @@ import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
-import { SKILL_MD } from "./skill-template.js";
+import { GENERATED_SKILL_DIRECTORIES, GENERATED_SKILLS } from "./skills.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
 const HOOK_MARKER_END = "# <<< indexer-cli <<<";
@@ -31,17 +31,43 @@ async function pathExists(targetPath: string): Promise<boolean> {
 	}
 }
 
-async function writeClaudeSkill(projectRoot: string): Promise<void> {
-	const skillDir = path.join(
-		projectRoot,
-		".claude",
-		"skills",
-		"repo-discovery",
-	);
-	await mkdir(skillDir, { recursive: true });
-	const skillPath = path.join(skillDir, "SKILL.md");
-	await writeFile(skillPath, SKILL_MD, "utf8");
-	console.log(`  Skill: ${skillPath}`);
+async function writeClaudeSkills(
+	projectRoot: string,
+	skills = GENERATED_SKILLS,
+): Promise<void> {
+	for (const skill of skills) {
+		const skillDir = path.join(
+			projectRoot,
+			".claude",
+			"skills",
+			skill.directory,
+		);
+		await mkdir(skillDir, { recursive: true });
+		const skillPath = path.join(skillDir, "SKILL.md");
+		await writeFile(skillPath, skill.content, "utf8");
+		console.log(`  Skill: ${skillPath}`);
+	}
+}
+
+async function refreshClaudeSkills(
+	projectRoot: string,
+	skillDirectories = GENERATED_SKILL_DIRECTORIES,
+	skills = GENERATED_SKILLS,
+): Promise<void> {
+	for (const skillDirectory of skillDirectories) {
+		const skillDir = path.join(
+			projectRoot,
+			".claude",
+			"skills",
+			skillDirectory,
+		);
+		if (await pathExists(skillDir)) {
+			await rm(skillDir, { recursive: true, force: true });
+			console.log(`  Removed stale skill: ${skillDir}`);
+		}
+	}
+
+	await writeClaudeSkills(projectRoot, skills);
 }
 
 async function ensureGitignoreEntries(
@@ -99,8 +125,12 @@ export function registerInitCommand(program: Command): void {
 	program
 		.command("init")
 		.description("Initialize indexer storage for a project")
+		.option(
+			"--refresh-skills",
+			"remove this CLI's generated skills and recreate them under .claude/skills",
+		)
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
-		.action(async () => {
+		.action(async (options?: { refreshSkills?: boolean }) => {
 			const resolvedProjectPath = process.cwd();
 			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 			const dbPath = path.join(dataDir, "db.sqlite");
@@ -137,7 +167,11 @@ export function registerInitCommand(program: Command): void {
 				await ensurePostCommitHook(resolvedProjectPath);
 
 				console.log(`Initialized indexer-cli in ${resolvedProjectPath}`);
-				await writeClaudeSkill(resolvedProjectPath);
+				if (options?.refreshSkills) {
+					await refreshClaudeSkills(resolvedProjectPath);
+				} else {
+					await writeClaudeSkills(resolvedProjectPath);
+				}
 				console.log(`  SQLite: ${dbPath}`);
 				console.log(`  Config: ${configPath}`);
 

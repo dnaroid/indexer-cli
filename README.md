@@ -1,13 +1,13 @@
 # indexer-cli
 
-Project indexer that installs a repo-discovery skill for coding agents and helps them spend fewer tokens finding the
+Project indexer that installs focused discovery skills for coding agents and helps them spend fewer tokens finding the
 right code.
 
 ## Overview
 
 The main feature of `indexer-cli` is not just search on its own: it turns your repository into something coding agents
-can navigate efficiently. Running `indexer-cli init` installs a project-local `repo-discovery` skill that nudges Claude,
-OpenCode, and similar tools to use indexed repository discovery first instead of wasting tokens on blind `grep`,
+can navigate efficiently. Running `indexer-cli init` installs project-local discovery skills with semantic names so
+Claude, OpenCode, and similar tools can pick the right indexed workflow instead of wasting tokens on blind `grep`,
 `find`, and repeated file reads.
 
 Under the hood, `indexer-cli` indexes source code, generates vector embeddings through a local Ollama instance, and
@@ -16,7 +16,7 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 
 ## Features
 
-- **Code-agent repo skill**: `init` installs a project-local `repo-discovery` skill for Claude and OpenCode workflows
+- **Code-agent repo skills**: `init` installs focused autonomous discovery skills for Claude and OpenCode workflows
 - **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated
   context loading
 - **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby
@@ -40,7 +40,7 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 # 1. Check prerequisites and prepare the embedding model
 npx indexer-cli setup
 
-# 2. Initialize indexing and install the repo-discovery skill
+# 2. Initialize indexing and install the discovery skills
 cd /path/to/your/project
 npx indexer-cli init
 
@@ -51,15 +51,17 @@ npx indexer-cli index
 npx indexer-cli search "authentication middleware" --txt
 ```
 
-After `init`, the repo also contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents can be steered toward
+After `init`, the repo contains focused skills like `.claude/skills/semantic-search/SKILL.md`,
+`.claude/skills/repo-structure/SKILL.md`, `.claude/skills/repo-context/SKILL.md`, and
+`.claude/skills/dependency-trace/SKILL.md`, so coding agents can load the right indexed discovery workflow for
 `npx indexer-cli search`, `npx indexer-cli structure`, `npx indexer-cli architecture`, `npx indexer-cli context`,
 `npx indexer-cli explain`, and `npx indexer-cli deps` before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
 
-Without a repo-local skill, agents often spend tokens on repetitive repository discovery: broad `grep`, repeated file
-reads, and trial-and-error navigation. With `indexer-cli`, the skill tells them to start from indexed search and
-structured repo views instead.
+Without repo-local skills, agents often spend tokens on repetitive repository discovery: broad `grep`, repeated file
+reads, and trial-and-error navigation. With `indexer-cli`, agents can load a focused skill that matches the current
+discovery intent and start from indexed search or structure-aware commands immediately.
 
 In practice, that means:
 
@@ -70,23 +72,23 @@ In practice, that means:
 
 ## Agent Integration
 
-When you run `npx indexer-cli init`, the CLI creates a project-local repo-discovery skill at
-`.claude/skills/repo-discovery/SKILL.md` and adds `.claude/` to `.gitignore`.
+When you run `npx indexer-cli init`, the CLI creates focused discovery skills for each major read-only discovery
+command under `.claude/skills/` and adds `.claude/` to `.gitignore`.
 
-That skill tells coding agents to start repository discovery with commands like:
+Those skills cover repository discovery flows such as:
 
 ```bash
 npx indexer-cli search "<query>"
 npx indexer-cli structure --path-prefix src/<area>
 npx indexer-cli architecture
-npx indexer-cli index --status
+npx indexer-cli context --scope relevant-to:src/<area>
 ```
 
 By default, discovery commands now return JSON. Use `--txt` whenever you want human-readable output instead.
 
 This is especially useful in Claude and OpenCode setups, where project-local skills can guide the agent away from
-blind `grep`/`find` usage and toward indexed search first, which usually means less wasted context and lower token
-usage during repo discovery.
+blind `grep`/`find` usage and toward indexed discovery, which usually means less wasted context and lower token usage
+during repo discovery.
 
 ## CLI Commands
 
@@ -98,8 +100,12 @@ appropriate, but Ollama itself must be installed manually first. Works on macOS 
 ### `npx indexer-cli init`
 
 Create the `.indexer-cli/` directory, initialize the SQLite database and LanceDB vector store, and add `.indexer-cli/`
-to `.gitignore` in the current working directory. Also writes the project-local repo-discovery skill to
-`.claude/skills/repo-discovery/SKILL.md` and adds `.claude/` to `.gitignore`.
+to `.gitignore` in the current working directory. Also writes focused discovery skills under `.claude/skills/` and
+adds `.claude/` to `.gitignore`.
+
+| Option              | Description                                                                     |
+|---------------------|---------------------------------------------------------------------------------|
+| `--refresh-skills`  | Remove this CLI's generated skills under `.claude/skills/` and recreate them    |
 
 ### `npx indexer-cli index`
 
@@ -190,7 +196,7 @@ of changes and understanding dependency chains.
 ### `npx indexer-cli uninstall`
 
 Remove the `.indexer-cli/` directory from the current working directory. Also removes the generated
-`.claude/skills/repo-discovery/` skill directory when present. Prompts for confirmation unless `-f` is given.
+`.claude/skills/` directories created by `indexer-cli` when present. Prompts for confirmation unless `-f` is given.
 
 ## License
 

@@ -12,6 +12,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Command } from "commander";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
+import { GENERATED_SKILL_DIRECTORIES } from "./skills.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
 const HOOK_MARKER_END = "# <<< indexer-cli <<<";
@@ -31,15 +32,17 @@ async function isDirEmpty(dirPath: string): Promise<boolean> {
 }
 
 async function removeClaudeSkill(projectRoot: string): Promise<void> {
-	const skillDir = path.join(
-		projectRoot,
-		".claude",
-		"skills",
-		"repo-discovery",
-	);
-	if (await pathExists(skillDir)) {
-		await rm(skillDir, { recursive: true, force: true });
-		console.log(`Removed ${skillDir}`);
+	for (const skillDirectory of GENERATED_SKILL_DIRECTORIES) {
+		const skillDir = path.join(
+			projectRoot,
+			".claude",
+			"skills",
+			skillDirectory,
+		);
+		if (await pathExists(skillDir)) {
+			await rm(skillDir, { recursive: true, force: true });
+			console.log(`Removed ${skillDir}`);
+		}
 	}
 
 	const skillsDir = path.join(projectRoot, ".claude", "skills");

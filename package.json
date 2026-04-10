@@ -1,52 +1,52 @@
 {
-	"name": "indexer-cli",
-	"version": "0.2.12",
-	"description": "Lightweight CLI project indexer with semantic search via Ollama",
-	"main": "dist/index.js",
-	"types": "dist/index.d.ts",
-	"bin": {
-		"indexer-cli": "./bin/indexer-cli.js"
-	},
-	"files": [
-		"bin",
-		"dist",
-		"README.md"
-	],
-	"engines": {
-		"node": ">=18"
-	},
-	"publishConfig": {
-		"access": "public"
-	},
-	"scripts": {
-		"build": "tsc && node scripts/copy-skill-template.mjs",
-		"dev": "tsc --watch",
-		"start": "tsx bin/indexer-cli.js",
-		"indexer-cli": "tsx bin/indexer-cli.js",
-		"install:global": "npm run build && npm link --force",
-		"uninstall:global": "npm unlink -g indexer-cli",
-		"test": "vitest run",
-		"test:watch": "vitest",
-		"release": "bash scripts/publish.sh"
-	},
-	"dependencies": {
-		"better-sqlite3": "^12.0.0",
-		"commander": "^12.1.0",
-		"p-limit": "^4.0.0",
-		"sqlite-vec": "^0.1.9",
-		"tree-sitter": "^0.21.1",
-		"tree-sitter-c-sharp": "^0.23.1",
-		"tree-sitter-gdscript": "^6.1.0",
-		"tree-sitter-python": "^0.21.0",
-		"tree-sitter-ruby": "^0.23.1",
-		"ts-morph": "^21.0.0"
-	},
-	"devDependencies": {
-		"@types/better-sqlite3": "^7.6.12",
-		"@types/node": "^22.10.0",
-		"@vitest/coverage-v8": "^4.1.3",
-		"tsx": "^4.19.0",
-		"typescript": "^5.7.0",
-		"vitest": "^4.1.3"
-	}
+  "name": "indexer-cli",
+  "version": "0.3.0",
+  "description": "Lightweight CLI project indexer with semantic search via Ollama",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "indexer-cli": "./bin/indexer-cli.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "tsx bin/indexer-cli.js",
+    "indexer-cli": "tsx bin/indexer-cli.js",
+    "install:global": "npm run build && npm link --force",
+    "uninstall:global": "npm unlink -g indexer-cli",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "release": "bash scripts/publish.sh"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.0.0",
+    "commander": "^12.1.0",
+    "p-limit": "^4.0.0",
+    "sqlite-vec": "^0.1.9",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-c-sharp": "^0.23.1",
+    "tree-sitter-gdscript": "^6.1.0",
+    "tree-sitter-python": "^0.21.0",
+    "tree-sitter-ruby": "^0.23.1",
+    "ts-morph": "^21.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.0",
+    "@vitest/coverage-v8": "^4.1.3",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.3"
+  }
 }
