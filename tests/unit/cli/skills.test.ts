@@ -35,6 +35,8 @@ describe("generated discovery skills", () => {
 		);
 
 		expect(searchSkill?.content).toContain("name: semantic-search");
+		expect(searchSkill?.content).not.toContain("## Choose this skill when");
+		expect(searchSkill?.content).not.toContain("## Auto-load when");
 		expect(searchSkill?.content).toContain(
 			"# Use semantic-search for implementation hunting",
 		);
@@ -58,6 +60,25 @@ describe("generated discovery skills", () => {
 		);
 		const depsSkill = GENERATED_SKILLS.find(
 			(skill) => skill.name === "dependency-trace",
+		);
+
+		expect(searchSkill?.content).toContain(
+			"description: Use when you know the behavior or concept to find but not the file, and want ranked implementation candidates.",
+		);
+		expect(structureSkill?.content).toContain(
+			"description: Use when you need the file-and-symbol layout of a directory or subsystem before reading implementation details.",
+		);
+		expect(architectureSkill?.content).toContain(
+			"description: Use when you need a high-level view of entry points, modules, and cross-module dependencies in a subsystem or repo.",
+		);
+		expect(contextSkill?.content).toContain(
+			"description: Use when you need a compact summary of the whole repo, current changes, or one area without opening many files.",
+		);
+		expect(explainSkill?.content).toContain(
+			"description: Use when the symbol name is already known and you need its signature, module context, and callers fast.",
+		);
+		expect(depsSkill?.content).toContain(
+			"description: Use when you already know the file or module to trace and need callers, callees, or likely change impact.",
 		);
 
 		expect(searchSkill?.content).toContain('npx indexer-cli search "<query>"');
