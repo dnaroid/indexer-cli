@@ -64,7 +64,8 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 	{
 		name: "semantic-search",
 		directory: "semantic-search",
-		description: `description: PREFER over grep for conceptual questions like "how does X work", "how is X calculated", or any question about behavior/flow. Use when the user asks about a concept, behavior, or flow — not a specific symbol or literal string.`,
+		description:
+			"FIRST choice for concept and behavior questions. Load this before grep when the task asks how something works, is calculated, or flows through the codebase rather than pointing to an exact symbol or literal string.",
 		heading: "Use semantic-search for implementation hunting",
 		purpose:
 			"Use this when the agent already knows it needs semantic search results, not a tree or architecture map. Keep the prompt short and centered on the code concept to find.",
@@ -95,7 +96,7 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 		name: "repo-structure",
 		directory: "repo-structure",
 		description:
-			"Use when you need the file-and-symbol layout of a directory or subsystem before reading implementation details.",
+			"FIRST choice for file-and-symbol layout questions. Load this before opening many files when you need the shape of a directory or subsystem before reading implementation details.",
 		heading: "Use repo-structure for tree and symbol-map questions",
 		purpose:
 			"Use this when the agent needs to see how files and symbols are organized in an area of the repo before reading implementation details.",
@@ -124,7 +125,7 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 		name: "repo-architecture",
 		directory: "repo-architecture",
 		description:
-			"Use when you need a high-level view of entry points, modules, and cross-module dependencies in a subsystem or repo.",
+			"FIRST choice for high-level repo shape questions. Load this before manual exploration when you need entry points, major modules, and cross-module dependencies for a subsystem or repo.",
 		heading: "Use repo-architecture for dependency-graph questions",
 		purpose:
 			"Use this when the agent needs a high-level snapshot of modules, entry points, and dependency shape before going deeper.",
@@ -151,7 +152,7 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 		name: "repo-context",
 		directory: "repo-context",
 		description:
-			"Use when you need a compact summary of the whole repo, current changes, or one area without opening many files.",
+			"FIRST choice for changed-area and subsystem summaries. Load this before opening many files when you need whole-repo orientation, changed-scope context, or a dependency-neighborhood snapshot without exact implementation snippets.",
 		heading: "Use repo-context for dense summaries",
 		purpose:
 			"Use this when the agent wants a compressed view of a subsystem, changed area, or dependency neighborhood without opening many files.",
@@ -180,7 +181,7 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 		name: "context-pack",
 		directory: "context-pack",
 		description:
-			"Use when you want one small routing pack that picks the most relevant repo area, explains why, and suggests the next files to read before deeper discovery.",
+			"START HERE when the task is concrete, the owning repo area is unclear, and no more specific skill already matches. Load this before broad search to pick the most relevant repo area, explain why, and suggest the next files to read.",
 		heading: "Use context-pack for token-aware repo routing",
 		purpose:
 			"Use this when the agent has a concrete task but does not yet know which module to inspect first. Start here to get selected scope, module goals, compact structure, and next reads without broad blind discovery.",
@@ -213,7 +214,7 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 		name: "symbol-explain",
 		directory: "symbol-explain",
 		description:
-			"Use when the symbol name is already known and you need its signature, module context, and callers fast.",
+			"FIRST choice once the symbol name is known. Load this before manual caller/signature tracing to get one symbol's signature, module context, and callers fast.",
 		heading: "Use symbol-explain for one symbol at a time",
 		purpose:
 			"Use this when the task centers on one function, class, type, or symbol and the agent needs signature, usage, and containing module context fast.",
@@ -241,7 +242,7 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 		name: "dependency-trace",
 		directory: "dependency-trace",
 		description:
-			"Use when you already know the file or module to trace and need callers, callees, or likely change impact.",
+			"FIRST choice once the file or module is known and impact matters. Load this before manual import tracing to see callers, callees, and likely change impact.",
 		heading: "Use dependency-trace for impact analysis",
 		purpose:
 			"Use this when the agent needs to know who imports a module, what it imports, or how far change impact may spread.",
