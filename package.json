@@ -26,7 +26,7 @@
 		"refresh-skills": "tsx bin/indexer-cli.js init --refresh-skills",
 		"install:global": "npm run build && npm link --force",
 		"uninstall:global": "npm unlink -g indexer-cli",
-		"test": "vitest run",
+		"test": "vitest run tests/unit/",
 		"test:watch": "vitest",
 		"test:cli": "vitest run tests/cli/ --testTimeout=180000 --no-file-parallelism",
 		"test:cli:python": "vitest run tests/cli/commands-python.test.ts --testTimeout=180000 --no-file-parallelism",
