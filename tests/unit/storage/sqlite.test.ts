@@ -625,17 +625,15 @@ describe("SqliteMetadataStore", () => {
 		expect(await store.getSnapshot(keep.id)).toBeNull();
 	});
 
-	it("preserveActiveIndexing skips recent 'indexing' snapshots but removes old ones", async () => {
+	it("preserveActiveIndexing skips recent 'indexing' snapshots but removes stale ones", async () => {
 		const db = (store as any).db;
 
-		// A recent (< 5 min) "indexing" snapshot — simulates a concurrent process
-		const recentMs = Date.now() - 60_000; // 1 minute ago
+		const recentMs = Date.now() - 60_000;
 		db.prepare(
 			"INSERT INTO snapshots (id, project_id, git_ref, status, created_at) VALUES (?, ?, 'head', 'indexing', ?)",
 		).run("snap-recent-indexing", PROJECT_ID, recentMs);
 
-		// An old (> 5 min) stale "indexing" snapshot — safe to remove
-		const oldMs = Date.now() - 10 * 60_000; // 10 minutes ago
+		const oldMs = Date.now() - 31 * 60_000;
 		db.prepare(
 			"INSERT INTO snapshots (id, project_id, git_ref, status, created_at) VALUES (?, ?, 'head', 'indexing', ?)",
 		).run("snap-old-indexing", PROJECT_ID, oldMs);
@@ -1057,6 +1055,80 @@ describe("SqliteMetadataStore", () => {
 
 			expect(await store.listFiles(PROJECT_ID, s3.id)).toHaveLength(1);
 			expect(await store.listChunks(PROJECT_ID, s3.id)).toHaveLength(1);
+		});
+	});
+
+	describe("SqliteMetadataStore stale snapshot cleanup", () => {
+		let tempDir: string;
+		let dbPath: string;
+		let staleStore: SqliteMetadataStore;
+
+		beforeEach(async () => {
+			tempDir = mkdtempSync(path.join(tmpdir(), "indexer-cli-stale-"));
+			dbPath = path.join(tempDir, "db.sqlite");
+			staleStore = new SqliteMetadataStore(dbPath);
+			await staleStore.initialize();
+		});
+
+		afterEach(async () => {
+			await staleStore.close();
+			rmSync(tempDir, { recursive: true, force: true });
+		});
+
+		it("marks stale indexing snapshots as failed on initialize", async () => {
+			const db = (staleStore as any).db;
+			const oldTimestamp = Date.now() - 31 * 60 * 1000;
+
+			db.prepare(
+				`INSERT INTO snapshots (id, project_id, status, created_at, git_ref)
+				 VALUES (?, ?, 'indexing', ?, NULL)`,
+			).run("stale-snap-1", "project-a", oldTimestamp);
+
+			(staleStore as any).initialized = false;
+			await staleStore.initialize();
+
+			const snapshot = await staleStore.getSnapshot("stale-snap-1");
+			expect(snapshot?.status).toBe("failed");
+		});
+
+		it("preserves recent indexing snapshots", async () => {
+			await staleStore.createSnapshot("project-a", {
+				headCommit: "abc",
+				indexedAt: Date.now(),
+			});
+
+			const snapshot = await staleStore.getLatestSnapshot("project-a");
+			expect(snapshot?.status).toBe("indexing");
+
+			(staleStore as any).initialized = false;
+			await staleStore.initialize();
+
+			const afterReinitialize = await staleStore.getLatestSnapshot("project-a");
+			expect(afterReinitialize?.status).toBe("indexing");
+		});
+	});
+
+	describe("SqliteMetadataStore migration transaction", () => {
+		it("wraps migrations in immediate transaction", async () => {
+			const migrationTempDir = mkdtempSync(
+				path.join(tmpdir(), "indexer-cli-migration-"),
+			);
+			const migrationDbPath = path.join(migrationTempDir, "db.sqlite");
+			const migrationStore = new SqliteMetadataStore(migrationDbPath);
+
+			try {
+				await migrationStore.initialize();
+
+				const db = (migrationStore as any).db;
+				const row = db
+					.prepare("SELECT MAX(version) as version FROM schema_migrations")
+					.get() as { version: number | null };
+
+				expect(row.version).toBeGreaterThan(0);
+			} finally {
+				await migrationStore.close();
+				rmSync(migrationTempDir, { recursive: true, force: true });
+			}
 		});
 	});
 });

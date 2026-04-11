@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { extname } from "node:path";
 import { config } from "../../core/config.js";
+import { acquireIndexLock } from "../../core/lock.js";
 import type { Snapshot } from "../../core/types.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
@@ -151,85 +152,112 @@ export async function ensureIndexed(
 		return;
 	}
 
-	const dataDir = path.join(repoRoot, ".indexer-cli");
-	const dbPath = path.join(dataDir, "db.sqlite");
-	const vectors = new SqliteVecVectorStore({
-		dbPath,
-		vectorSize: config.get("vectorSize"),
-	});
+	const release = await acquireIndexLock(repoRoot, {
+		waitMs: 5_000,
+		retryIntervalMs: 1000,
+	}).catch(() => null);
 
-	const startedAt = Date.now();
-
-	const embedder = new OllamaEmbeddingProvider(
-		config.get("ollamaBaseUrl"),
-		config.get("embeddingModel"),
-		config.get("indexBatchSize"),
-		config.get("indexConcurrency"),
-		config.get("ollamaNumCtx"),
-	);
-
-	let engine: IndexerEngine | null = null;
+	if (!release) {
+		if (!silent) {
+			console.log("Skipping auto-index: another process holds the lock.");
+		}
+		return;
+	}
 
 	try {
-		await vectors.initialize();
-		await embedder.initialize();
-
-		engine = new IndexerEngine({
-			projectId: DEFAULT_PROJECT_ID,
+		const updatedSnapshot =
+			(await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID)) ??
+			undefined;
+		const updatedPlan = await getIndexPlan(
+			git,
 			repoRoot,
 			metadata,
-			vectors,
-			embedder,
-			git,
-			languagePlugins: createDefaultLanguagePlugins(),
-		});
-		const headCommit = await git.getHeadCommit(repoRoot);
+			updatedSnapshot,
+		);
 
-		// metadata is already initialized by the caller — skip engine.initialize()
-		// to avoid redundant schema/migration checks.
-		const mode = indexPlan.isFullReindex ? "full" : "incremental";
-		if (!silent) {
-			console.log(`Indexing (${mode})...`);
+		if (!updatedPlan) {
+			return;
 		}
 
-		const result = await engine.indexProject({
-			projectId: DEFAULT_PROJECT_ID,
-			repoRoot,
-			gitRef: headCommit ?? "unknown",
-			isFullReindex: indexPlan.isFullReindex,
-			changedFiles: indexPlan.changedFiles,
-			onProgress: silent
-				? undefined
-				: (processed, total) => {
-						console.log(`  ${processed}/${total} files...`);
-					},
+		const dataDir = path.join(repoRoot, ".indexer-cli");
+		const dbPath = path.join(dataDir, "db.sqlite");
+		const vectors = new SqliteVecVectorStore({
+			dbPath,
+			vectorSize: config.get("vectorSize"),
 		});
 
-		const elapsedMs = Date.now() - startedAt;
-		const chunkCount = await vectors.countVectors({
-			projectId: DEFAULT_PROJECT_ID,
-			snapshotId: result.snapshotId,
-		});
+		const startedAt = Date.now();
 
-		if (!silent) {
-			console.log("Index updated.");
-			console.log(`  Snapshot: ${result.snapshotId}`);
-			console.log(`  Files indexed: ${result.filesIndexed}`);
-			console.log(`  Chunks created: ${chunkCount}`);
-			console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
-		}
+		const embedder = new OllamaEmbeddingProvider(
+			config.get("ollamaBaseUrl"),
+			config.get("embeddingModel"),
+			config.get("indexBatchSize"),
+			config.get("indexConcurrency"),
+			config.get("ollamaNumCtx"),
+		);
 
-		if (!silent && result.errors.length > 0) {
-			for (const error of result.errors) {
-				console.error(`  Error: ${error}`);
+		let engine: IndexerEngine | null = null;
+
+		try {
+			await vectors.initialize();
+			await embedder.initialize();
+
+			engine = new IndexerEngine({
+				projectId: DEFAULT_PROJECT_ID,
+				repoRoot,
+				metadata,
+				vectors,
+				embedder,
+				git,
+				languagePlugins: createDefaultLanguagePlugins(),
+			});
+			const headCommit = await git.getHeadCommit(repoRoot);
+
+			const mode = updatedPlan.isFullReindex ? "full" : "incremental";
+			if (!silent) {
+				console.log(`Indexing (${mode})...`);
 			}
+
+			const result = await engine.indexProject({
+				projectId: DEFAULT_PROJECT_ID,
+				repoRoot,
+				gitRef: headCommit ?? "unknown",
+				isFullReindex: updatedPlan.isFullReindex,
+				changedFiles: updatedPlan.changedFiles,
+				onProgress: silent
+					? undefined
+					: (processed, total) => {
+							console.log(`  ${processed}/${total} files...`);
+						},
+			});
+
+			const elapsedMs = Date.now() - startedAt;
+			const chunkCount = await vectors.countVectors({
+				projectId: DEFAULT_PROJECT_ID,
+				snapshotId: result.snapshotId,
+			});
+
+			if (!silent) {
+				console.log("Index updated.");
+				console.log(`  Snapshot: ${result.snapshotId}`);
+				console.log(`  Files indexed: ${result.filesIndexed}`);
+				console.log(`  Chunks created: ${chunkCount}`);
+				console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
+			}
+
+			if (!silent && result.errors.length > 0) {
+				for (const error of result.errors) {
+					console.error(`  Error: ${error}`);
+				}
+			}
+		} catch (indexError) {
+			const message =
+				indexError instanceof Error ? indexError.message : String(indexError);
+			throw new Error(`Auto-indexing failed: ${message}`);
+		} finally {
+			await Promise.allSettled([vectors.close(), embedder.close()]);
 		}
-	} catch (indexError) {
-		const message =
-			indexError instanceof Error ? indexError.message : String(indexError);
-		throw new Error(`Auto-indexing failed: ${message}`);
 	} finally {
-		// metadata is borrowed from caller — do NOT close it here
-		await Promise.allSettled([vectors.close(), embedder.close()]);
+		await release();
 	}
 }

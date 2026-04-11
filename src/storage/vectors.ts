@@ -72,43 +72,46 @@ export class SqliteVecVectorStore implements VectorStore {
 		}
 
 		const db = this.getDb();
-
-		db.exec(`
-			CREATE TABLE IF NOT EXISTS vector_meta (
-				chunk_id TEXT PRIMARY KEY,
-				project_id TEXT NOT NULL,
-				snapshot_id TEXT NOT NULL,
-				file_path TEXT NOT NULL,
-				start_line INTEGER NOT NULL,
-				end_line INTEGER NOT NULL,
-				content_hash TEXT NOT NULL,
-				chunk_type TEXT NOT NULL DEFAULT '',
-				primary_symbol TEXT NOT NULL DEFAULT ''
-			);
-
-			CREATE INDEX IF NOT EXISTS idx_vector_meta_snapshot_id
-			ON vector_meta(snapshot_id);
-
-			CREATE INDEX IF NOT EXISTS idx_vector_meta_project_id
-			ON vector_meta(project_id);
-
-			CREATE INDEX IF NOT EXISTS idx_vector_meta_file_path
-			ON vector_meta(file_path);
-		`);
-
-		const vecChunksExists = db
-			.prepare(
-				"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'",
-			)
-			.get();
-		if (!vecChunksExists) {
+		const initSchema = db.transaction(() => {
 			db.exec(`
-				CREATE VIRTUAL TABLE vec_chunks USING vec0(
+				CREATE TABLE IF NOT EXISTS vector_meta (
 					chunk_id TEXT PRIMARY KEY,
-					embedding float[${this.vectorSize}]
-				)
+					project_id TEXT NOT NULL,
+					snapshot_id TEXT NOT NULL,
+					file_path TEXT NOT NULL,
+					start_line INTEGER NOT NULL,
+					end_line INTEGER NOT NULL,
+					content_hash TEXT NOT NULL,
+					chunk_type TEXT NOT NULL DEFAULT '',
+					primary_symbol TEXT NOT NULL DEFAULT ''
+				);
+
+				CREATE INDEX IF NOT EXISTS idx_vector_meta_snapshot_id
+				ON vector_meta(snapshot_id);
+
+				CREATE INDEX IF NOT EXISTS idx_vector_meta_project_id
+				ON vector_meta(project_id);
+
+				CREATE INDEX IF NOT EXISTS idx_vector_meta_file_path
+				ON vector_meta(file_path);
 			`);
-		}
+
+			const vecChunksExists = db
+				.prepare(
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'",
+				)
+				.get();
+			if (!vecChunksExists) {
+				db.exec(`
+					CREATE VIRTUAL TABLE vec_chunks USING vec0(
+						chunk_id TEXT PRIMARY KEY,
+						embedding float[${this.vectorSize}]
+					)
+				`);
+			}
+		});
+
+		initSchema.immediate();
 
 		this.initialized = true;
 	}
@@ -374,6 +377,8 @@ export class SqliteVecVectorStore implements VectorStore {
 
 	private openDatabase(): Database.Database {
 		const db = new Database(this.dbPath);
+		db.pragma("journal_mode = WAL");
+		db.pragma("busy_timeout = 5000");
 		sqliteVec.load(db);
 		return db;
 	}

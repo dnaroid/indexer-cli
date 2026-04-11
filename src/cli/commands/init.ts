@@ -20,7 +20,7 @@ import { GENERATED_SKILL_DIRECTORIES, GENERATED_SKILLS } from "./skills.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
 const HOOK_MARKER_END = "# <<< indexer-cli <<<";
-const HOOK_BLOCK = `\n${HOOK_MARKER_START}\nnohup npx indexer-cli index > /dev/null 2>&1 &\n${HOOK_MARKER_END}\n`;
+const HOOK_BLOCK = `\n${HOOK_MARKER_START}\nnohup sh -c 'npx indexer-cli index --skip-if-locked > /dev/null 2>&1' &\n${HOOK_MARKER_END}\n`;
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {

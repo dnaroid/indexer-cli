@@ -921,6 +921,38 @@ describe("IndexerEngine internals", () => {
 		});
 	});
 
+	describe("pruneHistoricalSnapshots", () => {
+		it("deletes metadata before vectors and only for confirmed deleted snapshots", async () => {
+			const callOrder: string[] = [];
+			const options = createMockOptions();
+			options.metadata.listSnapshots
+				.mockResolvedValueOnce([{ id: "keep-snap" }, { id: "old-snap-1" }])
+				.mockResolvedValueOnce([{ id: "keep-snap" }]);
+			options.metadata.clearProjectMetadata.mockImplementation(async () => {
+				callOrder.push("clearMetadata");
+			});
+			options.vectors.deleteBySnapshot.mockImplementation(async () => {
+				callOrder.push("deleteVectors");
+			});
+
+			const engine = new IndexerEngine(options as any);
+
+			await (engine as any).pruneHistoricalSnapshots("project-id", "keep-snap");
+
+			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
+				"project-id",
+				"keep-snap",
+				{ preserveActiveIndexing: true },
+			);
+			expect(options.vectors.deleteBySnapshot).toHaveBeenCalledWith(
+				"project-id",
+				"old-snap-1",
+			);
+			expect(options.vectors.deleteBySnapshot).toHaveBeenCalledTimes(1);
+			expect(callOrder).toEqual(["clearMetadata", "deleteVectors"]);
+		});
+	});
+
 	describe("indexPreparedFiles", () => {
 		it("reads files, stores metadata, embeds vector chunks, and records errors", async () => {
 			mockConfig({ indexBatchSize: 1 });
@@ -1188,9 +1220,9 @@ describe("IndexerEngine internals", () => {
 				},
 			);
 			expect(
-				options.vectors.deleteBySnapshot.mock.invocationCallOrder[1],
-			).toBeLessThan(
 				options.metadata.clearProjectMetadata.mock.invocationCallOrder[0],
+			).toBeLessThan(
+				options.vectors.deleteBySnapshot.mock.invocationCallOrder[0],
 			);
 			expect(options.vectors.deleteBySnapshot).toHaveBeenNthCalledWith(
 				1,

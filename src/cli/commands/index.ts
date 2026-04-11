@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
+import { acquireIndexLock } from "../../core/lock.js";
 import type { GitDiff } from "../../core/types.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { initLogger } from "../../core/logger.js";
@@ -68,6 +69,10 @@ export function registerIndexCommand(program: Command): void {
 		.option("--dry-run", "show what would change without indexing")
 		.option("--status", "show indexing status for the current project")
 		.option("--tree", "show indexed file tree (use with --status)")
+		.option(
+			"--skip-if-locked",
+			"exit immediately if another index is in progress",
+		)
 		.option("--txt", "output status as human-readable text (use with --status)")
 		.action(
 			async (options?: {
@@ -75,6 +80,7 @@ export function registerIndexCommand(program: Command): void {
 				dryRun?: boolean;
 				status?: boolean;
 				tree?: boolean;
+				skipIfLocked?: boolean;
 				txt?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
@@ -215,6 +221,23 @@ export function registerIndexCommand(program: Command): void {
 					const git = new SimpleGitOperations();
 					let engine: IndexerEngine | null = null;
 
+					const lockWaitMs = options?.skipIfLocked ? 0 : 60_000;
+					let release: (() => Promise<void>) | null = null;
+
+					try {
+						release = await acquireIndexLock(resolvedProjectPath, {
+							waitMs: lockWaitMs,
+							retryIntervalMs: 2000,
+						});
+					} catch {
+						if (options?.skipIfLocked) {
+							process.exit(0);
+						}
+						throw new Error(
+							"Could not acquire index lock. Another indexing process may be running.",
+						);
+					}
+
 					try {
 						engine = new IndexerEngine({
 							projectId: DEFAULT_PROJECT_ID,
@@ -225,6 +248,22 @@ export function registerIndexCommand(program: Command): void {
 							git,
 							languagePlugins: createDefaultLanguagePlugins(),
 						});
+
+						if (!options?.full) {
+							const latestSnapshot =
+								await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+							const headCommit = await git.getHeadCommit(resolvedProjectPath);
+
+							if (
+								latestSnapshot &&
+								headCommit === latestSnapshot.meta.headCommit &&
+								!options?.dryRun
+							) {
+								console.log("Index is already up to date.");
+								return;
+							}
+						}
+
 						const latestSnapshot =
 							await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 						const headCommit = await git.getHeadCommit(resolvedProjectPath);
@@ -324,6 +363,9 @@ export function registerIndexCommand(program: Command): void {
 						console.error(`Indexing failed: ${message}`);
 						process.exitCode = 1;
 					} finally {
+						if (release) {
+							await release();
+						}
 						if (engine) {
 							await engine.close().catch(() => undefined);
 						} else {

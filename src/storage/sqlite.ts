@@ -68,6 +68,7 @@ export class SqliteMetadataStore implements MetadataStore {
 		this.db.pragma("foreign_keys = ON");
 		this.createSchema();
 		await this.runMigrations();
+		this.cleanupStaleIndexingSnapshots();
 	}
 
 	async close(): Promise<void> {
@@ -977,7 +978,7 @@ export class SqliteMetadataStore implements MetadataStore {
 				// Protect "indexing" snapshots created within the last 5 minutes —
 				// they may belong to a concurrent process still running.
 				sql += " AND (status != 'indexing' OR created_at < ?)";
-				params.push(Date.now() - 5 * 60 * 1000);
+				params.push(Date.now() - 30 * 60 * 1000);
 			}
 
 			this.db.prepare(sql).run(...params);
@@ -1156,28 +1157,48 @@ export class SqliteMetadataStore implements MetadataStore {
 	}
 
 	private async runMigrations(): Promise<void> {
-		const currentVersion = this.getCurrentSchemaVersion();
-		logger.info(
-			"[SqliteMetadataStore] Current schema version:",
-			currentVersion,
-		);
+		const runInTransaction = this.db.transaction(() => {
+			const currentVersion = this.getCurrentSchemaVersion();
+			logger.info(
+				"[SqliteMetadataStore] Current schema version:",
+				currentVersion,
+			);
 
-		for (const migration of migrations) {
-			if (migration.version > currentVersion) {
-				logger.info(
-					`[SqliteMetadataStore] Running migration ${migration.version}: ${migration.name}`,
-				);
-				migration.up(this.db);
-				this.db
-					.prepare(
-						"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-					)
-					.run(migration.version, Date.now());
-			} else {
-				logger.info(
-					`[SqliteMetadataStore] Skipping migration ${migration.version}: ${migration.name} (already applied)`,
-				);
+			for (const migration of migrations) {
+				if (migration.version > currentVersion) {
+					logger.info(
+						`[SqliteMetadataStore] Running migration ${migration.version}: ${migration.name}`,
+					);
+					migration.up(this.db);
+					this.db
+						.prepare(
+							"INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+						)
+						.run(migration.version, Date.now());
+				} else {
+					logger.info(
+						`[SqliteMetadataStore] Skipping migration ${migration.version}: ${migration.name} (already applied)`,
+					);
+				}
 			}
+		});
+
+		runInTransaction.immediate();
+	}
+
+	private cleanupStaleIndexingSnapshots(): void {
+		const staleThreshold = Date.now() - 30 * 60 * 1000;
+		const result = this.db
+			.prepare(
+				`UPDATE snapshots SET status = 'failed', failure_reason = 'Indexing process crashed'
+				 WHERE status = 'indexing' AND created_at < ?`,
+			)
+			.run(staleThreshold);
+
+		if (result.changes > 0) {
+			logger.info(
+				`[SqliteMetadataStore] Cleaned up ${result.changes} stale indexing snapshot(s)`,
+			);
 		}
 	}
 

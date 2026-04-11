@@ -1349,13 +1349,20 @@ export class IndexerEngine {
 			return;
 		}
 
-		for (const snapshotId of staleSnapshotIds) {
-			await this.deleteSnapshotVectorsWithRetry(projectId, snapshotId);
-		}
-
 		await this.metadata.clearProjectMetadata(projectId, keepSnapshotId, {
 			preserveActiveIndexing: true,
 		});
+
+		const remainingSnapshots = await this.metadata.listSnapshots(projectId);
+		const remainingIds = new Set(remainingSnapshots.map((s) => s.id));
+
+		const confirmedDeletedIds = staleSnapshotIds.filter(
+			(id) => !remainingIds.has(id),
+		);
+
+		for (const snapshotId of confirmedDeletedIds) {
+			await this.deleteSnapshotVectorsWithRetry(projectId, snapshotId);
+		}
 	}
 
 	private async listStaleSnapshotIds(
