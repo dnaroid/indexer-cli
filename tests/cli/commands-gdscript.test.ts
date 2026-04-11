@@ -2,6 +2,11 @@ import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+	DEFAULT_PROJECT_ID,
+	type DependencyRecord,
+} from "../../src/core/types.js";
+import { SqliteMetadataStore } from "../../src/storage/sqlite.js";
 
 import {
 	createTempProject,
@@ -13,7 +18,7 @@ import {
 } from "../helpers/cli-runner-gdscript";
 
 const TEMP_DIR = path.join(os.tmpdir(), "indexer-cli-e2e-gdscript");
-const FIXTURE_GDSCRIPT_FILE_COUNT = 18;
+const FIXTURE_GDSCRIPT_FILE_COUNT = 23;
 
 type SearchResult = {
 	filePath: string;
@@ -39,6 +44,38 @@ function runJsonCommand<T>(args: string[]): T {
 	const result = runCLI(args, { cwd: TEMP_DIR });
 	expect(result.exitCode).toBe(0);
 	return parseJson<T>(result.stdout);
+}
+
+async function listIndexedDependencies(
+	filePath: string,
+): Promise<DependencyRecord[]> {
+	const dbPath = path.join(TEMP_DIR, ".indexer-cli", "db.sqlite");
+	const metadata = new SqliteMetadataStore(dbPath);
+
+	try {
+		await metadata.initialize();
+		const snapshot =
+			await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+		expect(snapshot).toBeTruthy();
+		return await metadata.listDependencies(
+			DEFAULT_PROJECT_ID,
+			snapshot!.id,
+			filePath,
+		);
+	} finally {
+		await metadata.close().catch(() => undefined);
+	}
+}
+
+function expectDependency(
+	dependencies: DependencyRecord[],
+	toSpecifier: string,
+): DependencyRecord {
+	const dependency = dependencies.find(
+		(item) => item.toSpecifier === toSpecifier,
+	);
+	expect(dependency).toBeTruthy();
+	return dependency!;
 }
 
 function flattenFiles(entries: StructureEntry[]): StructureEntry[] {
@@ -554,6 +591,57 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(output.callees).toContain("scripts/resources/health_resource.gd");
 		});
 
+		it("stores internal preload targets for game_engine and external built-in extends", async () => {
+			const output = runJsonCommand<{
+				path: string;
+				callers: string[];
+				callees: string[];
+			}>(["deps", "scripts/core/game_engine.gd", "--direction", "callees"]);
+			const gameEngineDependencies = await listIndexedDependencies(
+				"scripts/core/game_engine.gd",
+			);
+			const sceneLoaderDependencies = await listIndexedDependencies(
+				"scripts/core/scene_loader.gd",
+			);
+
+			expect(output.path).toBe("scripts/core/game_engine.gd");
+			expect(output.callees).toContain("scripts/game/game_manager.gd");
+			expect(output.callees).toContain("scripts/utils/helpers.gd");
+			expect(output.callees).toContain("scripts/constants/game_constants.gd");
+
+			expect(
+				expectDependency(gameEngineDependencies, "../game/game_manager.gd"),
+			).toMatchObject({
+				dependencyType: "internal",
+				toPath: "scripts/game/game_manager.gd",
+			});
+			expect(
+				expectDependency(gameEngineDependencies, "../utils/helpers.gd"),
+			).toMatchObject({
+				dependencyType: "internal",
+				toPath: "scripts/utils/helpers.gd",
+			});
+			expect(
+				expectDependency(
+					gameEngineDependencies,
+					"../constants/game_constants.gd",
+				),
+			).toMatchObject({
+				dependencyType: "internal",
+				toPath: "scripts/constants/game_constants.gd",
+			});
+			expect(expectDependency(sceneLoaderDependencies, "Node")).toMatchObject({
+				dependencyType: "external",
+				toPath: undefined,
+			});
+			expect(
+				expectDependency(sceneLoaderDependencies, "../core/game_engine.gd"),
+			).toMatchObject({
+				dependencyType: "internal",
+				toPath: "scripts/core/game_engine.gd",
+			});
+		});
+
 		it("handles the circular preload between combat_manager and session", () => {
 			const output = runJsonCommand<{
 				callers: string[];
@@ -562,6 +650,42 @@ describe.sequential("CLI e2e GDScript", () => {
 
 			expect(output.callers).toContain("scripts/combat/combat_manager.gd");
 			expect(output.callees).toContain("scripts/combat/combat_manager.gd");
+		});
+
+		it("resolves resource preload targets internally and keeps Resource extends external", async () => {
+			const output = runJsonCommand<{
+				path: string;
+				callers: string[];
+				callees: string[];
+			}>([
+				"deps",
+				"scripts/resources/weapon_database.gd",
+				"--direction",
+				"callees",
+			]);
+			const weaponDependencies = await listIndexedDependencies(
+				"scripts/resources/weapon_database.gd",
+			);
+
+			expect(output.path).toBe("scripts/resources/weapon_database.gd");
+			expect(output.callees).toContain("scripts/constants/game_constants.gd");
+			expect(output.callees).toContain("scripts/core/game_engine.gd");
+			expect(
+				expectDependency(weaponDependencies, "../constants/game_constants.gd"),
+			).toMatchObject({
+				dependencyType: "internal",
+				toPath: "scripts/constants/game_constants.gd",
+			});
+			expect(
+				expectDependency(weaponDependencies, "../core/game_engine.gd"),
+			).toMatchObject({
+				dependencyType: "internal",
+				toPath: "scripts/core/game_engine.gd",
+			});
+			expect(expectDependency(weaponDependencies, "Resource")).toMatchObject({
+				dependencyType: "external",
+				toPath: undefined,
+			});
 		});
 
 		it("respects direction, depth, and text output", () => {
@@ -602,6 +726,26 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(textResult.stdout).toContain(
 				"Module: scripts/combat/combat_manager.gd",
 			);
+		});
+
+		it("follows multi-hop preload chains across resources, core, and game", () => {
+			const output = runJsonCommand<{
+				callers: string[];
+				callees: string[];
+			}>([
+				"deps",
+				"scripts/resources/armor_database.gd",
+				"--direction",
+				"callees",
+				"--depth",
+				"3",
+			]);
+
+			expect(output.callers).toEqual([]);
+			expect(output.callees).toContain("scripts/resources/weapon_database.gd");
+			expect(output.callees).toContain("scripts/core/game_engine.gd");
+			expect(output.callees).toContain("scripts/constants/game_constants.gd");
+			expect(output.callees).toContain("scripts/game/game_manager.gd");
 		});
 	});
 

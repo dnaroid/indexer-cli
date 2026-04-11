@@ -1161,7 +1161,7 @@ export class IndexerEngine {
 				parsed as any,
 			) as ImportInfo[];
 			dependencyRecords = imports.map((dependency) => ({
-				...resolveDependency(dependency.spec, filePath, knownFiles),
+				...resolveDependency(dependency.spec, filePath, knownFiles, languageId),
 				snapshotId,
 				id: dependency.id,
 				fromPath: filePath,

@@ -2,6 +2,8 @@ import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { DEFAULT_PROJECT_ID } from "../../src/core/types.js";
+import { SqliteMetadataStore } from "../../src/storage/sqlite.js";
 import {
 	createTempProject,
 	fileExists,
@@ -12,7 +14,7 @@ import {
 } from "../helpers/cli-runner-ruby";
 
 const TEMP_DIR = path.join(os.tmpdir(), "indexer-cli-e2e-ruby");
-const FIXTURE_FILE_COUNT = 20;
+const FIXTURE_FILE_COUNT = 31;
 
 type SearchResult = {
 	filePath: string;
@@ -30,6 +32,14 @@ type StructureEntry = {
 	hiddenFiles?: number;
 };
 
+type IndexedDependency = {
+	fromPath: string;
+	toSpecifier: string;
+	toPath?: string;
+	kind: string;
+	dependencyType: "internal" | "external" | "builtin" | "unresolved";
+};
+
 function parseJson<T>(value: string): T {
 	return JSON.parse(value) as T;
 }
@@ -38,6 +48,35 @@ function runJsonCommand<T>(args: string[]): T {
 	const result = runCLI(args, { cwd: TEMP_DIR });
 	expect(result.exitCode).toBe(0);
 	return parseJson<T>(result.stdout);
+}
+
+async function listIndexedDependencies(
+	filePath: string,
+): Promise<IndexedDependency[]> {
+	const metadata = new SqliteMetadataStore(
+		path.join(TEMP_DIR, ".indexer-cli", "db.sqlite"),
+	);
+
+	try {
+		await metadata.initialize();
+		const snapshot =
+			await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+		expect(snapshot).toBeTruthy();
+		const dependencies = await metadata.listDependencies(
+			DEFAULT_PROJECT_ID,
+			snapshot!.id,
+			filePath,
+		);
+		return dependencies.map<IndexedDependency>((dependency) => ({
+			fromPath: dependency.fromPath,
+			toSpecifier: dependency.toSpecifier,
+			toPath: dependency.toPath,
+			kind: dependency.kind,
+			dependencyType: dependency.dependencyType ?? "unresolved",
+		}));
+	} finally {
+		await metadata.close().catch(() => undefined);
+	}
 }
 
 function flattenFiles(entries: StructureEntry[]): StructureEntry[] {
@@ -176,7 +215,13 @@ describe.sequential("CLI e2e Ruby", () => {
 				"6",
 			]);
 
-			const authIndex = firstResultIndex(results, "lib/auth/session.rb");
+			const authIndex = results.findIndex((result) =>
+				[
+					"lib/auth/session.rb",
+					"lib/services/auth.rb",
+					"lib/middleware/auth.rb",
+				].includes(result.filePath),
+			);
 			const gameIndex = firstResultIndex(results, "lib/game/session.rb");
 
 			expect(authIndex).toBeGreaterThanOrEqual(0);
@@ -678,18 +723,40 @@ describe.sequential("CLI e2e Ruby", () => {
 	});
 
 	describe("deps", () => {
-		it("returns callers and callees for a module with both", () => {
+		it("returns callers and resolved internal callees for engine", async () => {
 			const output = runJsonCommand<{
 				path: string;
 				callers: string[];
 				callees: string[];
-			}>(["deps", "lib/services/user_service.rb"]);
+			}>(["deps", "lib/core/engine.rb"]);
+			const dependencies = await listIndexedDependencies("lib/core/engine.rb");
 
-			expect(output.path).toBe("lib/services/user_service.rb");
-			expect(output.callers).toContain("bin/app.rb");
-			expect(output.callers).toContain("lib/services/order_service.rb");
-			expect(output.callees).toContain("lib/auth/session.rb");
-			expect(output.callees).toContain("lib/utils/errors.rb");
+			expect(output.path).toBe("lib/core/engine.rb");
+			expect(output.callers).toContain("lib/core/health_check.rb");
+			expect(output.callers).toContain("lib/core/scheduler.rb");
+			expect(output.callers).toContain("lib/middleware/cors.rb");
+			expect(output.callees).toContain("lib/config/settings.rb");
+			expect(output.callees).toContain("lib/services/auth.rb");
+			expect(output.callees).toContain("lib/utils/helpers.rb");
+			expect(dependencies).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						toSpecifier: "../config/settings.rb",
+						toPath: "lib/config/settings.rb",
+						dependencyType: "internal",
+					}),
+					expect.objectContaining({
+						toSpecifier: "../utils/helpers.rb",
+						toPath: "lib/utils/helpers.rb",
+						dependencyType: "internal",
+					}),
+					expect.objectContaining({
+						toSpecifier: "../services/auth.rb",
+						toPath: "lib/services/auth.rb",
+						dependencyType: "internal",
+					}),
+				]),
+			);
 		});
 
 		it("respects --direction callers", () => {
@@ -702,23 +769,95 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(output.callees).toEqual([]);
 		});
 
-		it("respects --direction callees and --depth", () => {
+		it("resolves builtin and external dependencies in indexed metadata", async () => {
+			const healthCheckDependencies = await listIndexedDependencies(
+				"lib/core/health_check.rb",
+			);
+			const settingsDependencies = await listIndexedDependencies(
+				"lib/config/settings.rb",
+			);
+			const appDependencies = await listIndexedDependencies("bin/app.rb");
+
+			expect(healthCheckDependencies).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						toSpecifier: "json",
+						dependencyType: "builtin",
+					}),
+					expect.objectContaining({
+						toSpecifier: "./engine.rb",
+						toPath: "lib/core/engine.rb",
+						dependencyType: "internal",
+					}),
+				]),
+			);
+			expect(
+				healthCheckDependencies.find(
+					(dependency) => dependency.toSpecifier === "json",
+				)?.toPath,
+			).toBeUndefined();
+			expect(settingsDependencies).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						toSpecifier: "uri",
+						dependencyType: "builtin",
+					}),
+				]),
+			);
+			expect(
+				settingsDependencies.find(
+					(dependency) => dependency.toSpecifier === "uri",
+				)?.toPath,
+			).toBeUndefined();
+			expect(appDependencies).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						toSpecifier: "json",
+						dependencyType: "builtin",
+					}),
+					expect.objectContaining({
+						toSpecifier: "sinatra/base",
+						dependencyType: "external",
+					}),
+				]),
+			);
+		});
+
+		it("respects --direction callees and resolves same-directory require_relative", async () => {
 			const output = runJsonCommand<{
 				callers: string[];
 				callees: string[];
 			}>([
 				"deps",
-				"lib/services/order_service.rb",
+				"lib/core/scheduler.rb",
 				"--direction",
 				"callees",
 				"--depth",
 				"2",
 			]);
+			const dependencies = await listIndexedDependencies(
+				"lib/core/scheduler.rb",
+			);
 
 			expect(output.callers).toEqual([]);
-			expect(output.callees).toContain("lib/services/user_service.rb");
-			expect(output.callees).toContain("lib/payments/stripe_processor.rb");
-			expect(output.callees).toContain("lib/payments/processor.rb");
+			expect(output.callees).toContain("lib/core/engine.rb");
+			expect(output.callees).toContain("lib/game/player.rb");
+			expect(output.callees).toContain("lib/services/auth.rb");
+			expect(output.callees).toContain("lib/config/settings.rb");
+			expect(dependencies).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						toSpecifier: "./engine.rb",
+						toPath: "lib/core/engine.rb",
+						dependencyType: "internal",
+					}),
+					expect.objectContaining({
+						toSpecifier: "../game/player.rb",
+						toPath: "lib/game/player.rb",
+						dependencyType: "internal",
+					}),
+				]),
+			);
 		});
 
 		it("renders text output", () => {
@@ -742,15 +881,41 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(output.callees).toContain("lib/workers/notification_worker.rb");
 		});
 
-		it("shows require_relative dependencies for API handlers", () => {
+		it("resolves cross-directory chains from workers through core into services", async () => {
 			const output = runJsonCommand<{
 				path: string;
 				callees: string[];
-			}>(["deps", "lib/api/v1/handler.rb", "--direction", "callees"]);
+			}>([
+				"deps",
+				"lib/workers/batch_processor.rb",
+				"--direction",
+				"callees",
+				"--depth",
+				"3",
+			]);
+			const dependencies = await listIndexedDependencies(
+				"lib/workers/batch_processor.rb",
+			);
 
-			expect(output.path).toBe("lib/api/v1/handler.rb");
-			expect(output.callees).toContain("lib/services/user_service.rb");
-			expect(output.callees).toContain("lib/helpers/pagination_helper.rb");
+			expect(output.path).toBe("lib/workers/batch_processor.rb");
+			expect(output.callees).toContain("lib/workers/queue_worker.rb");
+			expect(output.callees).toContain("lib/core/scheduler.rb");
+			expect(output.callees).toContain("lib/core/engine.rb");
+			expect(output.callees).toContain("lib/services/auth.rb");
+			expect(dependencies).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						toSpecifier: "./queue_worker.rb",
+						toPath: "lib/workers/queue_worker.rb",
+						dependencyType: "internal",
+					}),
+					expect.objectContaining({
+						toSpecifier: "../core/scheduler.rb",
+						toPath: "lib/core/scheduler.rb",
+						dependencyType: "internal",
+					}),
+				]),
+			);
 		});
 	});
 

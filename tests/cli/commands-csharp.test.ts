@@ -1,4 +1,5 @@
 import { writeFileSync } from "node:fs";
+import Database from "better-sqlite3";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -12,7 +13,7 @@ import {
 } from "../helpers/cli-runner-csharp";
 
 const TEMP_DIR = path.join(os.tmpdir(), "indexer-cli-e2e-csharp");
-const FIXTURE_FILE_COUNT = 20;
+const FIXTURE_FILE_COUNT = 25;
 
 type SearchResult = {
 	filePath: string;
@@ -28,6 +29,13 @@ type StructureEntry = {
 	children?: StructureEntry[];
 	symbols?: Array<{ name: string; kind: string; exported: boolean }>;
 	hiddenFiles?: number;
+};
+
+type StoredDependency = {
+	fromPath: string;
+	toSpecifier: string;
+	toPath?: string;
+	dependencyType: "internal" | "external" | "builtin" | "unresolved";
 };
 
 function parseJson<T>(value: string): T {
@@ -55,6 +63,55 @@ function flattenFiles(entries: StructureEntry[]): StructureEntry[] {
 
 function firstResultIndex(results: SearchResult[], filePath: string): number {
 	return results.findIndex((result) => result.filePath === filePath);
+}
+
+function listIndexedDependencies(fromPath: string): StoredDependency[] {
+	const db = new Database(path.join(TEMP_DIR, ".indexer-cli", "db.sqlite"), {
+		readonly: true,
+	});
+
+	try {
+		const latestSnapshot = db
+			.prepare(
+				"SELECT project_id AS projectId, id AS snapshotId FROM snapshots ORDER BY created_at DESC, id DESC LIMIT 1",
+			)
+			.get() as { projectId: string; snapshotId: string } | undefined;
+
+		expect(latestSnapshot).toBeDefined();
+
+		const rows = db
+			.prepare(
+				"SELECT from_path AS fromPath, to_specifier AS toSpecifier, to_path AS toPath, dependency_type AS dependencyType FROM dependencies WHERE project_id = ? AND snapshot_id = ? AND from_path = ? ORDER BY to_specifier",
+			)
+			.all(
+				latestSnapshot?.projectId,
+				latestSnapshot?.snapshotId,
+				fromPath,
+			) as Array<{
+			fromPath: string;
+			toSpecifier: string;
+			toPath: string | null;
+			dependencyType: StoredDependency["dependencyType"];
+		}>;
+
+		return rows.map((row) => ({
+			fromPath: row.fromPath,
+			toSpecifier: row.toSpecifier,
+			toPath: row.toPath ?? undefined,
+			dependencyType: row.dependencyType,
+		}));
+	} finally {
+		db.close();
+	}
+}
+
+function getIndexedDependency(
+	fromPath: string,
+	toSpecifier: string,
+): StoredDependency | undefined {
+	return listIndexedDependencies(fromPath).find(
+		(dependency) => dependency.toSpecifier === toSpecifier,
+	);
 }
 
 describe.sequential("CLI e2e CSharp", () => {
@@ -488,14 +545,14 @@ describe.sequential("CLI e2e CSharp", () => {
 			}
 		});
 
-		it("captures circular worker namespace references in dependency data", () => {
+		it("classifies external Unity and System namespaces in dependency data", () => {
 			const output = runJsonCommand<{
 				dependency_map: { external: Record<string, string[]> };
 			}>(["architecture"]);
 
 			const external = JSON.stringify(output.dependency_map.external);
-			expect(external).toContain("MyApp.Workers.Notifications");
-			expect(external).toContain("MyApp.Workers.Email");
+			expect(external).toContain("UnityEngine");
+			expect(external).toContain("System");
 		});
 	});
 
@@ -686,16 +743,68 @@ describe.sequential("CLI e2e CSharp", () => {
 	});
 
 	describe("deps", () => {
-		it("returns callers and callees arrays for C# using-based modules", () => {
+		it("returns resolved internal callees for deeper C# namespace imports", () => {
 			const output = runJsonCommand<{
 				path: string;
 				callers: string[];
 				callees: string[];
-			}>(["deps", "Assets/Scripts/Game/GameManager.cs"]);
+			}>(["deps", "Assets/Scripts/Core/EngineManager.cs"]);
 
-			expect(output.path).toBe("Assets/Scripts/Game/GameManager.cs");
+			expect(output.path).toBe("Assets/Scripts/Core/EngineManager.cs");
 			expect(Array.isArray(output.callers)).toBe(true);
 			expect(Array.isArray(output.callees)).toBe(true);
+			expect(output.callees).toContain("Assets/Scripts/Config/AppSettings.cs");
+			expect(output.callees).toContain("Assets/Scripts/Types/ApiResponse.cs");
+			expect(
+				output.callees.some((callee) =>
+					callee.startsWith("Assets/Scripts/Services/"),
+				),
+			).toBe(true);
+
+			const servicesDependency = getIndexedDependency(
+				"Assets/Scripts/Core/EngineManager.cs",
+				"MyApp.Services",
+			);
+			const unityDependency = getIndexedDependency(
+				"Assets/Scripts/Core/EngineManager.cs",
+				"UnityEngine",
+			);
+			const configDependency = getIndexedDependency(
+				"Assets/Scripts/Core/EngineManager.cs",
+				"MyApp.Config",
+			);
+			const typesDependency = getIndexedDependency(
+				"Assets/Scripts/Core/EngineManager.cs",
+				"MyApp.Types",
+			);
+
+			expect(servicesDependency).toMatchObject({
+				fromPath: "Assets/Scripts/Core/EngineManager.cs",
+				toSpecifier: "MyApp.Services",
+				dependencyType: "internal",
+			});
+			expect([
+				"Assets/Scripts/Services/InventoryService.cs",
+				"Assets/Scripts/Services/PlayerService.cs",
+			]).toContain(servicesDependency?.toPath);
+			expect(unityDependency).toMatchObject({
+				fromPath: "Assets/Scripts/Core/EngineManager.cs",
+				toSpecifier: "UnityEngine",
+				dependencyType: "external",
+			});
+			expect(unityDependency?.toPath).toBeUndefined();
+			expect(configDependency).toMatchObject({
+				fromPath: "Assets/Scripts/Core/EngineManager.cs",
+				toSpecifier: "MyApp.Config",
+				toPath: "Assets/Scripts/Config/AppSettings.cs",
+				dependencyType: "internal",
+			});
+			expect(typesDependency).toMatchObject({
+				fromPath: "Assets/Scripts/Core/EngineManager.cs",
+				toSpecifier: "MyApp.Types",
+				toPath: "Assets/Scripts/Types/ApiResponse.cs",
+				dependencyType: "internal",
+			});
 		});
 
 		it("respects --direction callers", () => {
@@ -730,6 +839,50 @@ describe.sequential("CLI e2e CSharp", () => {
 			expect(output.path).toBe("Assets/Scripts/Workers/EmailWorker.cs");
 			expect(output.callers).toEqual([]);
 			expect(Array.isArray(output.callees)).toBe(true);
+		});
+
+		it("stores external Unity and System namespace dependencies while resolving internal C# imports", () => {
+			const networkDependency = getIndexedDependency(
+				"Assets/Scripts/Network/NetworkClient.cs",
+				"MyApp.Core",
+			);
+			const unityDependency = getIndexedDependency(
+				"Assets/Scripts/Network/NetworkClient.cs",
+				"UnityEngine",
+			);
+			const systemCollectionsDependency = getIndexedDependency(
+				"Assets/Scripts/Core/TaskScheduler.cs",
+				"System.Collections",
+			);
+
+			expect(networkDependency).toMatchObject({
+				fromPath: "Assets/Scripts/Network/NetworkClient.cs",
+				toSpecifier: "MyApp.Core",
+				toPath: "Assets/Scripts/Core/EngineManager.cs",
+				dependencyType: "internal",
+			});
+			expect(unityDependency).toMatchObject({
+				fromPath: "Assets/Scripts/Network/NetworkClient.cs",
+				toSpecifier: "UnityEngine",
+				dependencyType: "external",
+			});
+			expect(unityDependency?.toPath).toBeUndefined();
+			expect(systemCollectionsDependency).toMatchObject({
+				fromPath: "Assets/Scripts/Core/TaskScheduler.cs",
+				toSpecifier: "System.Collections",
+				dependencyType: "external",
+			});
+			expect(systemCollectionsDependency?.toPath).toBeUndefined();
+
+			const output = runJsonCommand<{
+				path: string;
+				callers: string[];
+				callees: string[];
+			}>(["deps", "Assets/Scripts/Network/NetworkClient.cs"]);
+
+			expect(output.path).toBe("Assets/Scripts/Network/NetworkClient.cs");
+			expect(output.callers).toEqual([]);
+			expect(output.callees).toContain("Assets/Scripts/Core/EngineManager.cs");
 		});
 
 		it("renders text output", () => {

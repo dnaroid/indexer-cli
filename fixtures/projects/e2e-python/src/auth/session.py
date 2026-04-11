@@ -29,6 +29,18 @@ def create_session(user_id: str, email: str, roles: list[str]) -> Session:
     )
 
 
+def create_access_session(user_id: str, email: str, roles: list[str]) -> Session:
+    return create_session(user_id=user_id, email=email, roles=roles)
+
+
+def login_user(user_id: str, email: str, roles: list[str]) -> Session:
+    return create_access_session(user_id=user_id, email=email, roles=roles)
+
+
+def read_access_token(session: Session) -> str:
+    return session.token
+
+
 def validate_token(token: str) -> bool:
     if len(token) < 32:
         return False

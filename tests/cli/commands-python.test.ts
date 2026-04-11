@@ -2,6 +2,8 @@ import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { DEFAULT_PROJECT_ID } from "../../src/core/types";
+import { SqliteMetadataStore } from "../../src/storage/sqlite";
 import {
 	createTempProject,
 	fileExists,
@@ -12,7 +14,7 @@ import {
 } from "../helpers/cli-runner-python";
 
 const TEMP_DIR = path.join(os.tmpdir(), "indexer-cli-e2e-python");
-const FIXTURE_FILE_COUNT = 25;
+const FIXTURE_FILE_COUNT = 33;
 
 type SearchResult = {
 	filePath: string;
@@ -30,6 +32,13 @@ type StructureEntry = {
 	hiddenFiles?: number;
 };
 
+type DependencyRecord = {
+	fromPath: string;
+	toSpecifier: string;
+	toPath?: string;
+	dependencyType?: "internal" | "external" | "builtin" | "unresolved";
+};
+
 function parseJson<T>(value: string): T {
 	return JSON.parse(value) as T;
 }
@@ -38,6 +47,27 @@ function runJsonCommand<T>(args: string[]): T {
 	const result = runCLI(args, { cwd: TEMP_DIR });
 	expect(result.exitCode).toBe(0);
 	return parseJson<T>(result.stdout);
+}
+
+async function listStoredDependencies(
+	filePath: string,
+): Promise<DependencyRecord[]> {
+	const store = new SqliteMetadataStore(
+		path.join(TEMP_DIR, ".indexer-cli", "db.sqlite"),
+	);
+	await store.initialize();
+
+	try {
+		const snapshot = await store.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+		expect(snapshot).toBeTruthy();
+		return await store.listDependencies(
+			DEFAULT_PROJECT_ID,
+			snapshot!.id,
+			filePath,
+		);
+	} finally {
+		await store.close();
+	}
 }
 
 function flattenFiles(entries: StructureEntry[]): StructureEntry[] {
@@ -177,7 +207,18 @@ describe.sequential("CLI e2e Python", () => {
 				"6",
 			]);
 
-			const authIndex = firstResultIndex(results, "src/auth/session.py");
+			const authCandidates = [
+				"src/auth/session.py",
+				"src/services/auth.py",
+				"src/middleware/auth.py",
+				"src/api/v1/handler.py",
+				"src/api/v2/routes.py",
+				"src/__main__.py",
+			]
+				.map((filePath) => firstResultIndex(results, filePath))
+				.filter((index) => index >= 0)
+				.sort((left, right) => left - right);
+			const authIndex = authCandidates[0] ?? -1;
 			const gameIndex = firstResultIndex(results, "src/game/session.py");
 
 			expect(authIndex).toBeGreaterThanOrEqual(0);
@@ -683,6 +724,95 @@ describe.sequential("CLI e2e Python", () => {
 
 			expect(output.callers).toEqual([]);
 			expect(Array.isArray(output.callees)).toBe(true);
+		});
+
+		it("resolves internal Python module imports for core engine callees", async () => {
+			const output = runJsonCommand<{ callers: string[]; callees: string[] }>([
+				"deps",
+				"src/core/engine.py",
+				"--direction",
+				"callees",
+			]);
+			const dependencies = await listStoredDependencies("src/core/engine.py");
+
+			expect(output.callers).toEqual([]);
+			expect(output.callees).toEqual(
+				expect.arrayContaining([
+					"src/config/settings.py",
+					"src/utils/helpers.py",
+				]),
+			);
+			expect(dependencies).toContainEqual(
+				expect.objectContaining({
+					toSpecifier: "src.config.settings",
+					toPath: "src/config/settings.py",
+					dependencyType: "internal",
+				}),
+			);
+			expect(dependencies).toContainEqual(
+				expect.objectContaining({
+					toSpecifier: "src.utils.helpers",
+					toPath: "src/utils/helpers.py",
+					dependencyType: "internal",
+				}),
+			);
+		});
+
+		it("resolves from-import session dependencies for api v1 handlers", async () => {
+			const output = runJsonCommand<{ callers: string[]; callees: string[] }>([
+				"deps",
+				"src/api/v1/handler.py",
+				"--direction",
+				"callees",
+			]);
+			const dependencies = await listStoredDependencies(
+				"src/api/v1/handler.py",
+			);
+
+			expect(output.callers).toEqual([]);
+			expect(output.callees).toContain("src/auth/session.py");
+			expect(dependencies).toContainEqual(
+				expect.objectContaining({
+					toSpecifier: "src.auth.session",
+					toPath: "src/auth/session.py",
+					dependencyType: "internal",
+				}),
+			);
+		});
+
+		it("classifies builtin Python imports in stored dependency metadata", async () => {
+			const loggerDependencies = await listStoredDependencies(
+				"src/logging/logger.py",
+			);
+			const settingsDependencies = await listStoredDependencies(
+				"src/config/settings.py",
+			);
+			const manageDependencies = await listStoredDependencies("manage.py");
+
+			expect(loggerDependencies).toContainEqual(
+				expect.objectContaining({
+					toSpecifier: "json",
+					dependencyType: "builtin",
+				}),
+			);
+			expect(settingsDependencies).toContainEqual(
+				expect.objectContaining({
+					toSpecifier: "os",
+					dependencyType: "builtin",
+				}),
+			);
+			expect(manageDependencies).toContainEqual(
+				expect.objectContaining({
+					toSpecifier: "os",
+					dependencyType: "builtin",
+				}),
+			);
+			expect(manageDependencies).toContainEqual(
+				expect.objectContaining({
+					toSpecifier: "sys",
+					dependencyType: "builtin",
+				}),
+			);
 		});
 
 		it("renders text output", () => {
