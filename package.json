@@ -1,6 +1,6 @@
 {
   "name": "indexer-cli",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Lightweight CLI project indexer with semantic search via Ollama",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
