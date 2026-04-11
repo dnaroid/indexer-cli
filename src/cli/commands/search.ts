@@ -8,50 +8,9 @@ import { SearchEngine } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
-import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
-const SEARCH_FIELDS = [
-	"filePath",
-	"startLine",
-	"endLine",
-	"score",
-	"primarySymbol",
-	"content",
-] as const;
-
-type SearchField = (typeof SEARCH_FIELDS)[number];
 type SearchResult = Awaited<ReturnType<SearchEngine["search"]>>[number];
-
-type SearchOutputOptions = {
-	omitContent?: boolean;
-	includeContent?: boolean;
-	isJson: boolean;
-};
-
-function parseSearchFields(input?: string): SearchField[] {
-	if (!input) {
-		return [...SEARCH_FIELDS];
-	}
-
-	const requested = new Set(
-		input
-			.split(",")
-			.map((value) => value.trim())
-			.filter(Boolean),
-	);
-	const invalid = Array.from(requested).filter(
-		(field) => !(SEARCH_FIELDS as readonly string[]).includes(field),
-	);
-
-	if (invalid.length > 0) {
-		throw new Error(
-			`Invalid --fields value: ${invalid.join(", ")}. Allowed fields: ${SEARCH_FIELDS.join(", ")}.`,
-		);
-	}
-
-	return SEARCH_FIELDS.filter((field) => requested.has(field));
-}
 
 function parseMinScore(input?: string): number | undefined {
 	if (!input) {
@@ -64,97 +23,6 @@ function parseMinScore(input?: string): number | undefined {
 	}
 
 	return minScore;
-}
-
-function isDefaultFieldSelection(fields: SearchField[]): boolean {
-	return (
-		fields.length === SEARCH_FIELDS.length &&
-		fields.every((field, index) => field === SEARCH_FIELDS[index])
-	);
-}
-
-function projectSearchResult(
-	result: SearchResult,
-	fields: SearchField[],
-): Record<string, number | string | null> {
-	const projected: Record<string, number | string | null> = {};
-
-	for (const field of fields) {
-		switch (field) {
-			case "filePath":
-				projected.filePath = result.filePath;
-				break;
-			case "startLine":
-				projected.startLine = result.startLine;
-				break;
-			case "endLine":
-				projected.endLine = result.endLine;
-				break;
-			case "score":
-				projected.score = result.score;
-				break;
-			case "primarySymbol":
-				projected.primarySymbol = result.primarySymbol ?? null;
-				break;
-			case "content":
-				projected.content = result.content ?? null;
-				break;
-		}
-	}
-
-	return projected;
-}
-
-function resolveOutputFields(
-	rawFields: SearchField[],
-	options: SearchOutputOptions,
-): SearchField[] {
-	if (options.omitContent) {
-		return rawFields.filter((field) => field !== "content");
-	}
-
-	if (
-		options.isJson &&
-		rawFields.includes("content") &&
-		!options.includeContent
-	) {
-		return rawFields.filter((field) => field !== "content");
-	}
-
-	return rawFields;
-}
-
-function formatCustomPlainSummary(
-	result: SearchResult,
-	fields: SearchField[],
-): string {
-	const parts: string[] = [];
-
-	for (const field of fields) {
-		if (field === "content") {
-			continue;
-		}
-
-		switch (field) {
-			case "filePath":
-				parts.push(`filePath: ${result.filePath}`);
-				break;
-			case "startLine":
-				parts.push(`startLine: ${result.startLine}`);
-				break;
-			case "endLine":
-				parts.push(`endLine: ${result.endLine}`);
-				break;
-			case "score":
-				parts.push(`score: ${result.score.toFixed(2)}`);
-				break;
-			case "primarySymbol":
-				parts.push(`primarySymbol: ${result.primarySymbol ?? "(none)"}`);
-				break;
-		}
-	}
-
-	return parts.join(", ") || "(content only)";
 }
 
 export function registerSearchCommand(program: Command): void {
@@ -173,22 +41,13 @@ export function registerSearchCommand(program: Command): void {
 			"include imports/preamble chunks (excluded by default)",
 		)
 		.option(
-			"--fields <list>",
-			`comma-separated output fields: ${SEARCH_FIELDS.join(", ")}`,
-		)
-		.option(
 			"--min-score <number>",
 			"filter out results with score below the given value (0..1, default: 0.45)",
 		)
 		.option(
-			"--omit-content",
-			"exclude content from results (token-saving shorthand)",
-		)
-		.option(
 			"--include-content",
-			"include content in JSON output (omitted by default)",
+			"include matched code content in output (omitted by default to save tokens)",
 		)
-		.option("--txt", "output results as human-readable text")
 		.action(
 			async (
 				query: string,
@@ -197,17 +56,13 @@ export function registerSearchCommand(program: Command): void {
 					pathPrefix?: string;
 					chunkTypes?: string;
 					includeImports?: boolean;
-					fields?: string;
 					minScore?: string;
-					omitContent?: boolean;
 					includeContent?: boolean;
-					txt?: boolean;
 				},
 			) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
-				const isJson = isJsonOutput(options);
 
 				initLogger(dataDir);
 				config.load(dataDir);
@@ -234,7 +89,7 @@ export function registerSearchCommand(program: Command): void {
 				try {
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
-						silent: isJson,
+						silent: false,
 					});
 					await Promise.all([vectors.initialize(), embedder.initialize()]);
 
@@ -247,12 +102,6 @@ export function registerSearchCommand(program: Command): void {
 					}
 
 					const maxFiles = Number.parseInt(options?.maxFiles ?? "3", 10);
-					const rawFields = parseSearchFields(options?.fields);
-					const fields = resolveOutputFields(rawFields, {
-						omitContent: options?.omitContent,
-						includeContent: options?.includeContent,
-						isJson,
-					});
 					const minScore = parseMinScore(options?.minScore);
 					const chunkTypes = options?.chunkTypes
 						?.split(",")
@@ -267,59 +116,34 @@ export function registerSearchCommand(program: Command): void {
 							topK: Number.isFinite(maxFiles) && maxFiles > 0 ? maxFiles : 3,
 							pathPrefix: options?.pathPrefix,
 							chunkTypes,
-							includeContent: fields.includes("content"),
+							includeContent: options?.includeContent ?? false,
 							minScore,
 							includeImportChunks: options?.includeImports,
 						},
 					);
 
 					if (results.length === 0) {
-						if (isJson) {
-							console.log("[]");
-						} else {
-							console.log("No results found.");
-						}
-						return;
-					}
-
-					if (isJson) {
-						console.log(
-							JSON.stringify(
-								results.map((result) => projectSearchResult(result, fields)),
-								null,
-								2,
-							),
-						);
+						console.log("No results found.");
 						return;
 					}
 
 					for (let i = 0; i < results.length; i++) {
 						if (i > 0) console.log("---");
 						const result = results[i];
-
-						if (isDefaultFieldSelection(fields)) {
-							const symbolPart = result.primarySymbol
-								? `, function: ${result.primarySymbol}`
-								: "";
-							console.log(
-								`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart})`,
-							);
-						} else {
-							console.log(formatCustomPlainSummary(result, fields));
-						}
-
-						if (fields.includes("content")) {
+						const symbolPart = result.primarySymbol
+							? `, function: ${result.primarySymbol}`
+							: "";
+						console.log(
+							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart})`,
+						);
+						if (options?.includeContent) {
 							console.log(result.content || "(content unavailable)");
 						}
 					}
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
-					if (isJson) {
-						console.error(JSON.stringify({ error: message }, null, 2));
-					} else {
-						console.error(`Search failed: ${message}`);
-					}
+					console.error(`Search failed: ${message}`);
 					process.exitCode = 1;
 				} finally {
 					await Promise.allSettled([

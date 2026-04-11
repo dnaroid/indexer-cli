@@ -15,7 +15,6 @@ import { scanProjectFiles } from "../../engine/scanner.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
-import { isJsonOutput } from "../output-mode.js";
 
 function countChangedFiles(diff: GitDiff): number {
 	return diff.added.length + diff.modified.length + diff.deleted.length;
@@ -73,7 +72,6 @@ export function registerIndexCommand(program: Command): void {
 			"--skip-if-locked",
 			"exit immediately if another index is in progress",
 		)
-		.option("--txt", "output status as human-readable text (use with --status)")
 		.action(
 			async (options?: {
 				full?: boolean;
@@ -81,7 +79,6 @@ export function registerIndexCommand(program: Command): void {
 				status?: boolean;
 				tree?: boolean;
 				skipIfLocked?: boolean;
-				txt?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
@@ -96,18 +93,13 @@ export function registerIndexCommand(program: Command): void {
 					await metadata.initialize();
 
 					if (options?.status) {
-						const isJson = isJsonOutput(options);
 						const snapshot =
 							await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 
 						if (!snapshot) {
-							if (isJson) {
-								console.log(JSON.stringify({ indexed: false }, null, 2));
-							} else {
-								console.log(
-									"No completed snapshot found. Run `npx indexer-cli index` first.",
-								);
-							}
+							console.log(
+								"No completed snapshot found. Run `npx indexer-cli index` first.",
+							);
 							return;
 						}
 
@@ -144,31 +136,6 @@ export function registerIndexCommand(program: Command): void {
 								symbol.kind,
 								(symbolKinds.get(symbol.kind) ?? 0) + 1,
 							);
-						}
-
-						if (isJson) {
-							const output: Record<string, unknown> = {
-								indexed: true,
-								snapshot: {
-									id: snapshot.id,
-									status: snapshot.status,
-									createdAt: snapshot.createdAt,
-									gitRef: snapshot.meta.headCommit ?? null,
-								},
-								stats: {
-									files: files.length,
-									symbols: symbols.length,
-									chunks: vectorCount,
-									dependencies: dependencies.length,
-								},
-								languages: Object.fromEntries(languages),
-								symbolKinds: Object.fromEntries(symbolKinds),
-							};
-							if (options?.tree) {
-								output.files = files.map((f) => f.path);
-							}
-							console.log(JSON.stringify(output, null, 2));
-							return;
 						}
 
 						console.log(`Snapshot: ${snapshot.id} (${snapshot.status})`);

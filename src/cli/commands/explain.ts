@@ -5,7 +5,6 @@ import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
-import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 export function registerExplainCommand(program: Command): void {
@@ -13,12 +12,10 @@ export function registerExplainCommand(program: Command): void {
 		.command("explain <symbol>")
 		.description("Show context for a symbol: signature, callers, and module")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
-		.option("--txt", "output results as human-readable text")
-		.action(async (symbolArg: string, options?: { txt?: boolean }) => {
+		.action(async (symbolArg: string) => {
 			const resolvedProjectPath = process.cwd();
 			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 			const dbPath = path.join(dataDir, "db.sqlite");
-			const isJson = isJsonOutput(options);
 
 			const rankSymbolMatch = (
 				candidateName: string,
@@ -107,7 +104,9 @@ export function registerExplainCommand(program: Command): void {
 
 			try {
 				await metadata.initialize();
-				await ensureIndexed(metadata, resolvedProjectPath, { silent: isJson });
+				await ensureIndexed(metadata, resolvedProjectPath, {
+					silent: false,
+				});
 
 				const snapshot =
 					await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
@@ -161,21 +160,11 @@ export function registerExplainCommand(program: Command): void {
 						kind: s.kind,
 						filePath: s.filePath,
 					}));
-					if (isJson) {
-						console.log(
-							JSON.stringify(
-								{ error: "Symbol not found", suggestions: fuzzy },
-								null,
-								2,
-							),
+					console.error(`Symbol "${symbolName}" not found.`);
+					if (fuzzy.length > 0) {
+						console.error(
+							`Did you mean: ${fuzzy.map((s) => `${s.name} (${s.kind}) in ${s.filePath}`).join(", ")}?`,
 						);
-					} else {
-						console.error(`Symbol "${symbolName}" not found.`);
-						if (fuzzy.length > 0) {
-							console.error(
-								`Did you mean: ${fuzzy.map((s) => `${s.name} (${s.kind}) in ${s.filePath}`).join(", ")}?`,
-							);
-						}
 					}
 					process.exitCode = 1;
 					return;
@@ -218,17 +207,6 @@ export function registerExplainCommand(program: Command): void {
 					}),
 				);
 
-				if (isJson) {
-					console.log(
-						JSON.stringify(
-							results.length === 1 ? results[0] : results,
-							null,
-							2,
-						),
-					);
-					return;
-				}
-
 				for (const result of results) {
 					console.log(`Symbol: ${result.name}`);
 					console.log(
@@ -259,11 +237,7 @@ export function registerExplainCommand(program: Command): void {
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				if (isJson) {
-					console.error(JSON.stringify({ error: message }, null, 2));
-				} else {
-					console.error(`Explain failed: ${message}`);
-				}
+				console.error(`Explain failed: ${message}`);
 				process.exitCode = 1;
 			} finally {
 				await metadata.close().catch(() => undefined);

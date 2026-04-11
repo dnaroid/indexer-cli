@@ -16,22 +16,6 @@ import {
 const TEMP_DIR = path.join(os.tmpdir(), "indexer-cli-e2e-ruby");
 const FIXTURE_FILE_COUNT = 31;
 
-type SearchResult = {
-	filePath: string;
-	score: number;
-	content?: string | null;
-	primarySymbol?: string | null;
-};
-
-type StructureEntry = {
-	type: string;
-	name?: string;
-	path?: string;
-	children?: StructureEntry[];
-	symbols?: Array<{ name: string; kind: string; exported: boolean }>;
-	hiddenFiles?: number;
-};
-
 type IndexedDependency = {
 	fromPath: string;
 	toSpecifier: string;
@@ -40,14 +24,25 @@ type IndexedDependency = {
 	dependencyType: "internal" | "external" | "builtin" | "unresolved";
 };
 
-function parseJson<T>(value: string): T {
-	return JSON.parse(value) as T;
-}
-
-function runJsonCommand<T>(args: string[]): T {
-	const result = runCLI(args, { cwd: TEMP_DIR });
-	expect(result.exitCode).toBe(0);
-	return parseJson<T>(result.stdout);
+function parseSearchResults(
+	output: string,
+): Array<{ filePath: string; score: number; primarySymbol?: string }> {
+	return output
+		.split("---")
+		.map((block) => {
+			const match = block
+				.trim()
+				.match(
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?\)$/m,
+				);
+			if (!match) return null;
+			return {
+				filePath: match[1],
+				score: Number.parseFloat(match[4]),
+				primarySymbol: match[5] || undefined,
+			};
+		})
+		.filter((result): result is NonNullable<typeof result> => result !== null);
 }
 
 async function listIndexedDependencies(
@@ -77,23 +72,6 @@ async function listIndexedDependencies(
 	} finally {
 		await metadata.close().catch(() => undefined);
 	}
-}
-
-function flattenFiles(entries: StructureEntry[]): StructureEntry[] {
-	const files: StructureEntry[] = [];
-	for (const entry of entries) {
-		if (entry.type === "file") {
-			files.push(entry);
-		}
-		if (entry.children) {
-			files.push(...flattenFiles(entry.children));
-		}
-	}
-	return files;
-}
-
-function firstResultIndex(results: SearchResult[], filePath: string): number {
-	return results.findIndex((result) => result.filePath === filePath);
 }
 
 describe.sequential("CLI e2e Ruby", () => {
@@ -132,9 +110,10 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(fileExists(skillPath)).toBe(true);
 			expect(fileExists(hookPath)).toBe(true);
 
-			const config = parseJson<{ embeddingModel: string; vectorSize: number }>(
-				readTextFile(configPath),
-			);
+			const config = JSON.parse(readTextFile(configPath)) as {
+				embeddingModel: string;
+				vectorSize: number;
+			};
 			expect(config.embeddingModel).toBe("jina-8k");
 			expect(config.vectorSize).toBe(768);
 
@@ -165,37 +144,29 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("reports status for all fixture files", () => {
-			const output = runJsonCommand<{
-				indexed: boolean;
-				stats: {
-					files: number;
-					symbols: number;
-					chunks: number;
-					dependencies: number;
-				};
-				languages: Record<string, number>;
-			}>(["index", "--status"]);
+			const result = runCLI(["index", "--status"], { cwd: TEMP_DIR });
 
-			expect(output.indexed).toBe(true);
-			expect(output.stats.files).toBe(FIXTURE_FILE_COUNT);
-			expect(output.stats.symbols).toBeGreaterThan(30);
-			expect(output.stats.chunks).toBeGreaterThan(0);
-			expect(output.stats.dependencies).toBeGreaterThan(0);
-			expect(output.languages.ruby).toBe(FIXTURE_FILE_COUNT);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Snapshot:");
+			expect(result.stdout).toContain(`Files: ${FIXTURE_FILE_COUNT}`);
+			expect(result.stdout).toContain("Symbols:");
+			expect(result.stdout).toContain("Chunks:");
+			expect(result.stdout).toContain("Dependencies:");
+			expect(result.stdout).toContain(`Languages: ruby: ${FIXTURE_FILE_COUNT}`);
 		});
 
 		it("shows the indexed file tree", () => {
-			const output = runJsonCommand<{ files: string[] }>([
-				"index",
-				"--status",
-				"--tree",
-			]);
+			const result = runCLI(["index", "--status", "--tree"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output.files).toContain("bin/app.rb");
-			expect(output.files).toContain("lib/auth/session.rb");
-			expect(output.files).toContain("lib/game/session.rb");
-			expect(output.files).toContain("lib/payments/processor.rb");
-			expect(output.files).toContain("lib/utils/errors.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("bin/");
+			expect(result.stdout).toContain("app.rb");
+			expect(result.stdout).toContain("lib/");
+			expect(result.stdout).toContain("session.rb");
+			expect(result.stdout).toContain("processor.rb");
+			expect(result.stdout).toContain("errors.rb");
 		});
 
 		it("supports dry-run mode", () => {
@@ -208,21 +179,24 @@ describe.sequential("CLI e2e Ruby", () => {
 
 	describe("search", () => {
 		it("matches auth session queries more strongly than game session queries", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"auth session login token user access",
-				"--max-files",
-				"6",
-			]);
+			const result = runCLI(
+				["search", "auth session login token user access", "--max-files", "6"],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
 
-			const authIndex = results.findIndex((result) =>
+			expect(result.exitCode).toBe(0);
+
+			const authIndex = results.findIndex((searchResult) =>
 				[
 					"lib/auth/session.rb",
 					"lib/services/auth.rb",
 					"lib/middleware/auth.rb",
-				].includes(result.filePath),
+				].includes(searchResult.filePath),
 			);
-			const gameIndex = firstResultIndex(results, "lib/game/session.rb");
+			const gameIndex = results.findIndex(
+				(searchResult) => searchResult.filePath === "lib/game/session.rb",
+			);
 
 			expect(authIndex).toBeGreaterThanOrEqual(0);
 			if (gameIndex >= 0) {
@@ -232,15 +206,25 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("matches game round queries more strongly than auth session queries", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"game round match players scoreboard session",
-				"--max-files",
-				"6",
-			]);
+			const result = runCLI(
+				[
+					"search",
+					"game round match players scoreboard session",
+					"--max-files",
+					"6",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
 
-			const gameIndex = firstResultIndex(results, "lib/game/session.rb");
-			const authIndex = firstResultIndex(results, "lib/auth/session.rb");
+			expect(result.exitCode).toBe(0);
+
+			const gameIndex = results.findIndex(
+				(searchResult) => searchResult.filePath === "lib/game/session.rb",
+			);
+			const authIndex = results.findIndex(
+				(searchResult) => searchResult.filePath === "lib/auth/session.rb",
+			);
 
 			expect(gameIndex).toBeGreaterThanOrEqual(0);
 			if (authIndex >= 0) {
@@ -250,48 +234,61 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("finds payment processing abstractions and implementations", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"payment processing provider charge refund checkout stripe",
-				"--max-files",
-				"6",
-			]);
+			const result = runCLI(
+				[
+					"search",
+					"payment processing provider charge refund checkout stripe",
+					"--max-files",
+					"6",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
 
+			expect(result.exitCode).toBe(0);
 			expect(
 				results.some((result) => result.filePath.startsWith("lib/payments/")),
 			).toBe(true);
-			const processorIndex = firstResultIndex(
-				results,
-				"lib/payments/processor.rb",
+			const processorIndex = results.findIndex(
+				(searchResult) => searchResult.filePath === "lib/payments/processor.rb",
 			);
-			const stripeIndex = firstResultIndex(
-				results,
-				"lib/payments/stripe_processor.rb",
+			const stripeIndex = results.findIndex(
+				(searchResult) =>
+					searchResult.filePath === "lib/payments/stripe_processor.rb",
 			);
 			expect(processorIndex >= 0 || stripeIndex >= 0).toBe(true);
 		});
 
 		it("finds Sinatra-oriented entrypoint queries", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"sinatra request route cli app",
-				"--max-files",
-				"4",
-			]);
+			const result = runCLI(
+				["search", "sinatra request route cli app", "--max-files", "4"],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
 
-			expect(firstResultIndex(results, "bin/app.rb")).toBeGreaterThanOrEqual(0);
+			expect(result.exitCode).toBe(0);
+			expect(
+				results.findIndex(
+					(searchResult) => searchResult.filePath === "bin/app.rb",
+				),
+			).toBeGreaterThanOrEqual(0);
 		});
 
 		it("respects --min-score to filter noise", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"authentication login token session",
-				"--max-files",
-				"10",
-				"--min-score",
-				"0.45",
-			]);
+			const result = runCLI(
+				[
+					"search",
+					"authentication login token session",
+					"--max-files",
+					"10",
+					"--min-score",
+					"0.45",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
 
+			expect(result.exitCode).toBe(0);
 			for (const result of results) {
 				expect(result.score).toBeGreaterThanOrEqual(0.45);
 			}
@@ -299,45 +296,56 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("respects --max-files", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"service order creation user validation",
-				"--max-files",
-				"1",
-			]);
+			const result = runCLI(
+				[
+					"search",
+					"service order creation user validation",
+					"--max-files",
+					"1",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
 
+			expect(result.exitCode).toBe(0);
 			expect(results.length).toBeLessThanOrEqual(1);
 		});
 
 		it("includes content with --include-content and omits it by default", () => {
-			const withContent = runJsonCommand<SearchResult[]>([
-				"search",
-				"pagination offset limit helper",
-				"--include-content",
-				"--max-files",
-				"3",
-			]);
-			const withoutContent = runJsonCommand<SearchResult[]>([
-				"search",
-				"pagination offset limit helper",
-				"--max-files",
-				"3",
-			]);
-
-			expect(withContent.length).toBeGreaterThan(0);
-			expect(withContent[0]?.content).toBeTruthy();
-			expect(withoutContent[0]?.content).toBeUndefined();
-		});
-
-		it("renders text output with --txt", () => {
-			const result = runCLI(
+			const withContent = runCLI(
 				[
 					"search",
 					"pagination offset limit helper",
-					"--txt",
+					"--include-content",
 					"--max-files",
 					"3",
 				],
+				{ cwd: TEMP_DIR },
+			);
+			const withoutContent = runCLI(
+				["search", "pagination offset limit helper", "--max-files", "3"],
+				{ cwd: TEMP_DIR },
+			);
+			const withContentLines = withContent.stdout
+				.split("\n")
+				.filter((line) => line.trim() !== "" && line.trim() !== "---");
+			const withoutContentLines = withoutContent.stdout
+				.split("\n")
+				.filter((line) => line.trim() !== "" && line.trim() !== "---");
+			const withoutContentResults = parseSearchResults(withoutContent.stdout);
+
+			expect(withContent.exitCode).toBe(0);
+			expect(withoutContent.exitCode).toBe(0);
+			expect(parseSearchResults(withContent.stdout).length).toBeGreaterThan(0);
+			expect(withContentLines.length).toBeGreaterThan(
+				withoutContentResults.length,
+			);
+			expect(withoutContentLines.length).toBe(withoutContentResults.length);
+		});
+
+		it("renders text output", () => {
+			const result = runCLI(
+				["search", "pagination offset limit helper", "--max-files", "3"],
 				{ cwd: TEMP_DIR },
 			);
 
@@ -347,125 +355,82 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("respects --path-prefix", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"user validation create user session",
-				"--path-prefix",
-				"lib/services",
-				"--max-files",
-				"5",
-			]);
+			const result = runCLI(
+				[
+					"search",
+					"user validation create user session",
+					"--path-prefix",
+					"lib/services",
+					"--max-files",
+					"5",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
 
+			expect(result.exitCode).toBe(0);
 			expect(results.length).toBeGreaterThan(0);
-			for (const result of results) {
-				expect(result.filePath.startsWith("lib/services")).toBe(true);
+			for (const searchResult of results) {
+				expect(searchResult.filePath.startsWith("lib/services")).toBe(true);
 			}
 		});
 	});
 
 	describe("structure", () => {
-		it("returns a JSON tree with files and symbols", () => {
-			const output = runJsonCommand<StructureEntry[]>(["structure"]);
-			const files = flattenFiles(output);
+		it("returns a text tree with files and symbols", () => {
+			const result = runCLI(["structure"], { cwd: TEMP_DIR });
 
-			expect(files.length).toBeGreaterThan(0);
-			expect(
-				files.some((entry) => entry.path === "lib/payments/processor.rb"),
-			).toBe(true);
-			expect(files.some((entry) => (entry.symbols?.length ?? 0) > 0)).toBe(
-				true,
-			);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("lib/");
+			expect(result.stdout).toContain("processor.rb");
+			expect(result.stdout).toContain("ProcessorBase (module");
 		});
 
 		it("filters classes with --kind class", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--kind",
-				"class",
-			]);
-			const files = flattenFiles(output);
+			const result = runCLI(["structure", "--kind", "class"], {
+				cwd: TEMP_DIR,
+			});
 
-			for (const file of files) {
-				for (const symbol of file.symbols ?? []) {
-					expect(symbol.kind).toBe("class");
-				}
-			}
-			expect(
-				files.some((file) =>
-					(file.symbols ?? []).some((symbol) => symbol.name === "UserService"),
-				),
-			).toBe(true);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("UserService (class");
+			expect(result.stdout).not.toContain("(method");
 		});
 
 		it("filters methods with --kind method", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--kind",
-				"method",
-			]);
-			const files = flattenFiles(output);
+			const result = runCLI(["structure", "--kind", "method"], {
+				cwd: TEMP_DIR,
+			});
 
-			for (const file of files) {
-				for (const symbol of file.symbols ?? []) {
-					expect(symbol.kind).toBe("method");
-				}
-			}
-			expect(
-				files.some((file) =>
-					(file.symbols ?? []).some(
-						(symbol) => symbol.name === "create_session",
-					),
-				),
-			).toBe(true);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("create_session (method");
+			expect(result.stdout).not.toContain("(class");
 		});
 
 		it("filters modules with --kind module", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--kind",
-				"module",
-			]);
-			const files = flattenFiles(output);
+			const result = runCLI(["structure", "--kind", "module"], {
+				cwd: TEMP_DIR,
+			});
 
-			for (const file of files) {
-				for (const symbol of file.symbols ?? []) {
-					expect(symbol.kind).toBe("module");
-				}
-			}
-			expect(
-				files.some((file) =>
-					(file.symbols ?? []).some(
-						(symbol) => symbol.name === "ProcessorBase",
-					),
-				),
-			).toBe(true);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("ProcessorBase (module");
+			expect(result.stdout).not.toContain("(class");
 		});
 
 		it("shows private Ruby methods as non-exported", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--path-prefix",
-				"lib/services/user_service.rb",
-			]);
-			const files = flattenFiles(output);
-			const userServiceFile = files.find(
-				(file) => file.path === "lib/services/user_service.rb",
+			const result = runCLI(
+				["structure", "--path-prefix", "lib/services/user_service.rb"],
+				{
+					cwd: TEMP_DIR,
+				},
 			);
 
-			expect(userServiceFile).toBeTruthy();
-			expect(userServiceFile?.symbols).toEqual(
-				expect.arrayContaining([
-					expect.objectContaining({
-						name: "normalize_email",
-						kind: "method",
-						exported: false,
-					}),
-				]),
-			);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("normalize_email (method)");
+			expect(result.stdout).not.toContain("normalize_email (method, exported)");
 		});
 
 		it("renders text output", () => {
-			const result = runCLI(["structure", "--txt"], { cwd: TEMP_DIR });
+			const result = runCLI(["structure"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("lib/");
@@ -473,50 +438,38 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("respects --path-prefix and distinguishes same-named handlers", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--path-prefix",
-				"lib/api",
-			]);
-			const files = flattenFiles(output);
-			const handlerFiles = files.filter((file) => file.name === "handler.rb");
+			const result = runCLI(["structure", "--path-prefix", "lib/api"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(handlerFiles.length).toBe(2);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout.match(/handler\.rb/g)?.length).toBe(2);
 		});
 
 		it("shows deeply nested files with --max-depth 2", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--max-depth",
-				"2",
-			]);
-			const files = flattenFiles(output);
-			expect(files.some((file) => file.path?.includes("api/v"))).toBe(true);
+			const result = runCLI(["structure", "--max-depth", "2"], {
+				cwd: TEMP_DIR,
+			});
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("lib/api/v");
 		});
 	});
 
 	describe("architecture", () => {
 		it("returns file stats, entrypoints, and internal dependencies", () => {
-			const output = runJsonCommand<{
-				file_stats: Record<string, number>;
-				entrypoints: string[];
-				dependency_map: { internal: Record<string, string[]> };
-				files: Array<{ path: string; language: string }>;
-			}>(["architecture"]);
+			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
 
-			expect(output.file_stats.ruby).toBe(FIXTURE_FILE_COUNT);
-			expect(output.entrypoints).toContain("bin/app.rb");
-			expect(output.files.length).toBe(FIXTURE_FILE_COUNT);
-			expect(
-				Object.keys(output.dependency_map.internal).length,
-			).toBeGreaterThan(0);
-			expect(JSON.stringify(output.dependency_map.internal)).toMatch(
-				/lib\/payments|lib\/services|lib\/auth/,
-			);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("File stats by language");
+			expect(result.stdout).toContain(`  ruby: ${FIXTURE_FILE_COUNT}`);
+			expect(result.stdout).toContain("Entrypoints");
+			expect(result.stdout).toContain("bin/app.rb");
+			expect(result.stdout).toContain("Module dependency graph");
+			expect(result.stdout).toMatch(/lib\/payments|lib\/services|lib\/auth/);
 		});
 
 		it("renders text output", () => {
-			const result = runCLI(["architecture", "--txt"], { cwd: TEMP_DIR });
+			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("File stats by language");
@@ -525,55 +478,44 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("respects --path-prefix", () => {
-			const output = runJsonCommand<{
-				file_stats: Record<string, number>;
-				files: Array<{ path: string; language: string }>;
-			}>(["architecture", "--path-prefix", "lib/payments"]);
+			const result = runCLI(["architecture", "--path-prefix", "lib/payments"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output.file_stats.ruby).toBe(2);
-			for (const file of output.files) {
-				expect(file.path.startsWith("lib/payments")).toBe(true);
-			}
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("  ruby: 2");
+			expect(result.stdout).toContain("Module dependency graph");
+			expect(result.stdout).toContain("lib/payments");
 		});
 
 		it("detects the Ruby bin entrypoint", () => {
-			const output = runJsonCommand<{ entrypoints: string[] }>([
-				"architecture",
-			]);
+			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
 
-			expect(output.entrypoints).toContain("bin/app.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("bin/app.rb");
 		});
 	});
 
 	describe("context", () => {
-		it("returns JSON context with symbols, modules, dependencies, and meta", () => {
-			const output = runJsonCommand<{
-				architecture: {
-					fileStats: Record<string, number>;
-					entrypoints: string[];
-				};
-				modules: Array<{ path: string }>;
-				symbols: Array<{ file: string; name: string; kind: string }>;
-				dependencies: Record<string, string[]>;
-				_meta: { estimatedTokens: number; scope: string };
-			}>(["context"]);
+		it("returns text context with symbols, modules, dependencies, and meta", () => {
+			const result = runCLI(["context"], { cwd: TEMP_DIR });
 
-			expect(output.architecture.fileStats.ruby).toBe(FIXTURE_FILE_COUNT);
-			expect(output.architecture.entrypoints).toContain("bin/app.rb");
-			expect(output.modules.length).toBeGreaterThan(0);
-			expect(
-				output.symbols.some((symbol) => symbol.name === "UserService"),
-			).toBe(true);
-			expect(
-				output.symbols.some((symbol) => symbol.name === "ProcessorBase"),
-			).toBe(true);
-			expect(Object.keys(output.dependencies).length).toBeGreaterThan(0);
-			expect(output._meta.scope).toBe("all");
-			expect(output._meta.estimatedTokens).toBeGreaterThan(0);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("## Architecture");
+			expect(result.stdout).toContain(`Files: ruby: ${FIXTURE_FILE_COUNT}`);
+			expect(result.stdout).toContain("bin/app.rb");
+			expect(result.stdout).toContain("## Key Symbols");
+			expect(result.stdout).toContain(
+				"lib/services/user_service.rb::UserService",
+			);
+			expect(result.stdout).toContain(
+				"lib/payments/processor.rb::ProcessorBase",
+			);
+			expect(result.stdout).toContain("Estimated tokens:");
 		});
 
 		it("renders text output", () => {
-			const result = runCLI(["context", "--txt"], { cwd: TEMP_DIR });
+			const result = runCLI(["context"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("## Architecture");
@@ -595,103 +537,89 @@ describe.sequential("CLI e2e Ruby", () => {
 
 			writeFileSync(orderPath, updated, "utf-8");
 
-			const output = runJsonCommand<{
-				modules: Array<{ path: string }>;
-				symbols: Array<{ file: string; name: string; kind: string }>;
-				_meta: { scope: string };
-			}>(["context", "--scope", "changed"]);
+			const result = runCLI(["context", "--scope", "changed"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output._meta.scope).toBe("changed");
-			expect(
-				output.modules.some(
-					(module) => module.path === "lib/services/order_service.rb",
-				),
-			).toBe(true);
-			expect(
-				output.symbols.some(
-					(symbol) => symbol.file === "lib/services/order_service.rb",
-				),
-			).toBe(true);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("lib/services/order_service.rb");
 		});
 
 		it("respects --max-deps", () => {
-			const output = runJsonCommand<{
-				dependencies: Record<string, string[]>;
-				_meta: { truncatedDependencies?: { shown: number; total: number } };
-			}>(["context", "--max-deps", "1"]);
+			const result = runCLI(["context", "--max-deps", "1"], {
+				cwd: TEMP_DIR,
+			});
+			const dependencySection =
+				result.stdout
+					.split("## Module Dependencies")[1]
+					?.split("Estimated tokens:")[0] ?? "";
+			const dependencyLines = dependencySection
+				.split("\n")
+				.filter((line) => line.includes(" -> "));
 
-			expect(Object.keys(output.dependencies).length).toBeLessThanOrEqual(1);
-			if (output._meta.truncatedDependencies) {
-				expect(output._meta.truncatedDependencies.shown).toBeLessThanOrEqual(1);
-			}
+			expect(result.exitCode).toBe(0);
+			expect(dependencyLines.length).toBeLessThanOrEqual(1);
 		});
 
 		it("resolves relevant-to scope across module boundaries", () => {
-			const output = runJsonCommand<{
-				modules: Array<{ path: string }>;
-				_meta: { scope: string };
-			}>(["context", "--scope", "relevant-to:lib/services/order_service.rb"]);
+			const result = runCLI(
+				["context", "--scope", "relevant-to:lib/services/order_service.rb"],
+				{
+					cwd: TEMP_DIR,
+				},
+			);
 
-			expect(output._meta.scope).toBe(
-				"relevant-to:lib/services/order_service.rb",
-			);
-			expect(output.modules.map((module) => module.path)).toContain(
-				"lib/services/order_service.rb",
-			);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("lib/services/order_service.rb");
 		});
 	});
 
 	describe("explain", () => {
 		it("explains create_session", () => {
-			const output = runJsonCommand<{
-				name: string;
-				kind: string;
-				file: string;
-				lines: { start: number; end: number };
-			}>(["explain", "create_session"]);
+			const result = runCLI(["explain", "create_session"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output.name).toBe("create_session");
-			expect(output.kind).toBe("method");
-			expect(output.file).toBe("lib/auth/session.rb");
-			expect(output.lines.start).toBeGreaterThan(0);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Symbol: create_session");
+			expect(result.stdout).toContain("Kind:   method");
+			expect(result.stdout).toContain("File:   lib/auth/session.rb");
+			expect(result.stdout).toMatch(/lines \d+-\d+/);
 		});
 
 		it("explains UserService", () => {
-			const output = runJsonCommand<{
-				name: string;
-				kind: string;
-				file: string;
-			}>(["explain", "UserService"]);
+			const result = runCLI(["explain", "UserService"], { cwd: TEMP_DIR });
 
-			expect(output.name).toBe("UserService");
-			expect(output.kind).toBe("class");
-			expect(output.file).toBe("lib/services/user_service.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Symbol: UserService");
+			expect(result.stdout).toContain("Kind:   class");
+			expect(result.stdout).toContain("lib/services/user_service.rb");
 		});
 
 		it("explains ProcessorBase", () => {
-			const output = runJsonCommand<{
-				name: string;
-				kind: string;
-				file: string;
-			}>(["explain", "ProcessorBase"]);
+			const result = runCLI(["explain", "ProcessorBase"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output.name).toBe("ProcessorBase");
-			expect(output.kind).toBe("module");
-			expect(output.file).toBe("lib/payments/processor.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Symbol: ProcessorBase");
+			expect(result.stdout).toContain("Kind:   module");
+			expect(result.stdout).toContain("lib/payments/processor.rb");
 		});
 
 		it("supports file::symbol syntax", () => {
-			const output = runJsonCommand<{ name: string; file: string }>([
-				"explain",
-				"lib/payments/processor.rb::ProcessorBase",
-			]);
+			const result = runCLI(
+				["explain", "lib/payments/processor.rb::ProcessorBase"],
+				{ cwd: TEMP_DIR },
+			);
 
-			expect(output.name).toBe("ProcessorBase");
-			expect(output.file).toBe("lib/payments/processor.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Symbol: ProcessorBase");
+			expect(result.stdout).toContain("File:   lib/payments/processor.rb");
 		});
 
 		it("renders text output", () => {
-			const result = runCLI(["explain", "ProcessorBase", "--txt"], {
+			const result = runCLI(["explain", "ProcessorBase"], {
 				cwd: TEMP_DIR,
 			});
 
@@ -714,30 +642,27 @@ describe.sequential("CLI e2e Ruby", () => {
 		it("returns multiple results for ambiguous handle_request symbol", () => {
 			const result = runCLI(["explain", "handle_request"], { cwd: TEMP_DIR });
 			expect(result.exitCode).toBe(0);
-			const output = JSON.parse(result.stdout);
-			const items = Array.isArray(output) ? output : [output];
-			const files = items.map((item: { file: string }) => item.file);
-			expect(files).toContain("lib/api/v1/handler.rb");
-			expect(files).toContain("lib/api/v2/handler.rb");
+			expect(result.stdout).toContain("lib/api/v1/handler.rb");
+			expect(result.stdout).toContain("lib/api/v2/handler.rb");
+			expect(result.stdout.match(/^Symbol:/gm)?.length).toBeGreaterThan(1);
 		});
 	});
 
 	describe("deps", () => {
 		it("returns callers and resolved internal callees for engine", async () => {
-			const output = runJsonCommand<{
-				path: string;
-				callers: string[];
-				callees: string[];
-			}>(["deps", "lib/core/engine.rb"]);
+			const result = runCLI(["deps", "lib/core/engine.rb"], {
+				cwd: TEMP_DIR,
+			});
 			const dependencies = await listIndexedDependencies("lib/core/engine.rb");
 
-			expect(output.path).toBe("lib/core/engine.rb");
-			expect(output.callers).toContain("lib/core/health_check.rb");
-			expect(output.callers).toContain("lib/core/scheduler.rb");
-			expect(output.callers).toContain("lib/middleware/cors.rb");
-			expect(output.callees).toContain("lib/config/settings.rb");
-			expect(output.callees).toContain("lib/services/auth.rb");
-			expect(output.callees).toContain("lib/utils/helpers.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Module: lib/core/engine.rb");
+			expect(result.stdout).toContain("lib/core/health_check.rb");
+			expect(result.stdout).toContain("lib/core/scheduler.rb");
+			expect(result.stdout).toContain("lib/middleware/cors.rb");
+			expect(result.stdout).toContain("lib/config/settings.rb");
+			expect(result.stdout).toContain("lib/services/auth.rb");
+			expect(result.stdout).toContain("lib/utils/helpers.rb");
 			expect(dependencies).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
@@ -760,13 +685,15 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("respects --direction callers", () => {
-			const output = runJsonCommand<{
-				callers: string[];
-				callees: string[];
-			}>(["deps", "lib/services/user_service.rb", "--direction", "callers"]);
+			const result = runCLI(
+				["deps", "lib/services/user_service.rb", "--direction", "callers"],
+				{ cwd: TEMP_DIR },
+			);
 
-			expect(output.callers).toContain("bin/app.rb");
-			expect(output.callees).toEqual([]);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("bin/app.rb");
+			expect(result.stdout).toContain("Callers");
+			expect(result.stdout).not.toContain("Callees");
 		});
 
 		it("resolves builtin and external dependencies in indexed metadata", async () => {
@@ -824,26 +751,27 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("respects --direction callees and resolves same-directory require_relative", async () => {
-			const output = runJsonCommand<{
-				callers: string[];
-				callees: string[];
-			}>([
-				"deps",
-				"lib/core/scheduler.rb",
-				"--direction",
-				"callees",
-				"--depth",
-				"2",
-			]);
+			const result = runCLI(
+				[
+					"deps",
+					"lib/core/scheduler.rb",
+					"--direction",
+					"callees",
+					"--depth",
+					"2",
+				],
+				{ cwd: TEMP_DIR },
+			);
 			const dependencies = await listIndexedDependencies(
 				"lib/core/scheduler.rb",
 			);
 
-			expect(output.callers).toEqual([]);
-			expect(output.callees).toContain("lib/core/engine.rb");
-			expect(output.callees).toContain("lib/game/player.rb");
-			expect(output.callees).toContain("lib/services/auth.rb");
-			expect(output.callees).toContain("lib/config/settings.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("Callers");
+			expect(result.stdout).toContain("lib/core/engine.rb");
+			expect(result.stdout).toContain("lib/game/player.rb");
+			expect(result.stdout).toContain("lib/services/auth.rb");
+			expect(result.stdout).toContain("lib/config/settings.rb");
 			expect(dependencies).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
@@ -861,7 +789,7 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("renders text output", () => {
-			const result = runCLI(["deps", "lib/services/user_service.rb", "--txt"], {
+			const result = runCLI(["deps", "lib/services/user_service.rb"], {
 				cwd: TEMP_DIR,
 			});
 
@@ -871,37 +799,36 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("handles circular dependencies without infinite loop", () => {
-			const output = runJsonCommand<{
-				path: string;
-				callers: string[];
-				callees: string[];
-			}>(["deps", "lib/workers/email_worker.rb"]);
+			const result = runCLI(["deps", "lib/workers/email_worker.rb"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output.callers).toContain("lib/workers/notification_worker.rb");
-			expect(output.callees).toContain("lib/workers/notification_worker.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("lib/workers/notification_worker.rb");
 		});
 
 		it("resolves cross-directory chains from workers through core into services", async () => {
-			const output = runJsonCommand<{
-				path: string;
-				callees: string[];
-			}>([
-				"deps",
-				"lib/workers/batch_processor.rb",
-				"--direction",
-				"callees",
-				"--depth",
-				"3",
-			]);
+			const result = runCLI(
+				[
+					"deps",
+					"lib/workers/batch_processor.rb",
+					"--direction",
+					"callees",
+					"--depth",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
 			const dependencies = await listIndexedDependencies(
 				"lib/workers/batch_processor.rb",
 			);
 
-			expect(output.path).toBe("lib/workers/batch_processor.rb");
-			expect(output.callees).toContain("lib/workers/queue_worker.rb");
-			expect(output.callees).toContain("lib/core/scheduler.rb");
-			expect(output.callees).toContain("lib/core/engine.rb");
-			expect(output.callees).toContain("lib/services/auth.rb");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Module: lib/workers/batch_processor.rb");
+			expect(result.stdout).toContain("lib/workers/queue_worker.rb");
+			expect(result.stdout).toContain("lib/core/scheduler.rb");
+			expect(result.stdout).toContain("lib/core/engine.rb");
+			expect(result.stdout).toContain("lib/services/auth.rb");
 			expect(dependencies).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({

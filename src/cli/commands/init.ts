@@ -127,7 +127,7 @@ async function ensurePostCommitHook(projectRoot: string): Promise<void> {
 
 export async function performInit(
 	projectRoot: string,
-	options?: { refreshSkills?: boolean },
+	options?: { refreshSkills?: boolean; skipIndexing?: boolean },
 ): Promise<void> {
 	const dataDir = path.join(projectRoot, ".indexer-cli");
 	const dbPath = path.join(dataDir, "db.sqlite");
@@ -169,7 +169,9 @@ export async function performInit(
 		console.log(`  SQLite: ${dbPath}`);
 		console.log(`  Config: ${configPath}`);
 
-		await ensureIndexed(metadata, projectRoot);
+		if (!options?.skipIndexing) {
+			await ensureIndexed(metadata, projectRoot);
+		}
 
 		if (await pathExists(legacyVectorsPath)) {
 			await rm(legacyVectorsPath, { recursive: true, force: true });

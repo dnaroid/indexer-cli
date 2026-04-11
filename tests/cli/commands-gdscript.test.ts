@@ -20,30 +20,25 @@ import {
 const TEMP_DIR = path.join(os.tmpdir(), "indexer-cli-e2e-gdscript");
 const FIXTURE_GDSCRIPT_FILE_COUNT = 23;
 
-type SearchResult = {
-	filePath: string;
-	score: number;
-	content?: string | null;
-	primarySymbol?: string | null;
-};
-
-type StructureEntry = {
-	type: string;
-	name?: string;
-	path?: string;
-	children?: StructureEntry[];
-	symbols?: Array<{ name: string; kind: string; exported: boolean }>;
-	hiddenFiles?: number;
-};
-
-function parseJson<T>(value: string): T {
-	return JSON.parse(value) as T;
-}
-
-function runJsonCommand<T>(args: string[]): T {
-	const result = runCLI(args, { cwd: TEMP_DIR });
-	expect(result.exitCode).toBe(0);
-	return parseJson<T>(result.stdout);
+function parseSearchResults(
+	output: string,
+): Array<{ filePath: string; score: number; primarySymbol?: string }> {
+	return output
+		.split("---")
+		.map((block) => {
+			const match = block
+				.trim()
+				.match(
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?\)$/m,
+				);
+			if (!match) return null;
+			return {
+				filePath: match[1],
+				score: Number.parseFloat(match[4]),
+				primarySymbol: match[5] || undefined,
+			};
+		})
+		.filter((result): result is NonNullable<typeof result> => result !== null);
 }
 
 async function listIndexedDependencies(
@@ -76,23 +71,6 @@ function expectDependency(
 	);
 	expect(dependency).toBeTruthy();
 	return dependency!;
-}
-
-function flattenFiles(entries: StructureEntry[]): StructureEntry[] {
-	const files: StructureEntry[] = [];
-	for (const entry of entries) {
-		if (entry.type === "file") {
-			files.push(entry);
-		}
-		if (entry.children) {
-			files.push(...flattenFiles(entry.children));
-		}
-	}
-	return files;
-}
-
-function firstResultIndex(results: SearchResult[], filePath: string): number {
-	return results.findIndex((result) => result.filePath === filePath);
 }
 
 describe.sequential("CLI e2e GDScript", () => {
@@ -152,36 +130,30 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("reports GDScript status for all fixture files", () => {
-			const output = runJsonCommand<{
-				indexed: boolean;
-				stats: {
-					files: number;
-					symbols: number;
-					chunks: number;
-					dependencies: number;
-				};
-				languages: Record<string, number>;
-			}>(["index", "--status"]);
+			const result = runCLI(["index", "--status"], { cwd: TEMP_DIR });
 
-			expect(output.indexed).toBe(true);
-			expect(output.stats.files).toBe(FIXTURE_GDSCRIPT_FILE_COUNT);
-			expect(output.stats.symbols).toBeGreaterThan(20);
-			expect(output.stats.chunks).toBeGreaterThan(0);
-			expect(output.stats.dependencies).toBeGreaterThan(0);
-			expect(output.languages.gdscript).toBe(FIXTURE_GDSCRIPT_FILE_COUNT);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Snapshot:");
+			expect(result.stdout).toContain(`Files: ${FIXTURE_GDSCRIPT_FILE_COUNT}`);
+			expect(result.stdout).toContain("Symbols:");
+			expect(result.stdout).toContain("Chunks:");
+			expect(result.stdout).toContain("Dependencies:");
+			expect(result.stdout).toContain(
+				`Languages: gdscript: ${FIXTURE_GDSCRIPT_FILE_COUNT}`,
+			);
 		});
 
 		it("shows the indexed file tree", () => {
-			const output = runJsonCommand<{ files: string[] }>([
-				"index",
-				"--status",
-				"--tree",
-			]);
+			const result = runCLI(["index", "--status", "--tree"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output.files).toContain("scripts/main.gd");
-			expect(output.files).toContain("scripts/game/game_manager.gd");
-			expect(output.files).toContain("scripts/combat/combat_manager.gd");
-			expect(output.files).toContain("scripts/multiplayer/session.gd");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("scripts/");
+			expect(result.stdout).toContain("main.gd");
+			expect(result.stdout).toContain("game_manager.gd");
+			expect(result.stdout).toContain("combat_manager.gd");
+			expect(result.stdout).toContain("session.gd");
 		});
 
 		it("supports dry-run mode", () => {
@@ -194,20 +166,26 @@ describe.sequential("CLI e2e GDScript", () => {
 
 	describe("search", () => {
 		it("matches combat queries more strongly than multiplayer session queries", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"combat damage battle target health victory",
-				"--max-files",
-				"6",
-			]);
-
-			const combatIndex = firstResultIndex(
-				results,
-				"scripts/combat/combat_manager.gd",
+			const result = runCLI(
+				[
+					"search",
+					"combat damage battle target health victory",
+					"--max-files",
+					"6",
+				],
+				{ cwd: TEMP_DIR },
 			);
-			const sessionIndex = firstResultIndex(
-				results,
-				"scripts/multiplayer/session.gd",
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+
+			const combatIndex = results.findIndex(
+				(searchResult) =>
+					searchResult.filePath === "scripts/combat/combat_manager.gd",
+			);
+			const sessionIndex = results.findIndex(
+				(searchResult) =>
+					searchResult.filePath === "scripts/multiplayer/session.gd",
 			);
 
 			expect(combatIndex).toBeGreaterThanOrEqual(0);
@@ -218,20 +196,26 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("matches multiplayer lobby queries more strongly than combat manager queries", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"multiplayer lobby connect disconnect peer retries session",
-				"--max-files",
-				"6",
-			]);
-
-			const sessionIndex = firstResultIndex(
-				results,
-				"scripts/multiplayer/session.gd",
+			const result = runCLI(
+				[
+					"search",
+					"multiplayer lobby connect disconnect peer retries session",
+					"--max-files",
+					"6",
+				],
+				{ cwd: TEMP_DIR },
 			);
-			const combatIndex = firstResultIndex(
-				results,
-				"scripts/combat/combat_manager.gd",
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+
+			const sessionIndex = results.findIndex(
+				(searchResult) =>
+					searchResult.filePath === "scripts/multiplayer/session.gd",
+			);
+			const combatIndex = results.findIndex(
+				(searchResult) =>
+					searchResult.filePath === "scripts/combat/combat_manager.gd",
 			);
 
 			expect(sessionIndex).toBeGreaterThanOrEqual(0);
@@ -242,15 +226,20 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("filters background noise when querying combat-specific concepts", () => {
-			const results = runJsonCommand<SearchResult[]>([
-				"search",
-				"combat damage dealt battle manager session",
-				"--max-files",
-				"5",
-				"--min-score",
-				"0.34",
-			]);
+			const result = runCLI(
+				[
+					"search",
+					"combat damage dealt battle manager session",
+					"--max-files",
+					"5",
+					"--min-score",
+					"0.34",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
 
+			expect(result.exitCode).toBe(0);
 			expect(
 				results.some(
 					(result) => result.filePath === "scripts/combat/combat_manager.gd",
@@ -268,168 +257,142 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("includes content with --include-content and omits it by default", () => {
-			const withContent = runJsonCommand<SearchResult[]>([
-				"search",
-				"warning logger error code detail",
-				"--include-content",
-				"--max-files",
-				"3",
-			]);
-			const withoutContent = runJsonCommand<SearchResult[]>([
-				"search",
-				"warning logger error code detail",
-				"--max-files",
-				"3",
-			]);
+			const withContent = runCLI(
+				[
+					"search",
+					"warning logger error code detail",
+					"--include-content",
+					"--max-files",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const withoutContent = runCLI(
+				["search", "warning logger error code detail", "--max-files", "3"],
+				{ cwd: TEMP_DIR },
+			);
+			const withContentLines = withContent.stdout
+				.split("\n")
+				.filter((line) => line.trim() !== "" && line.trim() !== "---");
+			const withoutContentLines = withoutContent.stdout
+				.split("\n")
+				.filter((line) => line.trim() !== "" && line.trim() !== "---");
+			const withoutContentResults = parseSearchResults(withoutContent.stdout);
 
-			expect(withContent.length).toBeGreaterThan(0);
-			expect(withContent[0]?.content).toBeTruthy();
-			expect(withoutContent[0]?.content).toBeUndefined();
+			expect(withContent.exitCode).toBe(0);
+			expect(withoutContent.exitCode).toBe(0);
+			expect(parseSearchResults(withContent.stdout).length).toBeGreaterThan(0);
+			expect(withContentLines.length).toBeGreaterThan(
+				withoutContentResults.length,
+			);
+			expect(withoutContentLines.length).toBe(withoutContentResults.length);
 		});
 
 		it("renders text output and respects --path-prefix", () => {
 			const textResult = runCLI(
-				["search", "audio track muted music", "--txt", "--max-files", "3"],
+				["search", "audio track muted music", "--max-files", "3"],
 				{ cwd: TEMP_DIR },
 			);
-			const pathResults = runJsonCommand<SearchResult[]>([
-				"search",
-				"save profile language slot",
-				"--path-prefix",
-				"scripts/db",
-				"--max-files",
-				"5",
-			]);
+			const pathResult = runCLI(
+				[
+					"search",
+					"save profile language slot",
+					"--path-prefix",
+					"scripts/db",
+					"--max-files",
+					"5",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const pathResults = parseSearchResults(pathResult.stdout);
 
 			expect(textResult.exitCode).toBe(0);
 			expect(textResult.stdout).toContain(
 				"scripts/singletons/audio_manager.gd",
 			);
+			expect(pathResult.exitCode).toBe(0);
 			expect(pathResults.length).toBeGreaterThan(0);
-			for (const result of pathResults) {
-				expect(result.filePath.startsWith("scripts/db")).toBe(true);
+			for (const searchResult of pathResults) {
+				expect(searchResult.filePath.startsWith("scripts/db")).toBe(true);
 			}
 		});
 	});
 
 	describe("structure", () => {
-		it("returns a JSON tree with files and symbols", () => {
-			const output = runJsonCommand<StructureEntry[]>(["structure"]);
-			const files = flattenFiles(output);
+		it("returns a text tree with files and symbols", () => {
+			const result = runCLI(["structure"], { cwd: TEMP_DIR });
 
-			expect(files.length).toBeGreaterThan(0);
-			expect(
-				files.some(
-					(entry) => entry.path === "scripts/combat/combat_manager.gd",
-				),
-			).toBe(true);
-			expect(files.some((entry) => (entry.symbols?.length ?? 0) > 0)).toBe(
-				true,
-			);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("scripts/");
+			expect(result.stdout).toContain("combat_manager.gd");
+			expect(result.stdout).toContain("CombatManager (class");
 		});
 
 		it("filters classes with --kind class", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--kind",
-				"class",
-			]);
-			const files = flattenFiles(output);
+			const result = runCLI(["structure", "--kind", "class"], {
+				cwd: TEMP_DIR,
+			});
 
-			for (const file of files) {
-				for (const symbol of file.symbols ?? []) {
-					expect(symbol.kind).toBe("class");
-				}
-			}
-			expect(
-				files.some((file) =>
-					(file.symbols ?? []).some(
-						(symbol) => symbol.name === "CombatManager",
-					),
-				),
-			).toBe(true);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("CombatManager (class");
+			expect(result.stdout).not.toContain("(function");
 		});
 
 		it("filters functions with --kind function", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--kind",
-				"function",
-			]);
-			const files = flattenFiles(output);
+			const result = runCLI(["structure", "--kind", "function"], {
+				cwd: TEMP_DIR,
+			});
 
-			for (const file of files) {
-				for (const symbol of file.symbols ?? []) {
-					expect(symbol.kind).toBe("function");
-				}
-			}
-			expect(
-				files.some((file) =>
-					(file.symbols ?? []).some((symbol) => symbol.name === "_ready"),
-				),
-			).toBe(true);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("_ready (function");
+			expect(result.stdout).not.toContain("(class");
 		});
 
 		it("filters signals with --kind signal", () => {
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--kind",
-				"signal",
-			]);
-			const files = flattenFiles(output);
+			const result = runCLI(["structure", "--kind", "signal"], {
+				cwd: TEMP_DIR,
+			});
 
-			for (const file of files) {
-				for (const symbol of file.symbols ?? []) {
-					expect(symbol.kind).toBe("signal");
-				}
-			}
-			expect(
-				files.some((file) =>
-					(file.symbols ?? []).some((symbol) => symbol.name === "damage_dealt"),
-				),
-			).toBe(true);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("damage_dealt (signal");
+			expect(result.stdout).not.toContain("(function");
 		});
 
 		it("renders text output and respects path filtering", () => {
-			const textResult = runCLI(["structure", "--txt"], { cwd: TEMP_DIR });
-			const output = runJsonCommand<StructureEntry[]>([
-				"structure",
-				"--path-prefix",
-				"scripts/ui",
-			]);
-			const files = flattenFiles(output);
+			const textResult = runCLI(["structure"], { cwd: TEMP_DIR });
+			const pathResult = runCLI(["structure", "--path-prefix", "scripts/ui"], {
+				cwd: TEMP_DIR,
+			});
 
 			expect(textResult.exitCode).toBe(0);
 			expect(textResult.stdout).toContain("CombatManager");
 			expect(textResult.stdout).toContain("damage_dealt");
-			expect(files.length).toBe(2);
-			for (const file of files) {
-				expect(file.path?.startsWith("scripts/ui")).toBe(true);
-			}
+			expect(pathResult.exitCode).toBe(0);
+			expect(pathResult.stdout).toContain("ui/");
+			expect(pathResult.stdout).toContain("hud.gd");
+			expect(pathResult.stdout).toContain("menu.gd");
+			expect(pathResult.stdout).not.toContain("combat_manager.gd");
 		});
 	});
 
 	describe("architecture", () => {
 		it("returns file stats, entrypoints, dependencies, and godot files", () => {
-			const output = runJsonCommand<{
-				file_stats: Record<string, number>;
-				entrypoints: string[];
-				dependency_map: { internal: Record<string, string[]> };
-				files: Array<{ path: string; language: string }>;
-			}>(["architecture"]);
+			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
 
-			expect(output.file_stats.gdscript).toBe(FIXTURE_GDSCRIPT_FILE_COUNT);
-			expect(output.entrypoints).toContain("scripts/main.gd");
-			expect(output.entrypoints).toContain("scripts/game/game_manager.gd");
-			expect(output.files.length).toBe(FIXTURE_GDSCRIPT_FILE_COUNT);
-			expect(
-				Object.keys(output.dependency_map.internal).length,
-			).toBeGreaterThan(0);
-			expect(JSON.stringify(output.files)).toMatch(/gdscript/);
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("File stats by language");
+			expect(result.stdout).toContain(
+				`  gdscript: ${FIXTURE_GDSCRIPT_FILE_COUNT}`,
+			);
+			expect(result.stdout).toContain("Entrypoints");
+			expect(result.stdout).toContain("scripts/main.gd");
+			expect(result.stdout).toContain("scripts/game/game_manager.gd");
+			expect(result.stdout).toContain("Module dependency graph");
+			expect(result.stdout).toMatch(/gdscript|scripts\//);
 		});
 
 		it("renders text output with the Godot framework hint", () => {
-			const result = runCLI(["architecture", "--txt"], { cwd: TEMP_DIR });
+			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Entrypoints");
@@ -439,34 +402,27 @@ describe.sequential("CLI e2e GDScript", () => {
 	});
 
 	describe("context", () => {
-		it("returns JSON context with GDScript symbols and dependencies", () => {
-			const output = runJsonCommand<{
-				architecture: {
-					fileStats: Record<string, number>;
-					entrypoints: string[];
-				};
-				modules: Array<{ path: string }>;
-				symbols: Array<{ file: string; name: string; kind: string }>;
-				dependencies: Record<string, string[]>;
-				_meta: { estimatedTokens: number; scope: string };
-			}>(["context"]);
+		it("returns text context with GDScript symbols and dependencies", () => {
+			const result = runCLI(["context"], { cwd: TEMP_DIR });
 
-			expect(output.architecture.fileStats.gdscript).toBe(
-				FIXTURE_GDSCRIPT_FILE_COUNT,
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("## Architecture");
+			expect(result.stdout).toContain(
+				`Files: gdscript: ${FIXTURE_GDSCRIPT_FILE_COUNT}`,
 			);
-			expect(output.architecture.entrypoints).toContain("scripts/main.gd");
-			expect(
-				output.symbols.some((symbol) => symbol.name === "CombatManager"),
-			).toBe(true);
-			expect(
-				output.symbols.some((symbol) => symbol.name === "damage_dealt"),
-			).toBe(true);
-			expect(Object.keys(output.dependencies).length).toBeGreaterThan(0);
-			expect(output._meta.scope).toBe("all");
+			expect(result.stdout).toContain("scripts/main.gd");
+			expect(result.stdout).toContain("## Key Symbols");
+			expect(result.stdout).toContain(
+				"scripts/combat/combat_manager.gd::CombatManager",
+			);
+			expect(result.stdout).toContain(
+				"scripts/combat/combat_manager.gd::damage_dealt",
+			);
+			expect(result.stdout).toContain("## Module Dependencies");
 		});
 
 		it("renders text output and supports changed scope with a GDScript edit", () => {
-			const textResult = runCLI(["context", "--txt"], { cwd: TEMP_DIR });
+			const textResult = runCLI(["context"], { cwd: TEMP_DIR });
 			const healthPath = path.join(
 				TEMP_DIR,
 				"scripts",
@@ -481,85 +437,58 @@ describe.sequential("CLI e2e GDScript", () => {
 
 			writeFileSync(healthPath, updated, "utf-8");
 
-			const changed = runJsonCommand<{
-				modules: Array<{ path: string }>;
-				symbols: Array<{ file: string; name: string; kind: string }>;
-				_meta: { scope: string };
-			}>(["context", "--scope", "changed"]);
+			const changed = runCLI(["context", "--scope", "changed"], {
+				cwd: TEMP_DIR,
+			});
 
 			expect(textResult.exitCode).toBe(0);
 			expect(textResult.stdout).toContain("## Architecture");
-			expect(changed._meta.scope).toBe("changed");
-			expect(
-				changed.modules.some(
-					(module) => module.path === "scripts/resources/health_resource.gd",
-				),
-			).toBe(true);
-			expect(
-				changed.symbols.some(
-					(symbol) => symbol.file === "scripts/resources/health_resource.gd",
-				),
-			).toBe(true);
+			expect(changed.exitCode).toBe(0);
+			expect(changed.stdout).toContain("scripts/resources/health_resource.gd");
 		});
 	});
 
 	describe("explain", () => {
 		it("explains CombatManager and damage_dealt", () => {
-			const combatManager = runJsonCommand<{
-				name: string;
-				kind: string;
-				file: string;
-			}>(["explain", "CombatManager"]);
-			const damageSignal = runJsonCommand<
-				| {
-						name: string;
-						kind: string;
-						file: string;
-				  }
-				| Array<{
-						name: string;
-						kind: string;
-						file: string;
-				  }>
-			>(["explain", "damage_dealt"]);
-			const damageItems = Array.isArray(damageSignal)
-				? damageSignal
-				: [damageSignal];
-			const matchingSignal = damageItems.find(
-				(item) =>
-					item.name === "damage_dealt" &&
-					item.file === "scripts/combat/combat_manager.gd",
-			);
+			const combatManager = runCLI(["explain", "CombatManager"], {
+				cwd: TEMP_DIR,
+			});
+			const damageSignal = runCLI(["explain", "damage_dealt"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(combatManager.name).toBe("CombatManager");
-			expect(combatManager.kind).toBe("class");
-			expect(combatManager.file).toBe("scripts/combat/combat_manager.gd");
-			expect(matchingSignal?.kind).toBe("signal");
+			expect(combatManager.exitCode).toBe(0);
+			expect(combatManager.stdout).toContain("Symbol: CombatManager");
+			expect(combatManager.stdout).toContain(
+				"File:   scripts/combat/combat_manager.gd",
+			);
+			expect(combatManager.stdout).toContain("Kind:   class");
+			expect(damageSignal.exitCode).toBe(0);
+			expect(damageSignal.stdout).toContain("Symbol: damage_dealt");
+			expect(damageSignal.stdout).toContain("Kind:   signal");
+			expect(damageSignal.stdout).toContain("scripts/combat/combat_manager.gd");
 		});
 
 		it("supports file::symbol syntax and returns multiple lifecycle matches for _ready", () => {
-			const fileSymbol = runJsonCommand<{ name: string; file: string }>([
-				"explain",
-				"scripts/combat/combat_manager.gd::CombatManager",
-			]);
+			const fileSymbol = runCLI(
+				["explain", "scripts/combat/combat_manager.gd::CombatManager"],
+				{ cwd: TEMP_DIR },
+			);
 			const result = runCLI(["explain", "_ready"], { cwd: TEMP_DIR });
 
-			expect(fileSymbol.name).toBe("CombatManager");
-			expect(fileSymbol.file).toBe("scripts/combat/combat_manager.gd");
+			expect(fileSymbol.exitCode).toBe(0);
+			expect(fileSymbol.stdout).toContain("Symbol: CombatManager");
+			expect(fileSymbol.stdout).toContain(
+				"File:   scripts/combat/combat_manager.gd",
+			);
 			expect(result.exitCode).toBe(0);
-			const output = JSON.parse(result.stdout) as
-				| Array<{ file: string; name: string }>
-				| { file: string; name: string };
-			const items = Array.isArray(output) ? output : [output];
-			expect(items.length).toBeGreaterThan(1);
-			expect(items.some((item) => item.file === "scripts/main.gd")).toBe(true);
-			expect(
-				items.some((item) => item.file === "scripts/combat/combat_manager.gd"),
-			).toBe(true);
+			expect(result.stdout.match(/^Symbol:/gm)?.length).toBeGreaterThan(1);
+			expect(result.stdout).toContain("scripts/main.gd");
+			expect(result.stdout).toContain("scripts/combat/combat_manager.gd");
 		});
 
 		it("renders text output and errors on unknown symbols", () => {
-			const textResult = runCLI(["explain", "damage_dealt", "--txt"], {
+			const textResult = runCLI(["explain", "damage_dealt"], {
 				cwd: TEMP_DIR,
 			});
 			const missingResult = runCLI(["explain", "missing_signal_xyz"], {
@@ -577,26 +506,25 @@ describe.sequential("CLI e2e GDScript", () => {
 
 	describe("deps", () => {
 		it("returns preload callers and callees for combat_manager", () => {
-			const output = runJsonCommand<{
-				path: string;
-				callers: string[];
-				callees: string[];
-			}>(["deps", "scripts/combat/combat_manager.gd"]);
+			const result = runCLI(["deps", "scripts/combat/combat_manager.gd"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output.path).toBe("scripts/combat/combat_manager.gd");
-			expect(output.callers).toContain("scripts/game/game_manager.gd");
-			expect(output.callers).toContain("scripts/multiplayer/session.gd");
-			expect(output.callers).toContain("scripts/ui/hud.gd");
-			expect(output.callees).toContain("scripts/multiplayer/session.gd");
-			expect(output.callees).toContain("scripts/resources/health_resource.gd");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"Module: scripts/combat/combat_manager.gd",
+			);
+			expect(result.stdout).toContain("scripts/game/game_manager.gd");
+			expect(result.stdout).toContain("scripts/multiplayer/session.gd");
+			expect(result.stdout).toContain("scripts/ui/hud.gd");
+			expect(result.stdout).toContain("scripts/resources/health_resource.gd");
 		});
 
 		it("stores internal preload targets for game_engine and external built-in extends", async () => {
-			const output = runJsonCommand<{
-				path: string;
-				callers: string[];
-				callees: string[];
-			}>(["deps", "scripts/core/game_engine.gd", "--direction", "callees"]);
+			const result = runCLI(
+				["deps", "scripts/core/game_engine.gd", "--direction", "callees"],
+				{ cwd: TEMP_DIR },
+			);
 			const gameEngineDependencies = await listIndexedDependencies(
 				"scripts/core/game_engine.gd",
 			);
@@ -604,10 +532,11 @@ describe.sequential("CLI e2e GDScript", () => {
 				"scripts/core/scene_loader.gd",
 			);
 
-			expect(output.path).toBe("scripts/core/game_engine.gd");
-			expect(output.callees).toContain("scripts/game/game_manager.gd");
-			expect(output.callees).toContain("scripts/utils/helpers.gd");
-			expect(output.callees).toContain("scripts/constants/game_constants.gd");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Module: scripts/core/game_engine.gd");
+			expect(result.stdout).toContain("scripts/game/game_manager.gd");
+			expect(result.stdout).toContain("scripts/utils/helpers.gd");
+			expect(result.stdout).toContain("scripts/constants/game_constants.gd");
 
 			expect(
 				expectDependency(gameEngineDependencies, "../game/game_manager.gd"),
@@ -643,33 +572,34 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("handles the circular preload between combat_manager and session", () => {
-			const output = runJsonCommand<{
-				callers: string[];
-				callees: string[];
-			}>(["deps", "scripts/multiplayer/session.gd"]);
+			const result = runCLI(["deps", "scripts/multiplayer/session.gd"], {
+				cwd: TEMP_DIR,
+			});
 
-			expect(output.callers).toContain("scripts/combat/combat_manager.gd");
-			expect(output.callees).toContain("scripts/combat/combat_manager.gd");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("scripts/combat/combat_manager.gd");
 		});
 
 		it("resolves resource preload targets internally and keeps Resource extends external", async () => {
-			const output = runJsonCommand<{
-				path: string;
-				callers: string[];
-				callees: string[];
-			}>([
-				"deps",
-				"scripts/resources/weapon_database.gd",
-				"--direction",
-				"callees",
-			]);
+			const result = runCLI(
+				[
+					"deps",
+					"scripts/resources/weapon_database.gd",
+					"--direction",
+					"callees",
+				],
+				{ cwd: TEMP_DIR },
+			);
 			const weaponDependencies = await listIndexedDependencies(
 				"scripts/resources/weapon_database.gd",
 			);
 
-			expect(output.path).toBe("scripts/resources/weapon_database.gd");
-			expect(output.callees).toContain("scripts/constants/game_constants.gd");
-			expect(output.callees).toContain("scripts/core/game_engine.gd");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"Module: scripts/resources/weapon_database.gd",
+			);
+			expect(result.stdout).toContain("scripts/constants/game_constants.gd");
+			expect(result.stdout).toContain("scripts/core/game_engine.gd");
 			expect(
 				expectDependency(weaponDependencies, "../constants/game_constants.gd"),
 			).toMatchObject({
@@ -689,39 +619,34 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("respects direction, depth, and text output", () => {
-			const callersOnly = runJsonCommand<{
-				callers: string[];
-				callees: string[];
-			}>([
-				"deps",
-				"scripts/combat/combat_manager.gd",
-				"--direction",
-				"callers",
-			]);
-			const calleesDepth = runJsonCommand<{
-				callers: string[];
-				callees: string[];
-			}>([
-				"deps",
-				"scripts/game/game_manager.gd",
-				"--direction",
-				"callees",
-				"--depth",
-				"2",
-			]);
-			const textResult = runCLI(
-				["deps", "scripts/combat/combat_manager.gd", "--txt"],
+			const callersOnly = runCLI(
+				["deps", "scripts/combat/combat_manager.gd", "--direction", "callers"],
 				{ cwd: TEMP_DIR },
 			);
-
-			expect(callersOnly.callees).toEqual([]);
-			expect(callersOnly.callers).toContain("scripts/game/game_manager.gd");
-			expect(callersOnly.callers).toContain("scripts/multiplayer/session.gd");
-			expect(calleesDepth.callers).toEqual([]);
-			expect(calleesDepth.callees).toContain(
-				"scripts/combat/combat_manager.gd",
+			const calleesDepth = runCLI(
+				[
+					"deps",
+					"scripts/game/game_manager.gd",
+					"--direction",
+					"callees",
+					"--depth",
+					"2",
+				],
+				{ cwd: TEMP_DIR },
 			);
-			expect(calleesDepth.callees).toContain("scripts/multiplayer/session.gd");
+			const textResult = runCLI(["deps", "scripts/combat/combat_manager.gd"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(callersOnly.exitCode).toBe(0);
+			expect(callersOnly.stdout).toContain("Callers");
+			expect(callersOnly.stdout).toContain("scripts/game/game_manager.gd");
+			expect(callersOnly.stdout).toContain("scripts/multiplayer/session.gd");
+			expect(callersOnly.stdout).not.toContain("Callees");
+			expect(calleesDepth.exitCode).toBe(0);
+			expect(calleesDepth.stdout).not.toContain("Callers");
+			expect(calleesDepth.stdout).toContain("scripts/combat/combat_manager.gd");
+			expect(calleesDepth.stdout).toContain("scripts/multiplayer/session.gd");
 			expect(textResult.exitCode).toBe(0);
 			expect(textResult.stdout).toContain(
 				"Module: scripts/combat/combat_manager.gd",
@@ -729,23 +654,24 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("follows multi-hop preload chains across resources, core, and game", () => {
-			const output = runJsonCommand<{
-				callers: string[];
-				callees: string[];
-			}>([
-				"deps",
-				"scripts/resources/armor_database.gd",
-				"--direction",
-				"callees",
-				"--depth",
-				"3",
-			]);
+			const result = runCLI(
+				[
+					"deps",
+					"scripts/resources/armor_database.gd",
+					"--direction",
+					"callees",
+					"--depth",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
 
-			expect(output.callers).toEqual([]);
-			expect(output.callees).toContain("scripts/resources/weapon_database.gd");
-			expect(output.callees).toContain("scripts/core/game_engine.gd");
-			expect(output.callees).toContain("scripts/constants/game_constants.gd");
-			expect(output.callees).toContain("scripts/game/game_manager.gd");
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("Callers");
+			expect(result.stdout).toContain("scripts/resources/weapon_database.gd");
+			expect(result.stdout).toContain("scripts/core/game_engine.gd");
+			expect(result.stdout).toContain("scripts/constants/game_constants.gd");
+			expect(result.stdout).toContain("scripts/game/game_manager.gd");
 		});
 	});
 

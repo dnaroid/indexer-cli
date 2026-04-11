@@ -5,7 +5,6 @@ import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID, type SymbolRecord } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
-import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 type TreeNode = {
@@ -238,158 +237,6 @@ function printTree(
 	}
 }
 
-function treeToJson(
-	node: TreeNode,
-	prefix: string,
-	symbolsByFile: Map<string, SymbolRecord[]>,
-	depth: number,
-	maxDepth?: number,
-	fileCounter?: { printed: number; hidden: number },
-	maxFiles?: number,
-): object[] {
-	if (maxDepth !== undefined && depth >= maxDepth) {
-		if (node.files.size > 0) {
-			const summary = summarizeHiddenChildren(node);
-			return summary === "... (0 children)"
-				? []
-				: [{ type: "summary", name: summary }];
-		}
-
-		return collectDescendantFiles(
-			node,
-			prefix,
-			symbolsByFile,
-			fileCounter,
-			maxFiles,
-		).map((file) => ({
-			type: "file",
-			name: file.name,
-			path: file.path,
-			symbols: file.symbols,
-		}));
-	}
-
-	const entries: object[] = [];
-	const directoryEntries = Array.from(node.directories.entries()).sort((a, b) =>
-		a[0].localeCompare(b[0]),
-	);
-	const fileEntries = Array.from(node.files).sort((a, b) => a.localeCompare(b));
-
-	for (const [directoryName, childNode] of directoryEntries) {
-		if (
-			maxFiles !== undefined &&
-			fileCounter &&
-			fileCounter.printed >= maxFiles
-		) {
-			fileCounter.hidden += countFiles(childNode);
-			continue;
-		}
-
-		const childPrefix = prefix ? `${prefix}/${directoryName}` : directoryName;
-		const children = treeToJson(
-			childNode,
-			childPrefix,
-			symbolsByFile,
-			depth + 1,
-			maxDepth,
-			fileCounter,
-			maxFiles,
-		);
-		if (maxFiles !== undefined && children.length === 0) {
-			continue;
-		}
-
-		entries.push({
-			type: "directory",
-			name: directoryName,
-			children,
-		});
-	}
-
-	for (const fileName of fileEntries) {
-		if (
-			maxFiles !== undefined &&
-			fileCounter &&
-			fileCounter.printed >= maxFiles
-		) {
-			fileCounter.hidden += 1;
-			continue;
-		}
-
-		const filePath = prefix ? `${prefix}/${fileName}` : fileName;
-		const symbols = (symbolsByFile.get(filePath) ?? []).map((s) => ({
-			name: s.name,
-			kind: s.kind,
-			exported: s.exported,
-		}));
-		if (fileCounter) {
-			fileCounter.printed += 1;
-		}
-		entries.push({ type: "file", name: fileName, path: filePath, symbols });
-	}
-
-	return entries;
-}
-
-function narrowJsonTreeToPathPrefix(
-	entries: object[],
-	pathPrefix?: string,
-): object[] {
-	if (!pathPrefix) {
-		return entries;
-	}
-
-	const parts = pathPrefix.split("/").filter(Boolean);
-	let current = entries;
-
-	for (let index = 0; index < parts.length; index += 1) {
-		const part = parts[index];
-		const file = current.find(
-			(
-				entry,
-			): entry is {
-				type: string;
-				name: string;
-				path: string;
-			} =>
-				typeof entry === "object" &&
-				entry !== null &&
-				"type" in entry &&
-				"name" in entry &&
-				"path" in entry &&
-				(entry as { type: string; name: string }).type === "file" &&
-				(entry as { type: string; name: string }).name === part,
-		);
-		if (file) {
-			return index === parts.length - 1 ? [file] : [];
-		}
-
-		const dir = current.find(
-			(
-				entry,
-			): entry is {
-				type: string;
-				name: string;
-				children?: object[];
-			} =>
-				typeof entry === "object" &&
-				entry !== null &&
-				"type" in entry &&
-				"name" in entry &&
-				(entry as { type: string; name: string }).type === "directory" &&
-				(entry as { type: string; name: string }).name === part,
-		);
-
-		if (!dir) {
-			return [];
-		}
-
-		current = dir.children ?? [];
-	}
-
-	return current;
-}
-
 export function registerStructureCommand(program: Command): void {
 	program
 		.command("structure")
@@ -402,19 +249,16 @@ export function registerStructureCommand(program: Command): void {
 			"limit directory traversal depth in the rendered tree",
 		)
 		.option("--max-files <number>", "limit number of files shown in output")
-		.option("--txt", "output results as human-readable text")
 		.action(
 			async (options?: {
 				pathPrefix?: string;
 				kind?: string;
 				maxDepth?: string;
 				maxFiles?: string;
-				txt?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
-				const isJson = isJsonOutput(options);
 
 				initLogger(dataDir);
 				config.load(dataDir);
@@ -429,7 +273,7 @@ export function registerStructureCommand(program: Command): void {
 
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
-						silent: isJson,
+						silent: false,
 					});
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
@@ -468,11 +312,7 @@ export function registerStructureCommand(program: Command): void {
 					}
 
 					if (files.length === 0) {
-						if (isJson) {
-							console.log("[]");
-						} else {
-							console.log("No indexed files found for the requested filters.");
-						}
+						console.log("No indexed files found for the requested filters.");
 						return;
 					}
 
@@ -481,48 +321,25 @@ export function registerStructureCommand(program: Command): void {
 						insertPath(root, file.path);
 					}
 
-					if (isJson) {
-						let tree = treeToJson(
-							root,
-							"",
-							symbolsByFile,
-							0,
-							maxDepth,
-							fileCounter,
-							maxFiles,
+					printTree(
+						root,
+						"",
+						"",
+						symbolsByFile,
+						0,
+						maxDepth,
+						fileCounter,
+						maxFiles,
+					);
+					if (fileCounter && fileCounter.hidden > 0) {
+						console.log(
+							`\n... and ${fileCounter.hidden} more files (use --max-files to see more)`,
 						);
-
-						tree = narrowJsonTreeToPathPrefix(tree, options?.pathPrefix);
-
-						if (fileCounter && fileCounter.hidden > 0) {
-							tree.push({ type: "truncated", hiddenFiles: fileCounter.hidden });
-						}
-						console.log(JSON.stringify(tree, null, 2));
-					} else {
-						printTree(
-							root,
-							"",
-							"",
-							symbolsByFile,
-							0,
-							maxDepth,
-							fileCounter,
-							maxFiles,
-						);
-						if (fileCounter && fileCounter.hidden > 0) {
-							console.log(
-								`\n... and ${fileCounter.hidden} more files (use --max-files to see more)`,
-							);
-						}
 					}
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
-					if (isJson) {
-						console.error(JSON.stringify({ error: message }, null, 2));
-					} else {
-						console.error(`Structure command failed: ${message}`);
-					}
+					console.error(`Structure command failed: ${message}`);
 					process.exitCode = 1;
 				} finally {
 					await metadata.close().catch(() => undefined);

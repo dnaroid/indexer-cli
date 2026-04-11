@@ -9,7 +9,6 @@ import {
 } from "../../engine/architecture.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
-import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 function summarizeExternalDependencies(
@@ -120,18 +119,12 @@ export function registerArchitectureCommand(program: Command): void {
 			"--path-prefix <string>",
 			"limit output to files under a path prefix",
 		)
-		.option("--txt", "output results as human-readable text")
 		.option("--include-fixtures", "include fixture/vendor paths in output")
 		.action(
-			async (options?: {
-				txt?: boolean;
-				includeFixtures?: boolean;
-				pathPrefix?: string;
-			}) => {
+			async (options?: { includeFixtures?: boolean; pathPrefix?: string }) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
-				const isJson = isJsonOutput(options);
 
 				initLogger(dataDir);
 				config.load(dataDir);
@@ -141,7 +134,7 @@ export function registerArchitectureCommand(program: Command): void {
 				try {
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
-						silent: isJson,
+						silent: false,
 					});
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
@@ -244,19 +237,11 @@ export function registerArchitectureCommand(program: Command): void {
 						};
 					}
 
-					if (isJson) {
-						console.log(JSON.stringify(visibleArchitecture, null, 2));
-					} else {
-						formatPlain(visibleArchitecture);
-					}
+					formatPlain(visibleArchitecture);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
-					if (isJson) {
-						console.error(JSON.stringify({ error: message }, null, 2));
-					} else {
-						console.error(`Architecture command failed: ${message}`);
-					}
+					console.error(`Architecture command failed: ${message}`);
 					process.exitCode = 1;
 				} finally {
 					await metadata.close().catch(() => undefined);

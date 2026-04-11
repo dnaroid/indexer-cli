@@ -11,7 +11,6 @@ import {
 import { SimpleGitOperations } from "../../engine/git.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
-import { isJsonOutput } from "../output-mode.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 type ContextData = {
@@ -29,16 +28,6 @@ type ContextData = {
 		signature?: string;
 	}>;
 	dependencies: Record<string, string[]>;
-};
-
-type ContextOutputMeta = {
-	estimatedTokens: number;
-	scope: string;
-	warning?: string;
-	truncatedDependencies?: {
-		shown: number;
-		total: number;
-	};
 };
 
 function parseMaxDeps(input?: string): number | undefined {
@@ -83,8 +72,22 @@ function limitDependencies(
 	};
 }
 
-function estimateTokens(data: unknown): number {
-	return Math.ceil(JSON.stringify(data).length / 4);
+function estimateTokens(data: ContextData): number {
+	let charCount = 0;
+	charCount += Object.entries(data.architecture.fileStats)
+		.map(([k, v]) => `${k}: ${v}`)
+		.join(", ").length;
+	charCount += data.architecture.entrypoints.join(", ").length;
+	for (const mod of data.modules) charCount += mod.path.length + 1;
+	for (const sym of data.symbols) {
+		charCount +=
+			`${sym.file}::${sym.name} (${sym.kind})${sym.signature ? ` — ${sym.signature}` : ""}`
+				.length + 1;
+	}
+	for (const [from, to] of Object.entries(data.dependencies)) {
+		charCount += `${from} -> ${to.join(", ")}`.length + 1;
+	}
+	return Math.ceil(charCount / 4);
 }
 
 function normalizeScopePath(
@@ -143,7 +146,6 @@ export function registerContextCommand(program: Command): void {
 		.command("context")
 		.description("Output dense project context aggregated from the index")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
-		.option("--txt", "output results as human-readable text")
 		.option(
 			"--scope <scope>",
 			"scope: all, changed (uncommitted changes), or relevant-to:<path>",
@@ -157,7 +159,6 @@ export function registerContextCommand(program: Command): void {
 		.option("--include-fixtures", "include fixture/vendor paths in output")
 		.action(
 			async (options?: {
-				txt?: boolean;
 				scope?: string;
 				maxDeps?: string;
 				includeFixtures?: boolean;
@@ -165,7 +166,6 @@ export function registerContextCommand(program: Command): void {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
-				const isJson = isJsonOutput(options);
 				const maxDeps = parseMaxDeps(options?.maxDeps);
 				const scope = options?.scope ?? "all";
 				const relevantToPrefix = "relevant-to:";
@@ -178,7 +178,7 @@ export function registerContextCommand(program: Command): void {
 				try {
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
-						silent: isJson,
+						silent: false,
 					});
 
 					const snapshot =
@@ -301,11 +301,9 @@ export function registerContextCommand(program: Command): void {
 					);
 
 					if (limitedDependencies.truncated) {
-						if (!isJson) {
-							console.error(
-								`Showing ${limitedDependencies.shown} of ${limitedDependencies.total} dependencies. Use --max-deps to see more.`,
-							);
-						}
+						console.error(
+							`Showing ${limitedDependencies.shown} of ${limitedDependencies.total} dependencies. Use --max-deps to see more.`,
+						);
 					}
 
 					const filesWithExports = new Set(
@@ -333,53 +331,23 @@ export function registerContextCommand(program: Command): void {
 						dependencies: limitedDependencies.dependencies,
 					};
 
-					if (!isJson && scopeWarning) {
+					if (scopeWarning) {
 						console.warn(`Warning: ${scopeWarning}`);
 					}
 
-					const meta: ContextOutputMeta = {
-						estimatedTokens: 0,
-						scope,
-						...(scopeWarning ? { warning: scopeWarning } : {}),
-						...(limitedDependencies.truncated
-							? {
-									truncatedDependencies: {
-										shown: limitedDependencies.shown,
-										total: limitedDependencies.total,
-									},
-								}
-							: {}),
-					};
+					const estimatedTokens = estimateTokens(contextData);
 
-					const outputData = {
-						...contextData,
-						_meta: meta,
-					};
-					meta.estimatedTokens = estimateTokens(outputData);
-					const finalizedEstimatedTokens = estimateTokens(outputData);
-					if (finalizedEstimatedTokens !== meta.estimatedTokens) {
-						meta.estimatedTokens = finalizedEstimatedTokens;
-					}
-
-					if (isJson) {
-						console.log(JSON.stringify(outputData, null, 2));
-					} else {
-						formatPlain(contextData);
-						if (meta.estimatedTokens > 0) {
-							const estimatedChars = (meta.estimatedTokens * 4) / 1000;
-							console.log(
-								`\nEstimated tokens: ${meta.estimatedTokens} (~${estimatedChars.toFixed(1)}k chars)`,
-							);
-						}
+					formatPlain(contextData);
+					if (estimatedTokens > 0) {
+						const estimatedChars = (estimatedTokens * 4) / 1000;
+						console.log(
+							`\nEstimated tokens: ${estimatedTokens} (~${estimatedChars.toFixed(1)}k chars)`,
+						);
 					}
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
-					if (isJson) {
-						console.error(JSON.stringify({ error: message }));
-					} else {
-						console.error(`Context command failed: ${message}`);
-					}
+					console.error(`Context command failed: ${message}`);
 					process.exitCode = 1;
 				} finally {
 					await metadata.close().catch(() => undefined);

@@ -108,10 +108,10 @@ Pick the single best concept word. Add words only to narrow scope.
 
 #### Phase 1: Discover
 
-Search without \`--include-content\`, with \`--fields filePath,startLine,endLine,primarySymbol\`.
+Search without \`--include-content\`.
 
 \`\`\`bash
-npx indexer-cli search "prize" --fields filePath,startLine,endLine,primarySymbol
+npx indexer-cli search "prize"
 \`\`\`
 
 #### Phase 2: Read
@@ -143,7 +143,7 @@ Use it only for a quick scan when you expect fewer than 5 results.
 If you know the subsystem, add \`--path-prefix\`.
 
 \`\`\`bash
-npx indexer-cli search "password reset" --path-prefix src/auth --fields filePath,startLine,endLine,primarySymbol
+npx indexer-cli search "password reset" --path-prefix src/auth
 \`\`\`
 
 ## Skip when
@@ -156,8 +156,8 @@ npx indexer-cli search "password reset" --path-prefix src/auth --fields filePath
 
 \`\`\`bash
 # Phase 1: discover
-npx indexer-cli search "rate limiting" --fields filePath,startLine,endLine,primarySymbol
-npx indexer-cli search "password reset" --path-prefix src/auth --fields filePath,startLine,endLine,primarySymbol
+npx indexer-cli search "rate limiting"
+npx indexer-cli search "password reset" --path-prefix src/auth
 
 # Phase 2: Read returned files/lines with Read tool
 
@@ -168,7 +168,7 @@ npx indexer-cli search "input validation" --include-content --max-files 3
 ## CLI reference
 
 - Positional args: \`<query>\`
-- Options: \`--max-files\`, \`--path-prefix\`, \`--chunk-types\`, \`--fields\`, \`--min-score\`, \`--include-content\`,
+- Options: \`--max-files\`, \`--path-prefix\`, \`--chunk-types\`, \`--min-score\`, \`--include-content\`,
   \`--include-imports\`
 
 ### Allowed \`--chunk-types\`
@@ -176,10 +176,6 @@ npx indexer-cli search "input validation" --include-content --max-files 3
 \`full_file\`, \`imports\`, \`preamble\`, \`declaration\`, \`module_section\`, \`impl\`, \`types\`
 
 Imports and preamble are excluded by default. Use \`--include-imports\` to include them.
-
-### Allowed \`--fields\`
-
-\`filePath\`, \`startLine\`, \`endLine\`, \`score\`, \`primarySymbol\`, \`content\`
 
 ## Anti-patterns
 
@@ -211,7 +207,6 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"Prefer structure when layout matters more than implementation snippets.",
 			"ALWAYS use --path-prefix or --kind to keep output focused — unfiltered output dumps every symbol in the repo and can exceed 2500 tokens.",
 			"Combine --path-prefix with --kind for the tightest result (e.g. --path-prefix src/engine --kind class).",
-			"Use JSON output for agents unless a human explicitly asks for text.",
 		],
 		skipWhen: [
 			"You need dependency relationships rather than physical structure",
@@ -223,8 +218,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"npx indexer-cli structure --kind function",
 		],
 		cliReference: [
-			"Output: JSON by default; use --txt for human-readable text.",
-			"Options: --path-prefix <string>, --kind <string>, --max-depth <number>, --max-files <number>, --txt.",
+			"Options: --path-prefix <string>, --kind <string>, --max-depth <number>, --max-files <number>.",
 			"Allowed --kind values: function, class, method, interface, type, variable, module, signal.",
 		],
 	},
@@ -241,7 +235,6 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		rules: [
 			"Use architecture when the question is about system shape, not a single symbol.",
 			"Filter by path prefix when only one subsystem matters.",
-			"Use JSON output to preserve structured dependency data.",
 			"Pay attention to cyclic dependencies — they indicate tight coupling that may affect where you make changes.",
 			"Follow up with `deps <hot-path>` to drill into specific module relationships, or `explain <symbol>` to understand a key class.",
 		],
@@ -253,10 +246,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"npx indexer-cli architecture",
 			"npx indexer-cli architecture --path-prefix src/<area>",
 		],
-		cliReference: [
-			"Output: JSON by default; use --txt for human-readable text.",
-			"Options: --path-prefix <string>, --include-fixtures, --txt.",
-		],
+		cliReference: ["Options: --path-prefix <string>, --include-fixtures."],
 	},
 	{
 		name: "repo-context",
@@ -284,8 +274,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"npx indexer-cli context --scope relevant-to:src/<area> --max-deps 10",
 		],
 		cliReference: [
-			"Output: JSON by default; use --txt for human-readable text.",
-			"Options: --scope <scope>, --max-deps <number>, --include-fixtures, --txt.",
+			"Options: --scope <scope>, --max-deps <number>, --include-fixtures.",
 			"Allowed --scope values: all, changed, relevant-to:<path>.",
 		],
 	},
@@ -314,11 +303,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"npx indexer-cli explain <symbol>",
 			"npx indexer-cli explain <file>::<symbol>",
 		],
-		cliReference: [
-			"Positional args: <symbol> or <file>::<symbol>.",
-			"Output: JSON by default; use --txt for human-readable text.",
-			"Options: --txt.",
-		],
+		cliReference: ["Positional args: <symbol> or <file>::<symbol>."],
 	},
 	{
 		name: "dependency-trace",
@@ -348,8 +333,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		],
 		cliReference: [
 			"Positional args: <path>.",
-			"Output: JSON by default; use --txt for human-readable text.",
-			"Options: --direction <dir>, --depth <n>, --txt.",
+			"Options: --direction <dir>, --depth <n>.",
 			"Allowed --direction values: callers, callees, both.",
 			"Behavior: --depth is effectively clamped to the range 1..5.",
 		],

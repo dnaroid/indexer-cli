@@ -49,7 +49,7 @@ npx indexer-cli init
 npx indexer-cli index
 
 # 4. Search semantically yourself
-npx indexer-cli search "authentication middleware" --txt
+npx indexer-cli search "authentication middleware"
 ```
 
 After `init`, the repo contains focused skills like `.claude/skills/semantic-search/SKILL.md`,
@@ -87,7 +87,7 @@ npx indexer-cli architecture
 npx indexer-cli context --scope relevant-to:src/<area>
 ```
 
-By default, discovery commands now return JSON. Use `--txt` whenever you want human-readable output instead.
+All discovery commands return human-readable text output, optimized for coding agents.
 
 This is especially useful in Claude and OpenCode setups, where project-local skills can guide the agent away from
 blind `grep`/`find` usage and toward indexed discovery, which usually means less wasted context and lower token usage
@@ -120,7 +120,6 @@ Index all supported source files in the current working directory.
 | `--dry-run` | Preview what would be indexed without writing anything     |
 | `--status`  | Show indexing status for the current project               |
 | `--tree`    | Show indexed file tree (use with `--status`)               |
-| `--txt`     | Output status as human-readable text (use with `--status`) |
 
 ### `npx indexer-cli search <query>`
 
@@ -132,14 +131,8 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
 | `--include-imports`      | —       | Include `imports`/`preamble` chunks (excluded by default)                                                    |
-| `--fields <list>`        | —       | Comma-separated output fields: `filePath`, `startLine`, `endLine`, `score`, `primarySymbol`, `content`       |
 | `--min-score <number>`   | 0.45    | Filter out results below this score (0..1)                                                                   |
-| `--omit-content`         | +       | Explicitly exclude content from results (default behavior in JSON mode)                                      |
-| `--include-content`      | —       | Include `content` in JSON output                                                                             |
-| `--txt`                  | —       | Output results as human-readable text                                                                        |
-
-`search` returns JSON by default. In JSON mode, `content` is omitted unless you pass `--include-content`; use `--txt`
-for the older human-readable layout.
+| `--include-content`      | —       | Include matched code content in output (omitted by default to save tokens)                                   |
 
 ### `npx indexer-cli structure`
 
@@ -152,7 +145,6 @@ files if needed.
 | `--kind <string>`        | Filter by symbol kind: `function`, `class`, `method`, `interface`, `type`, `variable`, `module`, `signal` |
 | `--max-depth <number>`   | Limit directory traversal depth in the rendered tree                                                      |
 | `--max-files <number>`   | Limit number of files shown in output                                                                     |
-| `--txt`                  | Output structure as human-readable text                                                                   |
 
 ### `npx indexer-cli architecture`
 
@@ -163,7 +155,6 @@ dependency graph.
 |--------------------------|----------------------------------------|
 | `--path-prefix <string>` | Limit output to files under this path  |
 | `--include-fixtures`     | Include fixture/vendor paths in output |
-| `--txt`                  | Output as human-readable text          |
 
 ### `npx indexer-cli context`
 
@@ -172,7 +163,6 @@ without pulling in entire files.
 
 | Option                | Default | Description                                                     |
 |-----------------------|---------|-----------------------------------------------------------------|
-| `--txt`               | —       | Output results as human-readable text                           |
 | `--scope <scope>`     | all     | `all`, `changed` (uncommitted changes), or `relevant-to:<path>` |
 | `--max-deps <number>` | 30      | Maximum number of dependency edges to output                    |
 | `--include-fixtures`  | —       | Include fixture/vendor paths in output                          |
@@ -181,10 +171,6 @@ without pulling in entire files.
 
 Show context for a symbol: its signature, callers, and containing module. Use this to quickly understand what a
 specific function, class, or type does and how it is used.
-
-| Option  | Description                   |
-|---------|-------------------------------|
-| `--txt` | Output as human-readable text |
 
 ### `npx indexer-cli deps <path>`
 
@@ -195,7 +181,6 @@ of changes and understanding dependency chains.
 |---------------------|---------|---------------------------------|
 | `--direction <dir>` | both    | `callers`, `callees`, or `both` |
 | `--depth <n>`       | 1       | Traversal depth                 |
-| `--txt`             | —       | Output as human-readable text   |
 
 ### `npx indexer-cli uninstall`
 

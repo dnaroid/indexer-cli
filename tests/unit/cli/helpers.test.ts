@@ -58,36 +58,11 @@ const architecture = await loadInternals<{
 );
 
 const search = await loadInternals<{
-	parseSearchFields: (input?: string) => string[];
 	parseMinScore: (input?: string) => number | undefined;
-	resolveOutputFields: (
-		rawFields: string[],
-		options: {
-			omitContent?: boolean;
-			includeContent?: boolean;
-			isJson: boolean;
-		},
-	) => string[];
-	projectSearchResult: (
-		result: {
-			filePath: string;
-			startLine: number;
-			endLine: number;
-			score: number;
-			primarySymbol?: string;
-			content?: string;
-		},
-		fields: string[],
-	) => Record<string, number | string | null>;
 }>(
 	"../../../src/cli/commands/search.ts",
-	/const SEARCH_FIELDS[\s\S]*?(?=export function registerSearchCommand)/,
-	[
-		"parseSearchFields",
-		"parseMinScore",
-		"resolveOutputFields",
-		"projectSearchResult",
-	],
+	/type SearchResult[\s\S]*?(?=export function registerSearchCommand)/,
+	["parseMinScore"],
 );
 
 const context = await loadInternals<{
@@ -101,10 +76,20 @@ const context = await loadInternals<{
 		total: number;
 		truncated: boolean;
 	};
-	estimateTokens: (data: unknown) => number;
+	estimateTokens: (data: {
+		architecture: { fileStats: Record<string, number>; entrypoints: string[] };
+		modules: Array<{ path: string }>;
+		symbols: Array<{
+			file: string;
+			name: string;
+			kind: string;
+			signature?: string;
+		}>;
+		dependencies: Record<string, string[]>;
+	}) => number;
 }>(
 	"../../../src/cli/commands/context.ts",
-	/type ContextData = [\s\S]*?(?=export function registerContextCommand)/,
+	/type ContextData = [\s\S]*?(?=function normalizeScopePath)/,
 	["parseMaxDeps", "limitDependencies", "estimateTokens"],
 );
 
@@ -115,25 +100,9 @@ const structure = await loadInternals<{
 		files: Set<string>;
 		directories: Map<string, unknown>;
 	};
-	narrowJsonTreeToPathPrefix: (
-		entries: object[],
-		pathPrefix?: string,
-	) => object[];
 	insertPath: (root: any, filePath: string) => void;
 	summarizeHiddenChildren: (node: any) => string;
 	countFiles: (node: any) => number;
-	treeToJson: (
-		root: any,
-		prefix: string,
-		symbolsByFile: Map<
-			string,
-			Array<{ name: string; kind: string; exported: boolean }>
-		>,
-		depth: number,
-		maxDepth?: number,
-		fileCounter?: { printed: number; hidden: number },
-		maxFiles?: number,
-	) => object[];
 }>(
 	"../../../src/cli/commands/structure.ts",
 	/type TreeNode = [\s\S]*?(?=export function registerStructureCommand)/,
@@ -141,11 +110,9 @@ const structure = await loadInternals<{
 		"parseMaxDepth",
 		"parseMaxFiles",
 		"createNode",
-		"narrowJsonTreeToPathPrefix",
 		"insertPath",
 		"summarizeHiddenChildren",
 		"countFiles",
-		"treeToJson",
 	],
 );
 
@@ -195,99 +162,10 @@ describe("CLI helper functions", () => {
 	});
 
 	describe("search helpers", () => {
-		it("parses and validates requested output fields", () => {
-			expect(search.parseSearchFields()).toEqual([
-				"filePath",
-				"startLine",
-				"endLine",
-				"score",
-				"primarySymbol",
-				"content",
-			]);
-			expect(search.parseSearchFields("score,filePath,score")).toEqual([
-				"filePath",
-				"score",
-			]);
-			expect(() => search.parseSearchFields("filePath,unknown")).toThrow(
-				/Invalid --fields value/i,
-			);
-		});
-
 		it("parses min-score thresholds", () => {
 			expect(search.parseMinScore()).toBe(0.45);
 			expect(search.parseMinScore("0.4")).toBe(0.4);
 			expect(() => search.parseMinScore("2")).toThrow(/--min-score/i);
-		});
-
-		it("projects only the requested result fields", () => {
-			expect(
-				search.projectSearchResult(
-					{
-						filePath: "src/app.ts",
-						startLine: 10,
-						endLine: 20,
-						score: 0.91,
-						primarySymbol: "run",
-						content: "body",
-					},
-					["filePath", "score", "primarySymbol"],
-				),
-			).toEqual({
-				filePath: "src/app.ts",
-				score: 0.91,
-				primarySymbol: "run",
-			});
-		});
-
-		it("omits content when fields are filtered (omit-content scenario)", () => {
-			const allFields = search.parseSearchFields();
-			const withoutContent = allFields.filter((f) => f !== "content");
-
-			expect(withoutContent).toEqual([
-				"filePath",
-				"startLine",
-				"endLine",
-				"score",
-				"primarySymbol",
-			]);
-
-			expect(
-				search.projectSearchResult(
-					{
-						filePath: "src/embed.ts",
-						startLine: 1,
-						endLine: 50,
-						score: 0.88,
-						primarySymbol: "embed",
-						content: "export function embed() {}",
-					},
-					withoutContent,
-				),
-			).toEqual({
-				filePath: "src/embed.ts",
-				startLine: 1,
-				endLine: 50,
-				score: 0.88,
-				primarySymbol: "embed",
-			});
-		});
-
-		it("silently omits content by default in JSON output", () => {
-			const allFields = search.parseSearchFields();
-
-			expect(
-				search.resolveOutputFields(allFields, {
-					isJson: true,
-					includeContent: false,
-				}),
-			).toEqual(allFields.filter((f) => f !== "content"));
-
-			expect(
-				search.resolveOutputFields(allFields, {
-					isJson: true,
-					includeContent: true,
-				}),
-			).toEqual(allFields);
 		});
 	});
 
@@ -319,18 +197,25 @@ describe("CLI helper functions", () => {
 			});
 		});
 
-		it("estimates tokens from JSON stringified length / 4", () => {
-			expect(context.estimateTokens({ a: 1 })).toBe(
-				Math.ceil(JSON.stringify({ a: 1 }).length / 4),
-			);
-			expect(context.estimateTokens("hello")).toBe(
-				Math.ceil(JSON.stringify("hello").length / 4),
-			);
-			expect(context.estimateTokens(null)).toBe(
-				Math.ceil(JSON.stringify(null).length / 4),
-			);
-			// empty object => "{}" (2 chars) => ceil(2/4) = 1
-			expect(context.estimateTokens({})).toBe(1);
+		it("estimates tokens from text-based character count", () => {
+			const data = {
+				architecture: {
+					fileStats: { typescript: 10 },
+					entrypoints: ["src/index.ts"],
+				},
+				modules: [{ path: "src/app.ts" }],
+				symbols: [
+					{
+						file: "src/app.ts",
+						name: "App",
+						kind: "class",
+						signature: "class App {}",
+					},
+				],
+				dependencies: { "src/app.ts": ["src/core.ts"] },
+			};
+			const tokens = context.estimateTokens(data);
+			expect(tokens).toBeGreaterThan(0);
 		});
 	});
 
@@ -367,40 +252,6 @@ describe("CLI helper functions", () => {
 			expect(structure.summarizeHiddenChildren(src)).toBe("... (2 children)");
 		});
 
-		it("serializes a sorted tree and truncates deep branches", () => {
-			const root = structure.createNode() as any;
-			structure.insertPath(root, "src/nested/deeper/file.ts");
-			structure.insertPath(root, "src/alpha.ts");
-			structure.insertPath(root, "README.md");
-
-			const symbolsByFile = new Map([
-				[
-					"src/alpha.ts",
-					[
-						{
-							name: "Alpha",
-							kind: "class",
-							exported: true,
-						},
-					],
-				],
-			]);
-
-			expect(structure.treeToJson(root, "", symbolsByFile, 0, 1)).toEqual([
-				{
-					type: "directory",
-					name: "src",
-					children: [{ type: "summary", name: "... (2 children)" }],
-				},
-				{
-					type: "file",
-					name: "README.md",
-					path: "README.md",
-					symbols: [],
-				},
-			]);
-		});
-
 		it("parses max-files and rejects invalid values", () => {
 			expect(structure.parseMaxFiles()).toBeUndefined();
 			expect(structure.parseMaxFiles("5")).toBe(5);
@@ -420,67 +271,6 @@ describe("CLI helper functions", () => {
 
 			const src = root.directories.get("src") as any;
 			expect(structure.countFiles(src)).toBe(3);
-		});
-
-		it("treeToJson respects maxFiles via fileCounter", () => {
-			const root = structure.createNode() as any;
-			structure.insertPath(root, "src/a.ts");
-			structure.insertPath(root, "src/b.ts");
-			structure.insertPath(root, "src/c.ts");
-			structure.insertPath(root, "README.md");
-
-			const symbolsByFile = new Map<
-				string,
-				Array<{ name: string; kind: string; exported: boolean }>
-			>();
-			const fileCounter = { printed: 0, hidden: 0 };
-
-			const result = structure.treeToJson(
-				root,
-				"",
-				symbolsByFile,
-				0,
-				undefined,
-				fileCounter,
-				2,
-			);
-
-			expect(fileCounter.printed).toBe(2);
-			expect(fileCounter.hidden).toBe(2);
-
-			const srcDir = result.find((e: any) => e.type === "directory") as any;
-			expect(srcDir).toBeDefined();
-			expect(srcDir.name).toBe("src");
-			expect(srcDir.children.length).toBe(2);
-			expect(srcDir.children.every((c: any) => c.type === "file")).toBe(true);
-		});
-
-		it("narrows JSON tree output to an exact file path", () => {
-			const tree = [
-				{
-					type: "directory",
-					name: "src",
-					children: [
-						{
-							type: "file",
-							name: "index.ts",
-							path: "src/index.ts",
-							symbols: [],
-						},
-					],
-				},
-			] as object[];
-
-			expect(
-				structure.narrowJsonTreeToPathPrefix(tree, "src/index.ts"),
-			).toEqual([
-				{
-					type: "file",
-					name: "index.ts",
-					path: "src/index.ts",
-					symbols: [],
-				},
-			]);
 		});
 	});
 });

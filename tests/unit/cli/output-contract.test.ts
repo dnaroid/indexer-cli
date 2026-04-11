@@ -9,8 +9,8 @@ function readSource(relativePath: string): string {
 	return readFileSync(path.resolve(__dirname, relativePath), "utf8");
 }
 
-describe("CLI output flag contract", () => {
-	it("uses --txt instead of --json across output-selecting commands", () => {
+describe("CLI text-only output contract", () => {
+	it("does not use --txt, --json, or isJsonOutput in any command", () => {
 		const files = [
 			"../../../src/cli/commands/index.ts",
 			"../../../src/cli/commands/search.ts",
@@ -23,8 +23,27 @@ describe("CLI output flag contract", () => {
 
 		for (const file of files) {
 			const source = readSource(file);
-			expect(source).toContain('.option("--txt"');
+			expect(source).not.toContain('.option("--txt"');
 			expect(source).not.toContain("--json");
+			expect(source).not.toContain("isJsonOutput");
+		}
+	});
+
+	it("does not use JSON.stringify in command output paths", () => {
+		const files = [
+			"../../../src/cli/commands/index.ts",
+			"../../../src/cli/commands/search.ts",
+			"../../../src/cli/commands/structure.ts",
+			"../../../src/cli/commands/architecture.ts",
+			"../../../src/cli/commands/context.ts",
+			"../../../src/cli/commands/explain.ts",
+			"../../../src/cli/commands/deps.ts",
+		];
+
+		for (const file of files) {
+			const source = readSource(file);
+			expect(source).not.toContain("console.log(JSON.stringify");
+			expect(source).not.toContain("console.error(JSON.stringify");
 		}
 	});
 
@@ -32,8 +51,6 @@ describe("CLI output flag contract", () => {
 		const source = readSource("../../../src/cli/commands/context.ts");
 
 		expect(source).not.toContain("--format <format>");
-		expect(source).toContain("const isJson = isJsonOutput(options);");
-		expect(source).toContain("truncatedDependencies");
 	});
 
 	it("uses the renamed search --max-files option consistently", () => {
