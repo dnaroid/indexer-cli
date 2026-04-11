@@ -124,6 +124,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 				filePath: sourceFile.getFilePath(),
 				range: this.getRange(f),
 				exported: isExportedSafe(f),
+				signature: this.firstLine(f.getText()),
 			});
 		}
 
@@ -135,6 +136,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 				filePath: sourceFile.getFilePath(),
 				range: this.getRange(iface),
 				exported: isExportedSafe(iface),
+				signature: this.firstLine(iface.getText()),
 			});
 		}
 
@@ -146,6 +148,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 				filePath: sourceFile.getFilePath(),
 				range: this.getRange(typeAlias),
 				exported: isExportedSafe(typeAlias),
+				signature: this.firstLine(typeAlias.getText()),
 			});
 		}
 
@@ -157,6 +160,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 				filePath: sourceFile.getFilePath(),
 				range: this.getRange(c),
 				exported: isExportedSafe(c),
+				signature: this.firstLine(c.getText()),
 			});
 
 			for (const m of c.getMethods()) {
@@ -168,6 +172,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 					range: this.getRange(m),
 					containerName: c.getName(),
 					exported: isExportedSafe(m),
+					signature: this.firstLine(m.getText()),
 				});
 			}
 		}
@@ -549,6 +554,13 @@ export class TypeScriptPlugin implements LanguagePlugin {
 			endLine: node.getEndLineNumber(),
 			endCol: 0,
 		};
+	}
+
+	private firstLine(text: string): string {
+		const trimmed = text.trim();
+		if (!trimmed) return trimmed;
+		const newlineIndex = trimmed.indexOf("\n");
+		return newlineIndex === -1 ? trimmed : trimmed.slice(0, newlineIndex);
 	}
 }
 

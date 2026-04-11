@@ -33,6 +33,8 @@ describe("TypeScriptPlugin", () => {
 			expect(foo!.kind).toBe("function");
 			expect(foo!.exported).toBe(true);
 			expect(foo!.filePath).toContain(FIXTURE_INDEX);
+			expect(foo!.signature).toBeDefined();
+			expect(foo!.signature).toContain("foo");
 		});
 
 		it("extractImports() returns an array without errors", () => {
@@ -383,6 +385,101 @@ describe("TypeScriptPlugin", () => {
 		it("returns no chunks for whitespace-only content", () => {
 			const parsed = parseInline("inline/blank.ts", "   \n\n\t  \n");
 			expect(plugin.splitIntoChunks(parsed, { targetTokens: 80 })).toEqual([]);
+		});
+	});
+
+	describe("extractSymbols() signature extraction", () => {
+		it("extracts function signature as first line of declaration", () => {
+			const parsed = parseInline(
+				"inline/sig-func.ts",
+				[
+					"export async function processData(input: string, opts?: Options): Promise<Result> {",
+					"\tconst result = transform(input);",
+					"\treturn result;",
+					"}",
+				].join("\n"),
+			);
+
+			const symbols = plugin.extractSymbols(parsed);
+			const fn = symbols.find((s) => s.name === "processData");
+			expect(fn).toBeDefined();
+			expect(fn!.signature).toBe(
+				"export async function processData(input: string, opts?: Options): Promise<Result> {",
+			);
+		});
+
+		it("extracts class signature including opening brace", () => {
+			const parsed = parseInline(
+				"inline/sig-class.ts",
+				[
+					"export class SearchEngine {",
+					"\tconstructor(private repo: string) {}",
+					"\tasync search(query: string): Promise<void> {}",
+					"}",
+				].join("\n"),
+			);
+
+			const symbols = plugin.extractSymbols(parsed);
+			const cls = symbols.find(
+				(s) => s.name === "SearchEngine" && s.kind === "class",
+			);
+			expect(cls).toBeDefined();
+			expect(cls!.signature).toBe("export class SearchEngine {");
+		});
+
+		it("extracts method signature", () => {
+			const parsed = parseInline(
+				"inline/sig-method.ts",
+				[
+					"export class Service {",
+					"\tpublic async connect(host: string, port: number): Promise<void> {",
+					"\t\tawait this.socket.connect(host, port);",
+					"\t}",
+					"}",
+				].join("\n"),
+			);
+
+			const symbols = plugin.extractSymbols(parsed);
+			const method = symbols.find(
+				(s) => s.name === "connect" && s.kind === "method",
+			);
+			expect(method).toBeDefined();
+			expect(method!.signature).toBe(
+				"public async connect(host: string, port: number): Promise<void> {",
+			);
+		});
+
+		it("extracts interface signature", () => {
+			const parsed = parseInline(
+				"inline/sig-iface.ts",
+				[
+					"export interface VectorSearchFilters {",
+					"\tprojectId: ProjectId;",
+					"\tsnapshotId?: SnapshotId;",
+					"}",
+				].join("\n"),
+			);
+
+			const symbols = plugin.extractSymbols(parsed);
+			const iface = symbols.find((s) => s.name === "VectorSearchFilters");
+			expect(iface).toBeDefined();
+			expect(iface!.signature).toBe("export interface VectorSearchFilters {");
+		});
+
+		it("extracts type alias signature", () => {
+			const parsed = parseInline(
+				"inline/sig-type.ts",
+				["export type SearchField = (typeof SEARCH_FIELDS)[number];"].join(
+					"\n",
+				),
+			);
+
+			const symbols = plugin.extractSymbols(parsed);
+			const ta = symbols.find((s) => s.name === "SearchField");
+			expect(ta).toBeDefined();
+			expect(ta!.signature).toBe(
+				"export type SearchField = (typeof SEARCH_FIELDS)[number];",
+			);
 		});
 	});
 
