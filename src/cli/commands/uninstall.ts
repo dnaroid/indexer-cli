@@ -120,6 +120,22 @@ async function removePostCommitHook(projectRoot: string): Promise<void> {
 	}
 }
 
+export async function performUninstall(projectRoot: string): Promise<void> {
+	const dataDir = path.join(projectRoot, ".indexer-cli");
+
+	if (!(await pathExists(dataDir))) {
+		console.log(`Nothing to remove at ${dataDir}`);
+		return;
+	}
+
+	await rm(dataDir, { recursive: true, force: true });
+	console.log(`Removed ${dataDir}`);
+
+	await removeClaudeSkill(projectRoot);
+	await removeFromGitignore(projectRoot, [".indexer-cli/", ".claude/"]);
+	await removePostCommitHook(projectRoot);
+}
+
 export function registerUninstallCommand(program: Command): void {
 	program
 		.command("uninstall")
@@ -127,38 +143,30 @@ export function registerUninstallCommand(program: Command): void {
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("-f, --force", "Skip confirmation prompt")
 		.action(async (options: { force?: boolean }) => {
-			const resolvedProjectPath = process.cwd();
-			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
+			const projectRoot = process.cwd();
+			const dataDir = path.join(projectRoot, ".indexer-cli");
+
+			if (!(await pathExists(dataDir))) {
+				console.log(`Nothing to remove at ${dataDir}`);
+				return;
+			}
+
+			if (!options.force) {
+				const rl = createInterface({ input, output });
+
+				try {
+					const answer = await rl.question(`Delete ${dataDir}? [y/N] `);
+					if (!/^y(es)?$/i.test(answer.trim())) {
+						console.log("Uninstall cancelled.");
+						return;
+					}
+				} finally {
+					rl.close();
+				}
+			}
 
 			try {
-				if (!(await pathExists(dataDir))) {
-					console.log(`Nothing to remove at ${dataDir}`);
-					return;
-				}
-
-				if (!options.force) {
-					const rl = createInterface({ input, output });
-
-					try {
-						const answer = await rl.question(`Delete ${dataDir}? [y/N] `);
-						if (!/^y(es)?$/i.test(answer.trim())) {
-							console.log("Uninstall cancelled.");
-							return;
-						}
-					} finally {
-						rl.close();
-					}
-				}
-
-				await rm(dataDir, { recursive: true, force: true });
-				console.log(`Removed ${dataDir}`);
-
-				await removeClaudeSkill(resolvedProjectPath);
-				await removeFromGitignore(resolvedProjectPath, [
-					".indexer-cli/",
-					".claude/",
-				]);
-				await removePostCommitHook(resolvedProjectPath);
+				await performUninstall(projectRoot);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Uninstall failed: ${message}`);

@@ -125,6 +125,66 @@ async function ensurePostCommitHook(projectRoot: string): Promise<void> {
 	console.log(`  Hook: ${hookPath}`);
 }
 
+export async function performInit(
+	projectRoot: string,
+	options?: { refreshSkills?: boolean },
+): Promise<void> {
+	const dataDir = path.join(projectRoot, ".indexer-cli");
+	const dbPath = path.join(dataDir, "db.sqlite");
+	const legacyVectorsPath = path.join(dataDir, "vectors");
+	const configPath = path.join(dataDir, "config.json");
+
+	initLogger(dataDir);
+	config.load(dataDir);
+
+	let metadata: SqliteMetadataStore | null = null;
+	let vectors: SqliteVecVectorStore | null = null;
+
+	try {
+		await mkdir(dataDir, { recursive: true });
+
+		metadata = new SqliteMetadataStore(dbPath);
+		await metadata.initialize();
+
+		vectors = new SqliteVecVectorStore({
+			dbPath,
+			vectorSize: config.get("vectorSize"),
+		});
+		await vectors.initialize();
+
+		await writeFile(
+			configPath,
+			`${JSON.stringify({ ...config.getAll(), version: PACKAGE_VERSION }, null, 2)}\n`,
+			"utf8",
+		);
+		await ensureGitignoreEntries(projectRoot, [".indexer-cli/", ".claude/"]);
+		await ensurePostCommitHook(projectRoot);
+
+		console.log(`Initialized indexer-cli in ${projectRoot}`);
+		if (options?.refreshSkills) {
+			await refreshClaudeSkills(projectRoot);
+		} else {
+			await writeClaudeSkills(projectRoot);
+		}
+		console.log(`  SQLite: ${dbPath}`);
+		console.log(`  Config: ${configPath}`);
+
+		await ensureIndexed(metadata, projectRoot);
+
+		if (await pathExists(legacyVectorsPath)) {
+			await rm(legacyVectorsPath, { recursive: true, force: true });
+			console.log(`  Removed legacy vectors directory: ${legacyVectorsPath}`);
+		}
+	} finally {
+		if (metadata) {
+			await metadata.close().catch(() => undefined);
+		}
+		if (vectors) {
+			await vectors.close().catch(() => undefined);
+		}
+	}
+}
+
 export function registerInitCommand(program: Command): void {
 	program
 		.command("init")
@@ -135,69 +195,14 @@ export function registerInitCommand(program: Command): void {
 		)
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.action(async (options?: { refreshSkills?: boolean }) => {
-			const resolvedProjectPath = process.cwd();
-			const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
-			const dbPath = path.join(dataDir, "db.sqlite");
-			const legacyVectorsPath = path.join(dataDir, "vectors");
-			const configPath = path.join(dataDir, "config.json");
-
-			initLogger(dataDir);
-			config.load(dataDir);
-
-			let metadata: SqliteMetadataStore | null = null;
-			let vectors: SqliteVecVectorStore | null = null;
-
 			try {
-				await mkdir(dataDir, { recursive: true });
-
-				metadata = new SqliteMetadataStore(dbPath);
-				await metadata.initialize();
-
-				vectors = new SqliteVecVectorStore({
-					dbPath,
-					vectorSize: config.get("vectorSize"),
+				await performInit(process.cwd(), {
+					refreshSkills: options?.refreshSkills,
 				});
-				await vectors.initialize();
-
-				await writeFile(
-					configPath,
-					`${JSON.stringify({ ...config.getAll(), version: PACKAGE_VERSION }, null, 2)}\n`,
-					"utf8",
-				);
-				await ensureGitignoreEntries(resolvedProjectPath, [
-					".indexer-cli/",
-					".claude/",
-				]);
-				await ensurePostCommitHook(resolvedProjectPath);
-
-				console.log(`Initialized indexer-cli in ${resolvedProjectPath}`);
-				if (options?.refreshSkills) {
-					await refreshClaudeSkills(resolvedProjectPath);
-				} else {
-					await writeClaudeSkills(resolvedProjectPath);
-				}
-				console.log(`  SQLite: ${dbPath}`);
-				console.log(`  Config: ${configPath}`);
-
-				await ensureIndexed(metadata, resolvedProjectPath);
-
-				if (await pathExists(legacyVectorsPath)) {
-					await rm(legacyVectorsPath, { recursive: true, force: true });
-					console.log(
-						`  Removed legacy vectors directory: ${legacyVectorsPath}`,
-					);
-				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Failed to initialize project: ${message}`);
 				process.exitCode = 1;
-			} finally {
-				if (metadata) {
-					await metadata.close().catch(() => undefined);
-				}
-				if (vectors) {
-					await vectors.close().catch(() => undefined);
-				}
 			}
 		});
 }

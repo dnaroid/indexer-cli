@@ -1,7 +1,7 @@
 import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { VERSION } from "../cli/version.js";
+import { PACKAGE_VERSION } from "./version.js";
 
 const CACHE_FILE = join(homedir(), ".indexer-cli", ".update-check.json");
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -52,8 +52,8 @@ export async function checkForUpdates(): Promise<void> {
 	const now = Date.now();
 
 	if (cache && now - cache.lastChecked < CHECK_INTERVAL_MS) {
-		if (isNewerVersion(VERSION, cache.latestVersion)) {
-			showUpdateNotification(VERSION, cache.latestVersion);
+		if (isNewerVersion(PACKAGE_VERSION, cache.latestVersion)) {
+			showUpdateNotification(PACKAGE_VERSION, cache.latestVersion);
 		}
 		return;
 	}
@@ -62,8 +62,8 @@ export async function checkForUpdates(): Promise<void> {
 		const latest = await fetchLatestVersion();
 		writeCache({ lastChecked: now, latestVersion: latest });
 
-		if (isNewerVersion(VERSION, latest)) {
-			showUpdateNotification(VERSION, latest);
+		if (isNewerVersion(PACKAGE_VERSION, latest)) {
+			showUpdateNotification(PACKAGE_VERSION, latest);
 		}
 	} catch {
 		// Network error — silent fail, not critical

@@ -9,9 +9,12 @@ import { registerSetupCommand } from "./commands/setup.js";
 import { registerContextCommand } from "./commands/context.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
-import { VERSION } from "./version.js";
+import { PACKAGE_VERSION } from "../core/version.js";
 import { checkForUpdates } from "../core/update-check.js";
+import { checkAndMigrateIfNeeded } from "../core/version-check.js";
 import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
+
+const SKIP_MIGRATION_COMMANDS = new Set(["setup", "init", "uninstall"]);
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.helpDisplayed",
@@ -34,9 +37,10 @@ program
 	.description(
 		"Lightweight project indexer with semantic search. Run project commands from the root of the target project; `setup` can run anywhere.",
 	)
-	.version(VERSION)
+	.version(PACKAGE_VERSION)
 	.addHelpText("after", `\n${PROJECT_ROOT_PROGRAM_HELP}\n`)
 	.exitOverride();
+
 registerSetupCommand(program);
 registerInitCommand(program);
 registerIndexCommand(program);
@@ -48,12 +52,23 @@ registerExplainCommand(program);
 registerDepsCommand(program);
 registerUninstallCommand(program);
 
-try {
-	program.parse();
-} catch (error: unknown) {
-	if (!isHandledCommanderExit(error)) {
-		throw error;
+program.hook("preAction", async (thisCommand, actionCommand) => {
+	const commandName = actionCommand.name();
+	if (!SKIP_MIGRATION_COMMANDS.has(commandName)) {
+		await checkAndMigrateIfNeeded();
 	}
+});
+
+async function main(): Promise<void> {
+	try {
+		await program.parseAsync();
+	} catch (error: unknown) {
+		if (!isHandledCommanderExit(error)) {
+			throw error;
+		}
+	}
+
+	checkForUpdates().catch(() => {});
 }
 
-checkForUpdates().catch(() => {});
+main();
