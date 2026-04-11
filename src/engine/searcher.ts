@@ -10,7 +10,8 @@ import type {
 import { SystemLogger } from "../core/logger.js";
 
 const logger = new SystemLogger("search");
-const IMPORT_PREAMBLE_SCORE_PENALTY = 0.7;
+const IMPORT_CHUNK_SCORE_PENALTY = 0.5;
+const PREAMBLE_CHUNK_SCORE_PENALTY = 0.7;
 const TEST_FILE_SCORE_PENALTY = 0.75;
 
 const TEST_PATH_PATTERNS: RegExp[] = [
@@ -134,8 +135,10 @@ export class SearchEngine {
 			.map((result) => {
 				let penalizedScore = result.score;
 
-				if (result.chunkType === "imports" || result.chunkType === "preamble") {
-					penalizedScore *= IMPORT_PREAMBLE_SCORE_PENALTY;
+				if (result.chunkType === "imports") {
+					penalizedScore *= IMPORT_CHUNK_SCORE_PENALTY;
+				} else if (result.chunkType === "preamble") {
+					penalizedScore *= PREAMBLE_CHUNK_SCORE_PENALTY;
 				}
 
 				if (isTestFile(result.filePath)) {

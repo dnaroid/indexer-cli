@@ -208,7 +208,7 @@ describe("CLI quality fixes", () => {
 				"src/a.ts",
 			]);
 			expect(results.map((result) => result.score)).toEqual([
-				0.48, 0.364, 0.35,
+				0.48, 0.364, 0.25,
 			]);
 			expect(results[0]?.chunkType).toBe("impl");
 			expect(results[0]?.primarySymbol).toBe("myFunc");
@@ -227,11 +227,12 @@ describe("CLI quality fixes", () => {
 
 			const relaxedResults = await engine.search("default", "s1", "query", {
 				includeContent: false,
-				minScore: 0.36,
+				minScore: 0.25,
 			});
 			expect(relaxedResults.map((result) => result.filePath)).toEqual([
 				"src/b.ts",
 				"src/c.ts",
+				"src/a.ts",
 			]);
 		});
 
@@ -292,7 +293,7 @@ describe("CLI quality fixes", () => {
 			});
 
 			expect(results).toHaveLength(1);
-			expect(results[0]?.score).toBeCloseTo(0.8 * 0.7 * 0.75, 10);
+			expect(results[0]?.score).toBeCloseTo(0.8 * 0.5 * 0.75, 10);
 		});
 	});
 
