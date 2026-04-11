@@ -156,7 +156,9 @@ describe("checkAndMigrateIfNeeded", () => {
 		expect(uninstallMock).toHaveBeenCalledTimes(1);
 		expect(uninstallMock).toHaveBeenCalledWith(tempDir);
 		expect(initMock).toHaveBeenCalledTimes(1);
-		expect(initMock).toHaveBeenCalledWith(tempDir);
+		expect(initMock).toHaveBeenCalledWith(tempDir, {
+			skipIndexing: false,
+		});
 	});
 
 	it("migrates when config has different major version", async () => {
@@ -173,7 +175,9 @@ describe("checkAndMigrateIfNeeded", () => {
 		expect(uninstallMock).toHaveBeenCalledTimes(1);
 		expect(uninstallMock).toHaveBeenCalledWith(tempDir);
 		expect(initMock).toHaveBeenCalledTimes(1);
-		expect(initMock).toHaveBeenCalledWith(tempDir);
+		expect(initMock).toHaveBeenCalledWith(tempDir, {
+			skipIndexing: false,
+		});
 	});
 
 	it("returns false and sets exitCode when migration fails", async () => {
