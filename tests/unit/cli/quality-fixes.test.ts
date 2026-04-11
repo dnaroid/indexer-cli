@@ -55,6 +55,14 @@ type TreeNodeLike = {
 	directories: Map<string, TreeNodeLike>;
 };
 
+const searcherInternals = await loadInternals<{
+	isTestFile: (p: string) => boolean;
+}>(
+	"../../../src/engine/searcher.ts",
+	/const TEST_PATH_PATTERNS[\s\S]*?(?=\nexport class SearchEngine)/,
+	["isTestFile"],
+);
+
 const architecture = await loadInternals<{
 	formatPlain: (architecture: ArchitectureSnapshotLike) => void;
 }>(
@@ -226,6 +234,93 @@ describe("CLI quality fixes", () => {
 				"src/c.ts",
 			]);
 		});
+
+		it("penalizes test files with an additional score multiplier", async () => {
+			const engine = createEngine([
+				{
+					chunkId: "prod-1",
+					snapshotId: "s1",
+					filePath: "src/engine/searcher.ts",
+					startLine: 1,
+					endLine: 30,
+					contentHash: "h1",
+					score: 0.6,
+					chunkType: "impl",
+					primarySymbol: "search",
+				},
+				{
+					chunkId: "test-1",
+					snapshotId: "s1",
+					filePath: "tests/unit/engine/searcher.test.ts",
+					startLine: 1,
+					endLine: 30,
+					contentHash: "h2",
+					score: 0.6,
+					chunkType: "impl",
+				},
+			]);
+
+			const results = await engine.search("default", "s1", "query", {
+				includeContent: false,
+				minScore: 0,
+			});
+
+			expect(results).toHaveLength(2);
+			expect(results[0]?.filePath).toBe("src/engine/searcher.ts");
+			expect(results[0]?.score).toBe(0.6);
+			expect(results[1]?.filePath).toBe("tests/unit/engine/searcher.test.ts");
+			expect(results[1]?.score).toBeCloseTo(0.6 * 0.75, 10);
+		});
+
+		it("stacks test-file and imports penalties", async () => {
+			const engine = createEngine([
+				{
+					chunkId: "both",
+					snapshotId: "s1",
+					filePath: "tests/unit/a.test.ts",
+					startLine: 1,
+					endLine: 10,
+					contentHash: "h",
+					score: 0.8,
+					chunkType: "imports",
+				},
+			]);
+
+			const results = await engine.search("default", "s1", "query", {
+				includeContent: false,
+				minScore: 0,
+			});
+
+			expect(results).toHaveLength(1);
+			expect(results[0]?.score).toBeCloseTo(0.8 * 0.7 * 0.75, 10);
+		});
+	});
+
+	describe("isTestFile detection across languages", () => {
+		const isTestFile = searcherInternals.isTestFile;
+
+		const testCases: Array<[string, boolean]> = [
+			["tests/unit/engine/searcher.test.ts", true],
+			["src/__tests__/app.ts", true],
+			["test/helper.rb", true],
+			["spec/models/user_spec.rb", true],
+			["tests/test_parser.py", true],
+			["tests/parser_test.py", true],
+			["src/Services/UserTests.cs", true],
+			["src/services/user.test.gd", true],
+			["src/cli/commands/search.ts", false],
+			["src/core/types.ts", false],
+			["src/engine/searcher.ts", false],
+			["src/utils.py", false],
+			["src/App.cs", false],
+			["src/player.gd", false],
+		];
+
+		for (const [path, expected] of testCases) {
+			it(`${expected ? "detects" : "ignores"} ${path}`, () => {
+				expect(isTestFile(path)).toBe(expected);
+			});
+		}
 	});
 
 	describe("architecture plain output", () => {

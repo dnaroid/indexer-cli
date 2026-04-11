@@ -11,6 +11,38 @@ import { SystemLogger } from "../core/logger.js";
 
 const logger = new SystemLogger("search");
 const IMPORT_PREAMBLE_SCORE_PENALTY = 0.7;
+const TEST_FILE_SCORE_PENALTY = 0.75;
+
+const TEST_PATH_PATTERNS: RegExp[] = [
+	/__tests?__\//i,
+	/(?:^|\/)(?:tests?|spec|fixtures)\//i,
+];
+
+const TEST_FILE_PATTERNS_BY_EXTENSION: Record<string, RegExp> = {
+	".ts": /\.(?:test|spec)\.ts$/i,
+	".tsx": /\.(?:test|spec)\.tsx$/i,
+	".js": /\.(?:test|spec)\.js$/i,
+	".jsx": /\.(?:test|spec)\.jsx$/i,
+	".mjs": /\.(?:test|spec)\.mjs$/i,
+	".py": /(?:^|\/)(?:test_|_test\.py$)/i,
+	".cs": /(?:tests?|specs?)\.cs$/i,
+	".rb": /(?:^|\/)(?:_test\.rb$|_spec\.rb$)/i,
+	".gd": /\.test\.gd$/i,
+};
+
+function isTestFile(filePath: string): boolean {
+	const normalized = filePath.replace(/\\/g, "/");
+
+	for (const pattern of TEST_PATH_PATTERNS) {
+		if (pattern.test(normalized)) return true;
+	}
+
+	const ext = normalized.substring(normalized.lastIndexOf("."));
+	const extPattern = TEST_FILE_PATTERNS_BY_EXTENSION[ext];
+	if (extPattern && extPattern.test(normalized)) return true;
+
+	return false;
+}
 
 export interface SearchOptions {
 	topK?: number;
@@ -100,10 +132,15 @@ export class SearchEngine {
 
 		return results
 			.map((result) => {
-				const penalizedScore =
-					result.chunkType === "imports" || result.chunkType === "preamble"
-						? result.score * IMPORT_PREAMBLE_SCORE_PENALTY
-						: result.score;
+				let penalizedScore = result.score;
+
+				if (result.chunkType === "imports" || result.chunkType === "preamble") {
+					penalizedScore *= IMPORT_PREAMBLE_SCORE_PENALTY;
+				}
+
+				if (isTestFile(result.filePath)) {
+					penalizedScore *= TEST_FILE_SCORE_PENALTY;
+				}
 
 				return {
 					...result,
