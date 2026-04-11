@@ -200,7 +200,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 	{
 		name: "repo-structure",
 		directory: "repo-structure",
-		description: `FIRST choice when you need to see what's inside a package/directory — all files, classes, functions, exports in a tree. Produces a symbol-level map of any path prefix. Use BEFORE opening multiple files to understand layout. Triggers: "show me the structure of X", "what's in this module", "list the symbols".`,
+		description: `FIRST choice when you need to see what's inside a package/directory — all files, classes, functions, exports in a tree. Produces a symbol-level map of any path prefix. Use BEFORE opening multiple files to understand layout. Triggers: "show me the structure of X", "what's in this module", "list the symbols". ALWAYS narrow with --path-prefix or --kind; unfiltered output can exceed 2500 tokens.`,
 		heading: "Use repo-structure for tree and symbol-map questions",
 		useWhen:
 			"Use this when the agent needs to see how files and symbols are organized in an area of the repo before reading implementation details.",
@@ -209,7 +209,8 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		allowedTools: ["Bash(npx indexer-cli structure:*)"],
 		rules: [
 			"Prefer structure when layout matters more than implementation snippets.",
-			"Use --path-prefix and --kind to keep output focused.",
+			"ALWAYS use --path-prefix or --kind to keep output focused — unfiltered output dumps every symbol in the repo and can exceed 2500 tokens.",
+			"Combine --path-prefix with --kind for the tightest result (e.g. --path-prefix src/engine --kind class).",
 			"Use JSON output for agents unless a human explicitly asks for text.",
 		],
 		skipWhen: [
@@ -217,8 +218,8 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"You need semantic search results rather than a tree",
 		],
 		commandSamples: [
-			"npx indexer-cli structure",
 			"npx indexer-cli structure --path-prefix src/<area>",
+			"npx indexer-cli structure --path-prefix src/<area> --kind class",
 			"npx indexer-cli structure --kind function",
 		],
 		cliReference: [
@@ -230,10 +231,10 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 	{
 		name: "repo-architecture",
 		directory: "repo-architecture",
-		description: `FIRST choice when user asks "what is this project", "explain the codebase", "how is this organized". Produces a full dependency graph, entry points, and module breakdown — everything needed to understand a repo without reading individual files. Use BEFORE reading package.json or exploring directories manually.`,
+		description: `FIRST choice when user asks "what is this project", "explain the codebase", "how is this organized". Produces a full dependency graph, entry points, and module breakdown — everything needed to understand a repo without reading individual files. Use BEFORE reading package.json or exploring directories manually. Also the best starting point for onboarding: run this first, then drill into specific modules with deps or explain.`,
 		heading: "Use repo-architecture for dependency-graph questions",
 		useWhen:
-			"Use this when the agent needs a high-level snapshot of modules, entry points, and dependency shape before going deeper.",
+			"Use this when the agent needs a high-level snapshot of modules, entry points, and dependency shape before going deeper. This is the cheapest way to orient in an unfamiliar codebase (~140 tokens for a typical project).",
 		focusHint:
 			"Keep the scope to the subsystem that matters so the graph highlights the right boundaries.",
 		allowedTools: ["Bash(npx indexer-cli architecture:*)"],
@@ -241,6 +242,8 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"Use architecture when the question is about system shape, not a single symbol.",
 			"Filter by path prefix when only one subsystem matters.",
 			"Use JSON output to preserve structured dependency data.",
+			"Pay attention to cyclic dependencies — they indicate tight coupling that may affect where you make changes.",
+			"Follow up with `deps <hot-path>` to drill into specific module relationships, or `explain <symbol>` to understand a key class.",
 		],
 		skipWhen: [
 			"You need callers/callees for one specific file or symbol",
@@ -259,7 +262,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		name: "repo-context",
 		directory: "repo-context",
 		description:
-			"FIRST choice for changed-area and subsystem summaries. Load this before opening many files when you need whole-repo orientation, changed-scope context, or a dependency-neighborhood snapshot without exact implementation snippets.",
+			"FIRST choice for changed-area and subsystem summaries. Load this before opening many files when you need whole-repo orientation, changed-scope context, or a dependency-neighborhood snapshot without exact implementation snippets. ALWAYS pass --scope; without it the output can exceed 5000 tokens.",
 		heading: "Use repo-context for dense summaries",
 		useWhen:
 			"Use this when the agent wants a compressed view of a subsystem, changed area, or dependency neighborhood without opening many files.",
@@ -268,7 +271,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		allowedTools: ["Bash(npx indexer-cli context:*)"],
 		rules: [
 			"Prefer context when you want breadth over exact source snippets.",
-			"Use --scope to target all, changed, or relevant-to:<path>.",
+			"ALWAYS use --scope — default `--scope all` outputs every symbol in the repo and can exceed 5000 tokens. Use --scope relevant-to:<path> for a focused neighborhood or --scope changed for uncommitted changes.",
 			"Lower --max-deps when you need a tighter prompt budget.",
 		],
 		skipWhen: [
@@ -276,9 +279,9 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"You need a file tree or architecture graph instead of a summary",
 		],
 		commandSamples: [
-			"npx indexer-cli context",
-			"npx indexer-cli context --scope changed",
 			"npx indexer-cli context --scope relevant-to:src/<area>",
+			"npx indexer-cli context --scope changed",
+			"npx indexer-cli context --scope relevant-to:src/<area> --max-deps 10",
 		],
 		cliReference: [
 			"Output: JSON by default; use --txt for human-readable text.",
@@ -290,7 +293,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		name: "symbol-explain",
 		directory: "symbol-explain",
 		description:
-			"FIRST choice once the symbol name is known. Load this before manual caller/signature tracing to get one symbol's signature, module context, and callers fast.",
+			"FIRST choice once the symbol name is known. Load this before manual caller/signature tracing to get one symbol's signature, module context, and callers fast. Output is ~80 tokens — the cheapest way to understand a single symbol.",
 		heading: "Use symbol-explain for one symbol at a time",
 		useWhen:
 			"Use this when the task centers on one function, class, type, or symbol and the agent needs signature, usage, and containing module context fast.",
@@ -299,7 +302,8 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		allowedTools: ["Bash(npx indexer-cli explain:*)"],
 		rules: [
 			"Use explain only when the symbol name is already known.",
-			"Do not use this skill for symbol discovery; use it only once the symbol name is already known.",
+			"Use <file>::<symbol> syntax when the same symbol name exists in multiple files (e.g. `explain src/engine/indexer.ts::IndexerEngine`).",
+			"Use bare <symbol> when the name is unique in the codebase.",
 			"Keep the prompt centered on a single symbol for the cleanest output.",
 		],
 		skipWhen: [
@@ -320,7 +324,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		name: "dependency-trace",
 		directory: "dependency-trace",
 		description:
-			"FIRST choice once the file or module is known and impact matters. Load this before manual import tracing to see callers, callees, and likely change impact.",
+			"FIRST choice once the file or module is known and impact matters. Load this before manual import tracing to see callers, callees, and likely change impact. Output is ~140 tokens per depth level.",
 		heading: "Use dependency-trace for impact analysis",
 		useWhen:
 			"Use this when the agent needs to know who imports a module, what it imports, or how far change impact may spread.",
@@ -330,7 +334,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		rules: [
 			"Use deps when the question is about relationships, not source snippets.",
 			"Set --direction callers or --direction callees when only one side matters.",
-			"Increase depth only when the first hop is not enough.",
+			"Start at depth 1 (default). Increase to --depth 2 only when the first hop is not enough — each depth level adds more callers/callees.",
 		],
 		skipWhen: [
 			"You need a repo-wide architecture snapshot rather than one trace",
@@ -340,6 +344,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"npx indexer-cli deps <path>",
 			"npx indexer-cli deps <path> --direction callers",
 			"npx indexer-cli deps <path> --direction callees",
+			"npx indexer-cli deps <path> --depth 2",
 		],
 		cliReference: [
 			"Positional args: <path>.",

@@ -23,6 +23,7 @@
     "dev": "tsc --watch",
     "start": "tsx bin/indexer-cli.js",
     "indexer-cli": "tsx bin/indexer-cli.js",
+    "indexer-cli:init": "tsx bin/indexer-cli.js init",
     "refresh-skills": "tsx bin/indexer-cli.js init --refresh-skills",
     "install:global": "npm run build && npm link --force",
     "uninstall:global": "npm unlink -g indexer-cli",
