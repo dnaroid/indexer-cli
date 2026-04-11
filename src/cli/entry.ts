@@ -10,7 +10,6 @@ import { registerContextCommand } from "./commands/context.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
 import { PACKAGE_VERSION } from "../core/version.js";
-import { checkForUpdates } from "../core/update-check.js";
 import { checkAndMigrateIfNeeded } from "../core/version-check.js";
 import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
 
@@ -67,8 +66,6 @@ async function main(): Promise<void> {
 			throw error;
 		}
 	}
-
-	checkForUpdates().catch(() => {});
 }
 
 main();
