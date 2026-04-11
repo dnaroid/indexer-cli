@@ -4,8 +4,8 @@ set -euo pipefail
 echo "→ Building..."
 npm run build
 
-#echo "→ Running tests..."
-#npm test
+echo "→ Running tests..."
+npm test
 
 echo "→ Bumping patch version..."
 npm version patch -m "chore(release): %s"

@@ -18,6 +18,10 @@ vi.mock("../../../src/cli/commands/init.js", () => ({
 	performInit: initMock,
 }));
 
+vi.mock("../../../src/core/version.js", () => ({
+	PACKAGE_VERSION: "0.5.0",
+}));
+
 const tempDirs: string[] = [];
 
 function createTempDir(): string {
