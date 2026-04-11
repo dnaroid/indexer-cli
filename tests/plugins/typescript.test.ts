@@ -299,6 +299,46 @@ describe("TypeScriptPlugin", () => {
 			expect(chunks[0].metadata?.primarySymbol).toBeUndefined();
 		});
 
+		it("classifies first hybrid import and type chunks as preamble", () => {
+			const parsed = parseInline(
+				"inline/preamble.ts",
+				[
+					'import { readFile } from "node:fs/promises";',
+					'import path from "node:path";',
+					"type GitDiff = { added: string[]; };",
+					"type IndexPlan = { ready: boolean; };",
+					"const value = readFile;",
+				].join("\n"),
+			);
+
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 200 });
+			expect(chunks).toHaveLength(2);
+			expect(chunks[0].metadata?.chunkType).toBe("preamble");
+			expect(chunks[1].metadata?.chunkType).toBe("impl");
+		});
+
+		it("treats bare export lists without a from clause as impl", () => {
+			const parsed = parseInline(
+				"inline/export-list.ts",
+				["const localValue = 1;", "export { localValue };"].join("\n"),
+			);
+
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 80 });
+			expect(chunks).toHaveLength(1);
+			expect(chunks[0].metadata?.chunkType).toBe("impl");
+		});
+
+		it("treats export type re-exports with from clauses as imports", () => {
+			const parsed = parseInline(
+				"inline/export-type-reexport.ts",
+				['export type { Foo } from "./types";'].join("\n"),
+			);
+
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 80 });
+			expect(chunks).toHaveLength(1);
+			expect(chunks[0].metadata?.chunkType).toBe("imports");
+		});
+
 		it("classifies type declaration chunks as types", () => {
 			const parsed = parseInline(
 				"inline/types.ts",
@@ -484,28 +524,28 @@ describe("TypeScriptPlugin", () => {
 	});
 
 	describe("private chunk metadata helpers", () => {
-		it("classifyChunkType() distinguishes imports, types, and impl content", () => {
-			const classifyChunkType = (plugin as any).classifyChunkType.bind(
-				plugin,
-			) as (text: string) => string;
+		it("classifyChunkType() distinguishes imports, preamble, types, and impl", () => {
+			const classifyChunkType = (
+				plugin as unknown as {
+					classifyChunkType: (
+						statementKinds: Array<"import" | "type" | "impl">,
+						isFirstChunk: boolean,
+					) => string;
+				}
+			).classifyChunkType.bind(plugin);
 
-			expect(
-				classifyChunkType(
-					'import fs from "node:fs";\nexport { foo } from "./foo";\nconst bar = require("bar");',
-				),
-			).toBe("imports");
-			expect(
-				classifyChunkType("interface A {}\ntype B = string\nenum C { D }\n"),
-			).toBe("types");
-			expect(
-				classifyChunkType("const answer = compute();\nconsole.log(answer);"),
-			).toBe("impl");
+			expect(classifyChunkType(["import", "import"], false)).toBe("imports");
+			expect(classifyChunkType(["import", "type"], true)).toBe("preamble");
+			expect(classifyChunkType(["type", "type"], false)).toBe("types");
+			expect(classifyChunkType(["import", "impl"], true)).toBe("impl");
 		});
 
 		it("extractPrimarySymbol() finds declarations, methods, and undefined cases", () => {
-			const extractPrimarySymbol = (plugin as any).extractPrimarySymbol.bind(
-				plugin,
-			) as (text: string) => string | undefined;
+			const extractPrimarySymbol = (
+				plugin as unknown as {
+					extractPrimarySymbol: (text: string) => string | undefined;
+				}
+			).extractPrimarySymbol.bind(plugin);
 
 			expect(extractPrimarySymbol("function makeThing() {}")).toBe("makeThing");
 			expect(extractPrimarySymbol("class Thing {}\nmethod() {}")).toBe("Thing");
@@ -521,21 +561,26 @@ describe("TypeScriptPlugin", () => {
 		});
 
 		it("mergeSegments() flushes overflowing buffers and merges a short final segment when possible", () => {
-			const mergeSegments = (plugin as any).mergeSegments.bind(plugin) as (
-				segments: Array<{
-					text: string;
-					range: {
-						startLine: number;
-						startCol: number;
-						endLine: number;
-						endCol: number;
-					};
-					estimatedTokens: number;
-				}>,
-				targetTokens: number,
-				maxTokens: number,
-				minTokens: number,
-			) => unknown[];
+			const mergeSegments = (
+				plugin as unknown as {
+					mergeSegments: (
+						segments: Array<{
+							text: string;
+							range: {
+								startLine: number;
+								startCol: number;
+								endLine: number;
+								endCol: number;
+							};
+							estimatedTokens: number;
+							statementKinds?: Array<"import" | "type" | "impl">;
+						}>,
+						targetTokens: number,
+						maxTokens: number,
+						minTokens: number,
+					) => unknown[];
+				}
+			).mergeSegments.bind(plugin);
 
 			const overflowed = mergeSegments(
 				[
@@ -589,6 +634,69 @@ describe("TypeScriptPlugin", () => {
 			expect(merged[0]).toMatchObject({
 				estimatedTokens: 45,
 				range: { startLine: 1, endLine: 3 },
+			});
+		});
+
+		it("mergeSegments() keeps a leading preamble separate from implementation", () => {
+			const mergeSegments = (
+				plugin as unknown as {
+					mergeSegments: (
+						segments: Array<{
+							text: string;
+							range: {
+								startLine: number;
+								startCol: number;
+								endLine: number;
+								endCol: number;
+							};
+							estimatedTokens: number;
+							statementKinds?: Array<"import" | "type" | "impl">;
+						}>,
+						targetTokens: number,
+						maxTokens: number,
+						minTokens: number,
+					) => Array<{
+						text: string;
+						range: { startLine: number; endLine: number };
+						statementKinds?: Array<"import" | "type" | "impl">;
+					}>;
+				}
+			).mergeSegments.bind(plugin);
+
+			const merged = mergeSegments(
+				[
+					{
+						text: 'import path from "node:path";\n',
+						range: { startLine: 1, startCol: 0, endLine: 1, endCol: 0 },
+						estimatedTokens: 8,
+						statementKinds: ["import"],
+					},
+					{
+						text: "type Name = string;\n",
+						range: { startLine: 2, startCol: 0, endLine: 2, endCol: 0 },
+						estimatedTokens: 6,
+						statementKinds: ["type"],
+					},
+					{
+						text: "const value = 1;\n",
+						range: { startLine: 3, startCol: 0, endLine: 3, endCol: 0 },
+						estimatedTokens: 6,
+						statementKinds: ["impl"],
+					},
+				],
+				200,
+				200,
+				5,
+			);
+
+			expect(merged).toHaveLength(2);
+			expect(merged[0]).toMatchObject({
+				range: { startLine: 1, endLine: 2 },
+				statementKinds: ["import", "type"],
+			});
+			expect(merged[1]).toMatchObject({
+				range: { startLine: 3, endLine: 3 },
+				statementKinds: ["impl"],
 			});
 		});
 	});

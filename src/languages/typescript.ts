@@ -16,7 +16,10 @@ type ChunkSegment = {
 	text: string;
 	range: CodeRange;
 	estimatedTokens: number;
+	statementKinds?: StatementKind[];
 };
+
+type StatementKind = "import" | "type" | "impl";
 
 export class TypeScriptPlugin implements LanguagePlugin {
 	public readonly id = "typescript";
@@ -281,6 +284,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 				text,
 				range,
 				estimatedTokens: this.estimateTokens(text),
+				statementKinds: [this.classifyStatement(node)],
 			});
 		}
 
@@ -294,7 +298,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 			minTokens,
 		);
 
-		return mergedSegments.map((segment) => ({
+		return mergedSegments.map((segment, index) => ({
 			id: this.buildChunkId(sourceFile.getFilePath(), segment.range),
 			filePath: sourceFile.getFilePath(),
 			languageId: this.id,
@@ -302,32 +306,60 @@ export class TypeScriptPlugin implements LanguagePlugin {
 			range: segment.range,
 			estimatedTokens: segment.estimatedTokens,
 			metadata: {
-				chunkType: this.classifyChunkType(segment.text),
+				chunkType: this.classifyChunkType(
+					segment.statementKinds ?? [],
+					index === 0,
+				),
 				primarySymbol: this.extractPrimarySymbol(segment.text),
 			},
 		}));
 	}
 
-	private classifyChunkType(text: string): "imports" | "types" | "impl" {
-		const trimmed = text.trim();
-		if (!trimmed) return "impl";
+	private classifyStatement(node: Node): StatementKind {
+		const kind = node.getKind();
+		if (
+			kind === SyntaxKind.ImportDeclaration ||
+			kind === SyntaxKind.ImportEqualsDeclaration
+		) {
+			return "import";
+		}
 
-		const lines = trimmed
-			.split(/\r?\n/)
-			.map((line) => line.trim())
-			.filter((line) => line.length > 0);
-		if (lines.length > 0) {
-			const importLikeLines = lines.filter((line) =>
-				/^(import\b|export\b.+\bfrom\b|const\s+.+\s*=\s*require\()/i.test(line),
-			).length;
-			if (importLikeLines / lines.length >= 0.75) {
-				return "imports";
+		if (kind === SyntaxKind.ExportDeclaration) {
+			if (Node.isExportDeclaration(node) && node.getModuleSpecifier()) {
+				return "import";
 			}
+			return "impl";
 		}
 
-		if (/(^|\s)(interface|type|enum)\b/.test(trimmed)) {
-			return "types";
+		if (
+			kind === SyntaxKind.InterfaceDeclaration ||
+			kind === SyntaxKind.TypeAliasDeclaration ||
+			kind === SyntaxKind.EnumDeclaration
+		) {
+			return "type";
 		}
+
+		if (kind === SyntaxKind.ModuleDeclaration) {
+			return "impl";
+		}
+
+		return "impl";
+	}
+
+	private classifyChunkType(
+		statementKinds: StatementKind[],
+		isFirstChunk: boolean,
+	): "imports" | "types" | "preamble" | "impl" {
+		if (statementKinds.length === 0) return "impl";
+
+		const hasImpl = statementKinds.some((kind) => kind === "impl");
+		const hasImport = statementKinds.some((kind) => kind === "import");
+		const hasType = statementKinds.some((kind) => kind === "type");
+
+		if (hasImpl) return "impl";
+		if (hasImport && !hasType) return "imports";
+		if (isFirstChunk && hasImport && hasType) return "preamble";
+		if (hasType) return "types";
 
 		return "impl";
 	}
@@ -434,6 +466,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 						endCol: 0,
 					},
 					estimatedTokens: currentTokens,
+					statementKinds: segment.statementKinds,
 				});
 
 				const overlapStart = overlapStartIndexFor(currentStartIndex, endIndex);
@@ -458,6 +491,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 					endCol: 0,
 				},
 				estimatedTokens: currentTokens,
+				statementKinds: segment.statementKinds,
 			});
 		}
 
@@ -474,6 +508,28 @@ export class TypeScriptPlugin implements LanguagePlugin {
 		let buffer: ChunkSegment[] = [];
 		let bufferTokens = 0;
 
+		const hasKind = (segmentList: ChunkSegment[], kind: StatementKind) =>
+			segmentList.some((segment) => segment.statementKinds?.includes(kind));
+
+		const shouldKeepLeadingPreambleSeparate = (nextSegment: ChunkSegment) => {
+			if (buffer.length === 0) {
+				return false;
+			}
+
+			const startsAtTopOfFile = buffer[0]?.range.startLine === 1;
+			const bufferHasImpl = hasKind(buffer, "impl");
+			const bufferHasPreambleContent =
+				hasKind(buffer, "import") || hasKind(buffer, "type");
+			const nextHasImpl = nextSegment.statementKinds?.includes("impl") ?? false;
+
+			return (
+				startsAtTopOfFile &&
+				!bufferHasImpl &&
+				bufferHasPreambleContent &&
+				nextHasImpl
+			);
+		};
+
 		const flush = () => {
 			if (buffer.length === 0) {
 				return;
@@ -489,6 +545,9 @@ export class TypeScriptPlugin implements LanguagePlugin {
 					endCol: last.range.endCol,
 				},
 				estimatedTokens: bufferTokens,
+				statementKinds: buffer.flatMap(
+					(segment) => segment.statementKinds ?? [],
+				),
 			});
 			buffer = [];
 			bufferTokens = 0;
@@ -497,6 +556,10 @@ export class TypeScriptPlugin implements LanguagePlugin {
 		for (const segment of segments) {
 			if (segment.estimatedTokens === 0) {
 				continue;
+			}
+
+			if (shouldKeepLeadingPreambleSeparate(segment)) {
+				flush();
 			}
 
 			if (segment.estimatedTokens > maxTokens) {
@@ -539,6 +602,10 @@ export class TypeScriptPlugin implements LanguagePlugin {
 							endCol: last.range.endCol,
 						},
 						estimatedTokens: combinedTokens,
+						statementKinds: [
+							...(previous.statementKinds ?? []),
+							...(last.statementKinds ?? []),
+						],
 					});
 				}
 			}
