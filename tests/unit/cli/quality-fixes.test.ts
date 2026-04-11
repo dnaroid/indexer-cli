@@ -194,32 +194,41 @@ describe("CLI quality fixes", () => {
 			},
 		];
 
-		it("applies the penalty, re-sorts by adjusted score, and keeps impl scores unchanged", async () => {
+		it("excludes imports/preamble by default and includes them when opted in", async () => {
 			const engine = createEngine(vectorResults);
 
-			const results = await engine.search("default", "s1", "query", {
+			const defaultResults = await engine.search("default", "s1", "query", {
 				includeContent: false,
 				minScore: 0,
 			});
+			expect(defaultResults.map((result) => result.filePath)).toEqual([
+				"src/b.ts",
+			]);
 
-			expect(results.map((result) => result.filePath)).toEqual([
+			const withImports = await engine.search("default", "s1", "query", {
+				includeContent: false,
+				minScore: 0,
+				includeImportChunks: true,
+			});
+			expect(withImports.map((result) => result.filePath)).toEqual([
 				"src/b.ts",
 				"src/c.ts",
 				"src/a.ts",
 			]);
-			expect(results.map((result) => result.score)).toEqual([
+			expect(withImports.map((result) => result.score)).toEqual([
 				0.48, 0.364, 0.25,
 			]);
-			expect(results[0]?.chunkType).toBe("impl");
-			expect(results[0]?.primarySymbol).toBe("myFunc");
+			expect(withImports[0]?.chunkType).toBe("impl");
+			expect(withImports[0]?.primarySymbol).toBe("myFunc");
 		});
 
-		it("filters results using adjusted scores", async () => {
+		it("filters results using adjusted scores when includeImportChunks is set", async () => {
 			const engine = createEngine(vectorResults);
 
 			const strictResults = await engine.search("default", "s1", "query", {
 				includeContent: false,
 				minScore: 0.45,
+				includeImportChunks: true,
 			});
 			expect(strictResults.map((result) => result.filePath)).toEqual([
 				"src/b.ts",
@@ -228,6 +237,7 @@ describe("CLI quality fixes", () => {
 			const relaxedResults = await engine.search("default", "s1", "query", {
 				includeContent: false,
 				minScore: 0.25,
+				includeImportChunks: true,
 			});
 			expect(relaxedResults.map((result) => result.filePath)).toEqual([
 				"src/b.ts",
@@ -290,6 +300,7 @@ describe("CLI quality fixes", () => {
 			const results = await engine.search("default", "s1", "query", {
 				includeContent: false,
 				minScore: 0,
+				includeImportChunks: true,
 			});
 
 			expect(results).toHaveLength(1);

@@ -169,6 +169,10 @@ export function registerSearchCommand(program: Command): void {
 		)
 		.option("--chunk-types <string>", "comma-separated chunk types to include")
 		.option(
+			"--include-imports",
+			"include imports/preamble chunks (excluded by default)",
+		)
+		.option(
 			"--fields <list>",
 			`comma-separated output fields: ${SEARCH_FIELDS.join(", ")}`,
 		)
@@ -192,6 +196,7 @@ export function registerSearchCommand(program: Command): void {
 					maxFiles?: string;
 					pathPrefix?: string;
 					chunkTypes?: string;
+					includeImports?: boolean;
 					fields?: string;
 					minScore?: string;
 					omitContent?: boolean;
@@ -264,6 +269,7 @@ export function registerSearchCommand(program: Command): void {
 							chunkTypes,
 							includeContent: fields.includes("content"),
 							minScore,
+							includeImportChunks: options?.includeImports,
 						},
 					);
 

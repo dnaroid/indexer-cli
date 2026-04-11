@@ -52,6 +52,7 @@ export interface SearchOptions {
 	filePath?: string;
 	includeContent?: boolean;
 	minScore?: number;
+	includeImportChunks?: boolean;
 }
 
 export interface SearchResult {
@@ -81,6 +82,8 @@ export class SearchEngine {
 		const topK = options.topK ?? 10;
 		const includeContent = options.includeContent ?? true;
 		const minScore = options.minScore;
+		const excludeImportPreamble =
+			!options.includeImportChunks && !options.chunkTypes;
 
 		logger.info(`Searching for "${query}" (topK=${topK})`);
 
@@ -132,6 +135,14 @@ export class SearchEngine {
 		}
 
 		return results
+			.filter((result) => {
+				if (excludeImportPreamble) {
+					return (
+						result.chunkType !== "imports" && result.chunkType !== "preamble"
+					);
+				}
+				return true;
+			})
 			.map((result) => {
 				let penalizedScore = result.score;
 

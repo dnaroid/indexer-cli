@@ -131,6 +131,7 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 | `--max-files <number>`   | 3       | Number of results to return                                                                                  |
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
+| `--include-imports`      | —       | Include `imports`/`preamble` chunks (excluded by default)                                                    |
 | `--fields <list>`        | —       | Comma-separated output fields: `filePath`, `startLine`, `endLine`, `score`, `primarySymbol`, `content`       |
 | `--min-score <number>`   | 0.45    | Filter out results below this score (0..1)                                                                   |
 | `--omit-content`         | +       | Explicitly exclude content from results (default behavior in JSON mode)                                      |
