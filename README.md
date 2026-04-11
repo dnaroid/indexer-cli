@@ -12,7 +12,8 @@ Claude, OpenCode, and similar tools can pick the right indexed workflow instead 
 
 Under the hood, `indexer-cli` indexes source code, generates vector embeddings through a local Ollama instance, and
 stores everything in a per-project `.indexer-cli/` directory. That gives both humans and agents fast natural-language
-search, repo structure snapshots, and low-friction incremental reindexing without any daemon or background service.
+search, repo structure snapshots, and low-friction incremental reindexing without any daemon or background service. A Git
+post-commit hook keeps the index up to date automatically.
 
 ## Features
 
@@ -22,7 +23,7 @@ search, repo structure snapshots, and low-friction incremental reindexing withou
 - **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby
 - **Semantic code search**: Natural language queries over your entire codebase
 - **Incremental indexing**: Uses `git diff` to re-index only changed files, bulk-copies unchanged vectors
-- **Local-first**: All data stored in `.indexer-cli/` inside the project (SQLite + LanceDB)
+- **Local-first**: All data stored in `.indexer-cli/` inside the project (SQLite + sqlite-vec)
 - **Ollama-powered embeddings**: Uses `jina-8k` model (768-dim vectors) via a local Ollama instance
 - **Architecture snapshot**: Generates dependency graphs, entry points, and file stats
 - **Symbol extraction**: Functions, classes, interfaces, and imports are all indexed
@@ -52,8 +53,10 @@ npx indexer-cli search "authentication middleware" --txt
 ```
 
 After `init`, the repo contains focused skills like `.claude/skills/semantic-search/SKILL.md`,
-`.claude/skills/repo-structure/SKILL.md`, `.claude/skills/repo-context/SKILL.md`, and
-`.claude/skills/dependency-trace/SKILL.md`, so coding agents can load the right indexed discovery workflow for
+`.claude/skills/repo-structure/SKILL.md`, `.claude/skills/repo-architecture/SKILL.md`,
+`.claude/skills/repo-context/SKILL.md`, `.claude/skills/symbol-explain/SKILL.md`, and
+`.claude/skills/dependency-trace/SKILL.md`, so coding agents can load
+the right indexed discovery workflow for
 `npx indexer-cli search`, `npx indexer-cli structure`, `npx indexer-cli architecture`, `npx indexer-cli context`,
 `npx indexer-cli explain`, and `npx indexer-cli deps` before they start burning tokens on broad filesystem scans.
 
@@ -99,9 +102,9 @@ appropriate, but Ollama itself must be installed manually first. Works on macOS 
 
 ### `npx indexer-cli init`
 
-Create the `.indexer-cli/` directory, initialize the SQLite database and LanceDB vector store, and add `.indexer-cli/`
-to `.gitignore` in the current working directory. Also writes focused discovery skills under `.claude/skills/` and
-adds `.claude/` to `.gitignore`.
+Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-vec vector store, and add `.indexer-cli/`
+to `.gitignore` in the current working directory. Also writes focused discovery skills under `.claude/skills/`,
+adds `.claude/` to `.gitignore`, and installs a Git post-commit hook that automatically re-indexes changed files.
 
 | Option              | Description                                                                     |
 |---------------------|---------------------------------------------------------------------------------|
@@ -129,7 +132,7 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
 | `--fields <list>`        | —       | Comma-separated output fields: `filePath`, `startLine`, `endLine`, `score`, `primarySymbol`, `content`       |
-| `--min-score <number>`   | —       | Filter out results below this score (0..1)                                                                   |
+| `--min-score <number>`   | 0.45    | Filter out results below this score (0..1)                                                                   |
 | `--omit-content`         | +       | Explicitly exclude content from results (default behavior in JSON mode)                                      |
 | `--include-content`      | —       | Include `content` in JSON output                                                                             |
 | `--txt`                  | —       | Output results as human-readable text                                                                        |

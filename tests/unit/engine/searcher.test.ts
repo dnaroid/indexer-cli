@@ -198,7 +198,7 @@ describe("SearchEngine", () => {
 		]);
 	});
 
-	it("filters out results below minScore before reading content", async () => {
+	it("filters out results below minScore after applying chunk-type penalties", async () => {
 		readFileMock.mockResolvedValue("line 1\nline 2");
 		const metadata = createMetadataStoreMock();
 		const vectors = createVectorStoreMock([
@@ -228,8 +228,7 @@ describe("SearchEngine", () => {
 			minScore: 0.5,
 		});
 
-		expect(readFileMock).toHaveBeenCalledTimes(1);
-		expect(readFileMock).toHaveBeenCalledWith("/repo/src/high.ts", "utf-8");
+		expect(readFileMock).toHaveBeenCalledTimes(2);
 		expect(results).toEqual([
 			{
 				filePath: "src/high.ts",

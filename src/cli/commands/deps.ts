@@ -59,6 +59,19 @@ export function registerDepsCommand(program: Command): void {
 
 					// Normalize path (strip leading ./)
 					const normalizedPath = targetPath.replace(/^\.\//, "");
+					const matchedFiles = await metadata.listFiles(
+						DEFAULT_PROJECT_ID,
+						snapshot.id,
+						{ pathPrefix: normalizedPath },
+					);
+
+					if (matchedFiles.length === 0) {
+						throw new Error(
+							`Module "${normalizedPath}" not found in index. Run "indexer-cli index" to update.`,
+						);
+					}
+
+					const seedPaths = matchedFiles.map((file) => file.path);
 
 					const result: {
 						path: string;
@@ -73,7 +86,7 @@ export function registerDepsCommand(program: Command): void {
 					// BFS traversal
 					if (direction === "callers" || direction === "both") {
 						const visited = new Set<string>();
-						const queue = [normalizedPath];
+						const queue = [...seedPaths];
 						for (let d = 0; d < depth && queue.length > 0; d++) {
 							const next: string[] = [];
 							for (const p of queue) {
@@ -98,7 +111,7 @@ export function registerDepsCommand(program: Command): void {
 
 					if (direction === "callees" || direction === "both") {
 						const visited = new Set<string>();
-						const queue = [normalizedPath];
+						const queue = [...seedPaths];
 						for (let d = 0; d < depth && queue.length > 0; d++) {
 							const next: string[] = [];
 							for (const p of queue) {
@@ -155,9 +168,9 @@ export function registerDepsCommand(program: Command): void {
 					const message =
 						error instanceof Error ? error.message : String(error);
 					if (isJson) {
-						console.error(JSON.stringify({ error: message }, null, 2));
+						console.error(JSON.stringify({ error: message }));
 					} else {
-						console.error(`Deps failed: ${message}`);
+						console.error(`Error: ${message}`);
 					}
 					process.exitCode = 1;
 				} finally {

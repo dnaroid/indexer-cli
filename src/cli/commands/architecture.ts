@@ -61,6 +61,28 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 		}
 	}
 
+	const internalDependencies = architecture.dependency_map?.internal ?? {};
+	const cycles: string[] = [];
+	const seenCycles = new Set<string>();
+	for (const [from, tos] of Object.entries(internalDependencies)) {
+		for (const to of tos) {
+			const pair = [from, to].sort().join(" <-> ");
+			if (seenCycles.has(pair)) {
+				continue;
+			}
+			if (internalDependencies[to]?.includes(from)) {
+				cycles.push(pair);
+				seenCycles.add(pair);
+			}
+		}
+	}
+	if (cycles.length > 0) {
+		console.log("\n⚠ Cyclic dependencies detected:");
+		for (const cycle of cycles.sort((a, b) => a.localeCompare(b))) {
+			console.log(`  ${cycle}`);
+		}
+	}
+
 	console.log("External dependencies summary");
 	const externalSummary = summarizeExternalDependencies(
 		architecture.dependency_map?.external ?? {},
@@ -72,7 +94,7 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 		console.log("  none");
 	} else {
 		for (const [key, value] of extEntries) {
-			console.log(`  ${key}: ${value}`);
+			console.log(`  ${key}: ${value} file${value !== 1 ? "s" : ""}`);
 		}
 	}
 

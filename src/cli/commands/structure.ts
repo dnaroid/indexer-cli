@@ -174,6 +174,9 @@ function printTree(
 				const exported = symbol.exported ? ", exported" : "";
 				console.log(`${indent}  ${symbol.name} (${symbol.kind}${exported})`);
 			}
+			if (file.symbols.length === 0) {
+				console.log(`${indent}  (no symbols)`);
+			}
 		}
 		return;
 	}
@@ -224,9 +227,13 @@ function printTree(
 		}
 
 		const symbols = symbolsByFile.get(filePath) ?? [];
-		for (const symbol of symbols) {
-			const exported = symbol.exported ? ", exported" : "";
-			console.log(`${indent}  ${symbol.name} (${symbol.kind}${exported})`);
+		if (symbols.length > 0) {
+			for (const symbol of symbols) {
+				const exported = symbol.exported ? ", exported" : "";
+				console.log(`${indent}  ${symbol.name} (${symbol.kind}${exported})`);
+			}
+		} else {
+			console.log(`${indent}  (no symbols)`);
 		}
 	}
 }

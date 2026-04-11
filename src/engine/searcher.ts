@@ -10,6 +10,7 @@ import type {
 import { SystemLogger } from "../core/logger.js";
 
 const logger = new SystemLogger("search");
+const IMPORT_PREAMBLE_SCORE_PENALTY = 0.7;
 
 export interface SearchOptions {
 	topK?: number;
@@ -71,10 +72,6 @@ export class SearchEngine {
 
 		const results: SearchResult[] = [];
 		for (const vr of vectorResults) {
-			if (typeof minScore === "number" && vr.score < minScore) {
-				continue;
-			}
-
 			let content: string | undefined;
 			if (includeContent) {
 				try {
@@ -101,6 +98,21 @@ export class SearchEngine {
 			});
 		}
 
-		return results;
+		return results
+			.map((result) => {
+				const penalizedScore =
+					result.chunkType === "imports" || result.chunkType === "preamble"
+						? result.score * IMPORT_PREAMBLE_SCORE_PENALTY
+						: result.score;
+
+				return {
+					...result,
+					score: penalizedScore,
+				};
+			})
+			.filter(
+				(result) => typeof minScore !== "number" || result.score >= minScore,
+			)
+			.sort((a, b) => b.score - a.score);
 	}
 }
