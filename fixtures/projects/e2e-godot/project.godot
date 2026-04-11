@@ -1,0 +1,9 @@
+[application]
+config/name="E2EGodot"
+run/main_scene="res://scenes/main.tscn"
+
+[autoload]
+AudioManager="*res://scripts/singletons/audio_manager.gd"
+
+[rendering]
+renderer/rendering_method="forward_plus"

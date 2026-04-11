@@ -29,6 +29,10 @@
 		"test": "vitest run",
 		"test:watch": "vitest",
 		"test:cli": "vitest run tests/cli/ --testTimeout=180000 --no-file-parallelism",
+		"test:cli:python": "vitest run tests/cli/commands-python.test.ts --testTimeout=180000 --no-file-parallelism",
+		"test:cli:gdscript": "vitest run tests/cli/commands-gdscript.test.ts --testTimeout=180000 --no-file-parallelism",
+		"test:cli:csharp": "vitest run tests/cli/commands-csharp.test.ts --testTimeout=180000 --no-file-parallelism",
+		"test:cli:ruby": "vitest run tests/cli/commands-ruby.test.ts --testTimeout=180000 --no-file-parallelism",
 		"release": "bash scripts/publish.sh"
 	},
 	"dependencies": {
