@@ -1,6 +1,7 @@
 type SkillDefinition = {
 	name: string;
 	directory: string;
+	rawContent?: string;
 	description: string;
 	heading: string;
 	useWhen: string;
@@ -68,35 +69,133 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 	{
 		name: "semantic-search",
 		directory: "semantic-search",
-		description: `FIRST choice for CONCEPT and BEHAVIOR questions like "how is quiz scoring calculated" or "what happens on subscription cancel". Do NOT use for keyword/identifier lookups — use grep instead. If the search term is also a code identifier (entity name, class name, variable name), this is the WRONG tool.`,
-		heading: "Use semantic-search for implementation hunting",
-		useWhen:
-			"Use this when the agent already knows it needs semantic search results, not a tree or architecture map.",
-		focusHint:
-			"Keep the prompt short and centered on the code concept to find.",
-		allowedTools: ["Bash(npx indexer-cli search:*)"],
-		rules: [
-			`**2-4 domain-specific words**: "how claim prize", "billing webhook", "quiz scoring"`,
-			`Do NOT write long queries with synonyms — it dilutes ranking.`,
-			"Prefer compact JSON fields first; include content only after the right chunk is found.",
-			"Use --path-prefix or --chunk-types when you already know the likely area.",
-		],
-		skipWhen: [
-			"You need a file tree or symbol inventory instead of search results",
-			"You already know the exact file and line range to inspect",
-		],
-		commandSamples: [
-			'npx indexer-cli search "<query>"',
-			'npx indexer-cli search "<query>" --path-prefix src/<area>',
-			'npx indexer-cli search "<query>" --chunk-types impl,types',
-		],
-		cliReference: [
-			"Positional args: <query>.",
-			"Options: --max-files <number>, --path-prefix <string>, --chunk-types <string>, --fields <list>, --min-score <number>, --include-content, --include-imports.",
-			"Allowed --chunk-types values: full_file, imports, preamble, declaration, module_section, impl, types.",
-			"Imports/preamble chunks are excluded by default; use --include-imports to include them.",
-			"Allowed --fields values: filePath, startLine, endLine, score, primarySymbol, content.",
-		],
+		rawContent: `---
+name: semantic-search
+description:
+  FIRST choice for CONCEPT and BEHAVIOR questions — "how is scoring calculated", "what happens on order cancel", "what if a user stops paying", "how does the system handle expired subscriptions", "lifecycle of a payment", "flow when X fails". Use BEFORE spawning explore agents for these questions — it traces cross-module behavior that grep misses. Do NOT use for keyword/identifier lookups (use grep/ast-grep instead). If the search term is a code identifier (class name, variable name, function name), this is the WRONG tool — use symbol-explain or grep instead.
+allowed-tools: Bash(npx indexer-cli search:*)
+---
+
+# Use semantic-search for implementation hunting
+
+Use when semantic search is already the right tool.
+Keep the query short and centered on one code concept.
+
+## Mandatory rules
+
+### 1) Search count
+
+- 1 search per question
+- Max 2 only if the second is a truly different angle
+- If search 1 answers the question: STOP
+
+Never run 3+ overlapping searches.
+
+### 2) Query shape
+
+Use 1-3 domain-specific words. No synonyms.
+
+Pick the single best concept word. Add words only to narrow scope.
+
+- ✅ \`prize\`
+- ✅ \`password reset\`
+- ✅ \`rate limiting\`
+- ❌ \`prize reward award\`
+- ❌ \`chapter pass percent quiz result score\`
+- ❌ \`order cancel payment failure refund\`
+
+### 3) Two-phase retrieval — ALWAYS
+
+#### Phase 1: Discover
+
+Search without \`--include-content\`, with \`--fields filePath,startLine,endLine,primarySymbol\`.
+
+\`\`\`bash
+npx indexer-cli search "prize" --fields filePath,startLine,endLine,primarySymbol
+\`\`\`
+
+#### Phase 2: Read
+
+Use the Read tool on the exact files and line ranges from Phase 1.
+
+Do NOT:
+
+- run another semantic search for the same concept
+- grep the same concept
+- grep terms revealed by Phase 1
+- replace reading with \`--include-content\`
+
+### Hard stop after Phase 1
+
+If Phase 1 returned useful file paths and ranges, read them.
+
+Only if Phase 1 returns nothing useful, do one fallback:
+
+- one alternative semantic query, or
+- grep
+
+### 4) \`--include-content\` is rare
+
+Use it only for a quick scan when you expect fewer than 5 results.
+
+### 5) Narrow early with \`--path-prefix\`
+
+If you know the subsystem, add \`--path-prefix\`.
+
+\`\`\`bash
+npx indexer-cli search "password reset" --path-prefix src/auth --fields filePath,startLine,endLine,primarySymbol
+\`\`\`
+
+## Skip when
+
+- you need a file tree or symbol inventory
+- you already know the exact file and line range
+- the query is an identifier; use grep/LSP/symbol-explain instead
+
+## Command patterns
+
+\`\`\`bash
+# Phase 1: discover
+npx indexer-cli search "rate limiting" --fields filePath,startLine,endLine,primarySymbol
+npx indexer-cli search "password reset" --path-prefix src/auth --fields filePath,startLine,endLine,primarySymbol
+
+# Phase 2: Read returned files/lines with Read tool
+
+# Rare exception: inline content when expecting <5 hits
+npx indexer-cli search "input validation" --include-content --max-files 3
+\`\`\`
+
+## CLI reference
+
+- Positional args: \`<query>\`
+- Options: \`--max-files\`, \`--path-prefix\`, \`--chunk-types\`, \`--fields\`, \`--min-score\`, \`--include-content\`,
+  \`--include-imports\`
+
+### Allowed \`--chunk-types\`
+
+\`full_file\`, \`imports\`, \`preamble\`, \`declaration\`, \`module_section\`, \`impl\`, \`types\`
+
+Imports and preamble are excluded by default. Use \`--include-imports\` to include them.
+
+### Allowed \`--fields\`
+
+\`filePath\`, \`startLine\`, \`endLine\`, \`score\`, \`primarySymbol\`, \`content\`
+
+## Anti-patterns
+
+- ❌ 3+ overlapping searches
+- ❌ broad searches with \`--include-content\`
+- ❌ long synonym-heavy queries
+- ❌ re-searching after Phase 1 already found the locations
+- ❌ grepping the same concept after semantic search already found it
+- ❌ loading this skill via \`skill\` when you already know the \`indexer-cli\` command
+`,
+		description: "",
+		heading: "",
+		useWhen: "",
+		allowedTools: [],
+		rules: [],
+		commandSamples: [],
 	},
 	{
 		name: "repo-structure",
@@ -262,7 +361,7 @@ export const GENERATED_SKILLS: GeneratedSkill[] = SKILL_DEFINITIONS.map(
 	(definition) => ({
 		name: definition.name,
 		directory: definition.directory,
-		content: renderSkill(definition),
+		content: definition.rawContent ?? renderSkill(definition),
 	}),
 );
 

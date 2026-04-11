@@ -31,19 +31,22 @@ describe("generated skills", () => {
 		);
 
 		expect(skill).toBeDefined();
-		expect(skill?.content).toContain(
-			"Use this when the agent already knows it needs semantic search results, not a tree or architecture map.",
-		);
-		expect(skill?.content).toContain(
-			"Keep the prompt short and centered on the code concept to find.",
-		);
+		expect(skill?.content).toContain("## Mandatory rules");
+		expect(skill?.content).toContain("### 3) Two-phase retrieval — ALWAYS");
 		expect(skill?.content).toContain("## Skip when");
 		expect(skill?.content).toContain("## CLI reference");
-		expectIntroParagraphStructure(skill!.content);
+		expect(skill?.content).toContain("## Anti-patterns");
+		expect(skill?.content).toContain(
+			"Use when semantic search is already the right tool.",
+		);
+		expect(skill?.content).toContain(
+			"Keep the query short and centered on one code concept.",
+		);
 	});
 
-	it("renders the intro and focus hint structure for every generated skill", () => {
+	it("renders the intro and focus hint structure for every generated skill that uses renderSkill", () => {
 		for (const skill of GENERATED_SKILLS) {
+			if (skill.name === "semantic-search") continue;
 			expectIntroParagraphStructure(skill.content);
 		}
 	});
