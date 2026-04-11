@@ -41,6 +41,65 @@ export function registerExplainCommand(program: Command): void {
 				return 3;
 			};
 
+			const rankSymbolKind = (kind: string): number => {
+				switch (kind) {
+					case "class":
+						return 0;
+					case "function":
+						return 1;
+					case "method":
+						return 2;
+					case "interface":
+						return 3;
+					case "type":
+						return 4;
+					default:
+						return 5;
+				}
+			};
+
+			const sortSymbolMatches = <T extends { name: string; kind: string }>(
+				left: T,
+				right: T,
+				query: string,
+			): number => {
+				const nameRankDiff =
+					rankSymbolMatch(left.name, query) -
+					rankSymbolMatch(right.name, query);
+
+				if (nameRankDiff !== 0) {
+					return nameRankDiff;
+				}
+
+				const kindRankDiff =
+					rankSymbolKind(left.kind) - rankSymbolKind(right.kind);
+				if (kindRankDiff !== 0) {
+					return kindRankDiff;
+				}
+
+				return left.name.localeCompare(right.name);
+			};
+
+			const collapseMatchesByFile = <
+				T extends { filePath: string; name: string; kind: string },
+			>(
+				items: T[],
+				query: string,
+			): T[] => {
+				const bestByFile = new Map<string, T>();
+
+				for (const item of items) {
+					const current = bestByFile.get(item.filePath);
+					if (!current || sortSymbolMatches(item, current, query) < 0) {
+						bestByFile.set(item.filePath, item);
+					}
+				}
+
+				return Array.from(bestByFile.values()).sort((a, b) =>
+					sortSymbolMatches(a, b, query),
+				);
+			};
+
 			initLogger(dataDir);
 			config.load(dataDir);
 
@@ -91,19 +150,10 @@ export function registerExplainCommand(program: Command): void {
 					}
 				}
 
-				const matches = filterFilePath
+				const rawMatches = filterFilePath
 					? symbols.filter((s) => s.filePath === filterFilePath)
-					: [...symbols].sort((a, b) => {
-							const rankDiff =
-								rankSymbolMatch(a.name, symbolName) -
-								rankSymbolMatch(b.name, symbolName);
-
-							if (rankDiff !== 0) {
-								return rankDiff;
-							}
-
-							return a.name.localeCompare(b.name);
-						});
+					: [...symbols].sort((a, b) => sortSymbolMatches(a, b, symbolName));
+				const matches = collapseMatchesByFile(rawMatches, symbolName);
 
 				if (matches.length === 0) {
 					const fuzzy = symbols.slice(0, 5).map((s) => ({

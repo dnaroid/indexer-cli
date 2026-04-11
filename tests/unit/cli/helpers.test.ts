@@ -214,7 +214,7 @@ describe("CLI helper functions", () => {
 		});
 
 		it("parses min-score thresholds", () => {
-			expect(search.parseMinScore()).toBeUndefined();
+			expect(search.parseMinScore()).toBe(0.45);
 			expect(search.parseMinScore("0.4")).toBe(0.4);
 			expect(() => search.parseMinScore("2")).toThrow(/--min-score/i);
 		});

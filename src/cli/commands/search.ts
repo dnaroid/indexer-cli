@@ -55,7 +55,7 @@ function parseSearchFields(input?: string): SearchField[] {
 
 function parseMinScore(input?: string): number | undefined {
 	if (!input) {
-		return undefined;
+		return 0.45;
 	}
 
 	const minScore = Number.parseFloat(input);
@@ -174,7 +174,7 @@ export function registerSearchCommand(program: Command): void {
 		)
 		.option(
 			"--min-score <number>",
-			"filter out results with score below the given value (0..1)",
+			"filter out results with score below the given value (0..1, default: 0.45)",
 		)
 		.option(
 			"--omit-content",

@@ -58,10 +58,6 @@ function insertPath(root: TreeNode, filePath: string): void {
 	current.files.add(parts[parts.length - 1]);
 }
 
-function summarizeHiddenChildren(node: TreeNode): string {
-	return `... (${node.directories.size + node.files.size} children)`;
-}
-
 function countFiles(node: TreeNode): number {
 	let total = node.files.size;
 
@@ -70,6 +66,81 @@ function countFiles(node: TreeNode): number {
 	}
 
 	return total;
+}
+
+function summarizeHiddenChildren(node: TreeNode): string {
+	return `... (${node.directories.size + node.files.size} children)`;
+}
+
+function collectDescendantFiles(
+	node: TreeNode,
+	prefix: string,
+	symbolsByFile: Map<string, SymbolRecord[]>,
+	fileCounter?: { printed: number; hidden: number },
+	maxFiles?: number,
+): Array<{
+	name: string;
+	path: string;
+	symbols: Array<{ name: string; kind: string; exported: boolean }>;
+}> {
+	const entries: Array<{
+		name: string;
+		path: string;
+		symbols: Array<{ name: string; kind: string; exported: boolean }>;
+	}> = [];
+	const directoryEntries = Array.from(node.directories.entries()).sort((a, b) =>
+		a[0].localeCompare(b[0]),
+	);
+	const fileEntries = Array.from(node.files).sort((a, b) => a.localeCompare(b));
+
+	for (const fileName of fileEntries) {
+		if (
+			maxFiles !== undefined &&
+			fileCounter &&
+			fileCounter.printed >= maxFiles
+		) {
+			fileCounter.hidden += 1;
+			continue;
+		}
+
+		const filePath = prefix ? `${prefix}/${fileName}` : fileName;
+		if (fileCounter) {
+			fileCounter.printed += 1;
+		}
+		entries.push({
+			name: fileName,
+			path: filePath,
+			symbols: (symbolsByFile.get(filePath) ?? []).map((symbol) => ({
+				name: symbol.name,
+				kind: symbol.kind,
+				exported: symbol.exported,
+			})),
+		});
+	}
+
+	for (const [directoryName, childNode] of directoryEntries) {
+		if (
+			maxFiles !== undefined &&
+			fileCounter &&
+			fileCounter.printed >= maxFiles
+		) {
+			fileCounter.hidden += countFiles(childNode);
+			continue;
+		}
+
+		const childPrefix = prefix ? `${prefix}/${directoryName}` : directoryName;
+		entries.push(
+			...collectDescendantFiles(
+				childNode,
+				childPrefix,
+				symbolsByFile,
+				fileCounter,
+				maxFiles,
+			),
+		);
+	}
+
+	return entries;
 }
 
 function printTree(
@@ -83,9 +154,26 @@ function printTree(
 	maxFiles?: number,
 ): void {
 	if (maxDepth !== undefined && depth >= maxDepth) {
-		const summary = summarizeHiddenChildren(node);
-		if (summary !== "... (0 children)") {
-			console.log(`${indent}${summary}`);
+		if (node.files.size > 0) {
+			const summary = summarizeHiddenChildren(node);
+			if (summary !== "... (0 children)") {
+				console.log(`${indent}${summary}`);
+			}
+			return;
+		}
+
+		for (const file of collectDescendantFiles(
+			node,
+			prefix,
+			symbolsByFile,
+			fileCounter,
+			maxFiles,
+		)) {
+			console.log(`${indent}${file.path}`);
+			for (const symbol of file.symbols) {
+				const exported = symbol.exported ? ", exported" : "";
+				console.log(`${indent}  ${symbol.name} (${symbol.kind}${exported})`);
+			}
 		}
 		return;
 	}
@@ -153,10 +241,25 @@ function treeToJson(
 	maxFiles?: number,
 ): object[] {
 	if (maxDepth !== undefined && depth >= maxDepth) {
-		const summary = summarizeHiddenChildren(node);
-		return summary === "... (0 children)"
-			? []
-			: [{ type: "summary", name: summary }];
+		if (node.files.size > 0) {
+			const summary = summarizeHiddenChildren(node);
+			return summary === "... (0 children)"
+				? []
+				: [{ type: "summary", name: summary }];
+		}
+
+		return collectDescendantFiles(
+			node,
+			prefix,
+			symbolsByFile,
+			fileCounter,
+			maxFiles,
+		).map((file) => ({
+			type: "file",
+			name: file.name,
+			path: file.path,
+			symbols: file.symbols,
+		}));
 	}
 
 	const entries: object[] = [];
