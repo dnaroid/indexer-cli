@@ -107,6 +107,27 @@ describe("PythonPlugin", () => {
 				expect(chunk.languageId).toBe("python");
 			}
 		});
+
+		it("separates imports chunk from definition chunks with correct chunkTypes", () => {
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 500 });
+			const importChunks = chunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "imports",
+			);
+			const implChunks = chunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "impl",
+			);
+			const typeChunks = chunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "types",
+			);
+
+			expect(importChunks.length).toBeGreaterThanOrEqual(1);
+			expect(implChunks.length).toBeGreaterThanOrEqual(1);
+			expect(typeChunks.length).toBeGreaterThanOrEqual(1);
+
+			for (const importChunk of importChunks) {
+				expect(importChunk.content).toMatch(/import\b/);
+			}
+		});
 	});
 
 	describe("manage.py", () => {

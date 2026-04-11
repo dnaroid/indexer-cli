@@ -67,6 +67,22 @@ describe("CSharpPlugin", () => {
 				expect(chunk.languageId).toBe("csharp");
 			}
 		});
+
+		it("separates imports chunk from class/method chunks with correct chunkTypes", () => {
+			const importChunks = chunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "imports",
+			);
+			const implChunks = chunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "impl",
+			);
+
+			expect(importChunks.length).toBeGreaterThanOrEqual(1);
+			expect(implChunks.length).toBeGreaterThanOrEqual(1);
+
+			for (const importChunk of importChunks) {
+				expect(importChunk.content).toMatch(/using\b/);
+			}
+		});
 	});
 
 	describe("PlayerController.cs", () => {

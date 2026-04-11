@@ -121,6 +121,19 @@ describe("RubyPlugin", () => {
 			);
 		});
 
+		it("classifies class/module chunks as types and method chunks as impl", () => {
+			const allChunks = plugin.splitIntoChunks(parsed, { targetTokens: 500 });
+			const typeChunks = allChunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "types",
+			);
+			const implChunks = allChunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "impl",
+			);
+
+			expect(typeChunks.length).toBeGreaterThanOrEqual(1);
+			expect(implChunks.length).toBeGreaterThanOrEqual(1);
+		});
+
 		it("splits into non-empty chunks with valid structure", () => {
 			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 500 });
 

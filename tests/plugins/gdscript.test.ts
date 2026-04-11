@@ -53,6 +53,27 @@ describe("GDScriptPlugin", () => {
 				);
 			}
 		});
+
+		it("separates imports chunk and classifies definitions correctly", () => {
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 300 });
+			const importChunks = chunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "imports",
+			);
+			const typeChunks = chunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "types",
+			);
+			const implChunks = chunks.filter(
+				(chunk) => chunk.metadata?.chunkType === "impl",
+			);
+
+			expect(importChunks.length).toBeGreaterThanOrEqual(1);
+			expect(typeChunks.length).toBeGreaterThanOrEqual(1);
+			expect(implChunks.length).toBeGreaterThanOrEqual(1);
+
+			for (const importChunk of importChunks) {
+				expect(importChunk.content).toMatch(/extends\b/);
+			}
+		});
 	});
 
 	describe(`fixture: ${GAME_MANAGER}`, () => {
