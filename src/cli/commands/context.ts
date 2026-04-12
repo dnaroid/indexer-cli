@@ -194,6 +194,7 @@ export function registerContextCommand(program: Command): void {
 
 					let scopeFilePaths: Set<string> | null = null;
 					let scopeWarning: string | undefined;
+					let normalizedTargetPath: string | undefined;
 					if (scope === "changed") {
 						const git = new SimpleGitOperations();
 						const changes =
@@ -229,58 +230,102 @@ export function registerContextCommand(program: Command): void {
 							scope.slice(relevantToPrefix.length),
 							resolvedProjectPath,
 						);
-						const normalizedTargetPath = targetPath.replace(/\/+$/, "");
-						const targetDirectoryPrefix = `${normalizedTargetPath}/`;
-						const moduleFiles = architecture?.module_files ?? {};
-						const dependencyMap = architecture?.dependency_map?.internal ?? {};
-						const targetModuleKey = Object.entries(moduleFiles).find(
-							([, moduleFilePaths]) =>
-								moduleFilePaths.some(
-									(filePath) =>
-										normalizeScopePath(filePath, resolvedProjectPath) ===
-										normalizedTargetPath,
-								),
-						)?.[0];
-						const targetModuleKeys = targetModuleKey
-							? new Set([targetModuleKey])
-							: new Set(
-									Object.entries(moduleFiles)
-										.filter(([, moduleFilePaths]) =>
-											moduleFilePaths.some((filePath) =>
-												normalizeScopePath(
-													filePath,
-													resolvedProjectPath,
-												).startsWith(targetDirectoryPrefix),
-											),
-										)
-										.map(([moduleKey]) => moduleKey),
-								);
+						normalizedTargetPath = targetPath.replace(/\/+$/, "");
 
-						if (targetModuleKeys.size > 0) {
-							const relatedModuleKeys = new Set<string>(targetModuleKeys);
-							for (const moduleKey of targetModuleKeys) {
-								for (const dependencyModule of dependencyMap[moduleKey] ?? []) {
-									relatedModuleKeys.add(dependencyModule);
+						// Strategy 1: exact file match → file-level 1-hop neighborhood
+						const targetFile = await metadata.getFile(
+							DEFAULT_PROJECT_ID,
+							snapshot.id,
+							normalizedTargetPath,
+						);
+
+						if (targetFile) {
+							const [callees, callers] = await Promise.all([
+								metadata.listDependencies(
+									DEFAULT_PROJECT_ID,
+									snapshot.id,
+									normalizedTargetPath,
+								),
+								metadata.getDependents(
+									DEFAULT_PROJECT_ID,
+									snapshot.id,
+									normalizedTargetPath,
+								),
+							]);
+
+							const neighborhood = new Set<string>([normalizedTargetPath]);
+							for (const dep of callees) {
+								if (dep.dependencyType === "internal" && dep.toPath) {
+									neighborhood.add(dep.toPath);
 								}
 							}
-							for (const [fromModule, toModules] of Object.entries(
-								dependencyMap,
-							)) {
-								if (
-									toModules.some((toModule) => targetModuleKeys.has(toModule))
-								) {
-									relatedModuleKeys.add(fromModule);
+							for (const dep of callers) {
+								if (dep.dependencyType === "internal") {
+									neighborhood.add(dep.fromPath);
 								}
 							}
 
-							scopeFilePaths = new Set(
-								Array.from(relatedModuleKeys).flatMap(
-									(moduleKey) => moduleFiles[moduleKey] ?? [],
-								),
-							);
+							if (neighborhood.size > 1) {
+								scopeFilePaths = neighborhood;
+							} else {
+								scopeFilePaths = neighborhood;
+							}
 						} else {
-							scopeFilePaths = null;
-							scopeWarning = `No module found for path \"${normalizedTargetPath}\"; falling back to full context.`;
+							// Strategy 2: directory/module path → module-level expansion
+							const targetDirectoryPrefix = `${normalizedTargetPath}/`;
+							const moduleFiles = architecture?.module_files ?? {};
+							const dependencyMap =
+								architecture?.dependency_map?.internal ?? {};
+							const targetModuleKey = Object.entries(moduleFiles).find(
+								([, moduleFilePaths]) =>
+									moduleFilePaths.some(
+										(filePath) =>
+											normalizeScopePath(filePath, resolvedProjectPath) ===
+											normalizedTargetPath,
+									),
+							)?.[0];
+							const targetModuleKeys = targetModuleKey
+								? new Set([targetModuleKey])
+								: new Set(
+										Object.entries(moduleFiles)
+											.filter(([, moduleFilePaths]) =>
+												moduleFilePaths.some((filePath) =>
+													normalizeScopePath(
+														filePath,
+														resolvedProjectPath,
+													).startsWith(targetDirectoryPrefix),
+												),
+											)
+											.map(([moduleKey]) => moduleKey),
+									);
+
+							if (targetModuleKeys.size > 0) {
+								const relatedModuleKeys = new Set<string>(targetModuleKeys);
+								for (const moduleKey of targetModuleKeys) {
+									for (const dependencyModule of dependencyMap[moduleKey] ??
+										[]) {
+										relatedModuleKeys.add(dependencyModule);
+									}
+								}
+								for (const [fromModule, toModules] of Object.entries(
+									dependencyMap,
+								)) {
+									if (
+										toModules.some((toModule) => targetModuleKeys.has(toModule))
+									) {
+										relatedModuleKeys.add(fromModule);
+									}
+								}
+
+								scopeFilePaths = new Set(
+									Array.from(relatedModuleKeys).flatMap(
+										(moduleKey) => moduleFiles[moduleKey] ?? [],
+									),
+								);
+							} else {
+								scopeWarning = `No indexed file or module found for path \"${normalizedTargetPath}\". Returning empty context.`;
+								scopeFilePaths = new Set();
+							}
 						}
 					}
 
@@ -305,29 +350,64 @@ export function registerContextCommand(program: Command): void {
 					const visibleSymbols = allSymbols.filter((symbol) =>
 						filePathSet.has(symbol.filePath),
 					);
-					const dependencyCandidates =
-						architecture?.dependency_map?.internal ?? {};
-					const moduleFiles = architecture?.module_files ?? {};
-					const scopedModuleKeys =
-						scopeFilePaths === null
-							? null
-							: new Set(
-									Object.entries(moduleFiles)
-										.filter(([, moduleFilePaths]) =>
-											moduleFilePaths.some((filePath) =>
-												filePathSet.has(filePath),
-											),
-										)
-										.map(([moduleKey]) => moduleKey),
-								);
-					const scopedDependencies =
-						scopedModuleKeys === null
-							? dependencyCandidates
-							: Object.fromEntries(
-									Object.entries(dependencyCandidates).filter(([fromModule]) =>
-										scopedModuleKeys.has(fromModule),
-									),
-								);
+					let scopedDependencies: Record<string, string[]>;
+					const isFileLevelScope =
+						scopeFilePaths !== null &&
+						scopeFilePaths.size > 0 &&
+						normalizedTargetPath !== undefined &&
+						scopeFilePaths.has(normalizedTargetPath);
+
+					if (isFileLevelScope) {
+						const allDeps = await metadata.listDependencies(
+							DEFAULT_PROJECT_ID,
+							snapshot.id,
+						);
+						const fileDepMap: Record<string, Set<string>> = {};
+						for (const dep of allDeps) {
+							if (
+								dep.dependencyType !== "internal" ||
+								!dep.toPath ||
+								!filePathSet.has(dep.fromPath) ||
+								!filePathSet.has(dep.toPath)
+							) {
+								continue;
+							}
+							if (!fileDepMap[dep.fromPath]) {
+								fileDepMap[dep.fromPath] = new Set();
+							}
+							fileDepMap[dep.fromPath].add(dep.toPath);
+						}
+						scopedDependencies = Object.fromEntries(
+							Object.entries(fileDepMap).map(([k, v]) => [
+								k,
+								Array.from(v).sort(),
+							]),
+						);
+					} else {
+						const dependencyCandidates =
+							architecture?.dependency_map?.internal ?? {};
+						const moduleFiles = architecture?.module_files ?? {};
+						const scopedModuleKeys =
+							scopeFilePaths === null
+								? null
+								: new Set(
+										Object.entries(moduleFiles)
+											.filter(([, moduleFilePaths]) =>
+												moduleFilePaths.some((filePath) =>
+													filePathSet.has(filePath),
+												),
+											)
+											.map(([moduleKey]) => moduleKey),
+									);
+						scopedDependencies =
+							scopedModuleKeys === null
+								? dependencyCandidates
+								: Object.fromEntries(
+										Object.entries(dependencyCandidates).filter(
+											([fromModule]) => scopedModuleKeys.has(fromModule),
+										),
+									);
+					}
 					const limitedDependencies = limitDependencies(
 						scopedDependencies,
 						maxDeps,
@@ -345,9 +425,15 @@ export function registerContextCommand(program: Command): void {
 							.map((symbol) => symbol.filePath),
 					);
 
+					const seedFilePath = isFileLevelScope
+						? normalizedTargetPath
+						: undefined;
 					const contextData: ContextData = {
 						modules: visibleFiles
-							.filter((file) => filesWithExports.has(file.path))
+							.filter(
+								(file) =>
+									filesWithExports.has(file.path) || file.path === seedFilePath,
+							)
 							.map((file) => ({ path: file.path })),
 						symbols: visibleSymbols
 							.filter((symbol) => symbol.exported)
