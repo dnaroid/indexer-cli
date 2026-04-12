@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import type {
 	ChunkRecord,
+	ChunkOverlapSymbol,
 	DependencyRecord,
 	EmbeddingProvider,
 	GitDiff,
@@ -461,6 +462,37 @@ export class IndexerEngine {
 		})[0]?.name;
 	}
 
+	private getOverlappingChunkSymbols(
+		chunk: LanguageCodeChunk,
+		symbolRecords: SymbolRecord[],
+	): ChunkOverlapSymbol[] {
+		return symbolRecords
+			.filter(
+				(symbol) =>
+					(symbol.kind === "function" || symbol.kind === "method") &&
+					symbol.range.start.line <= chunk.range.endLine &&
+					symbol.range.end.line >= chunk.range.startLine,
+			)
+			.sort((a, b) => {
+				const aInside = a.range.start.line >= chunk.range.startLine ? 1 : 0;
+				const bInside = b.range.start.line >= chunk.range.startLine ? 1 : 0;
+				if (aInside !== bInside) {
+					return bInside - aInside;
+				}
+				if (a.range.start.line !== b.range.start.line) {
+					return a.range.start.line - b.range.start.line;
+				}
+				return a.range.end.line - b.range.end.line;
+			})
+			.map((symbol) => ({
+				name: symbol.name,
+				kind: symbol.kind,
+				startLine: symbol.range.start.line,
+				endLine: symbol.range.end.line,
+				signature: symbol.signature,
+			}));
+	}
+
 	private splitHeuristicChunks(
 		content: string,
 		languageId: string,
@@ -695,6 +727,7 @@ export class IndexerEngine {
 		endLine: number;
 		chunkType: ChunkRecord["chunkType"];
 		primarySymbol?: string;
+		metadata?: ChunkRecord["metadata"];
 	}> {
 		if (languagePlugin && parsed) {
 			const pluginChunks = languagePlugin.splitIntoChunks(parsed as any, {
@@ -704,6 +737,10 @@ export class IndexerEngine {
 			if (pluginChunks.length > 0) {
 				return pluginChunks.map((chunk) => {
 					const primarySymbol = this.inferPrimarySymbol(chunk, symbolRecords);
+					const overlappingSymbols = this.getOverlappingChunkSymbols(
+						chunk,
+						symbolRecords,
+					);
 					return {
 						content: chunk.content,
 						startLine: chunk.range.startLine,
@@ -714,6 +751,10 @@ export class IndexerEngine {
 							primarySymbol,
 						),
 						primarySymbol,
+						metadata:
+							overlappingSymbols.length > 0
+								? { overlappingSymbols }
+								: undefined,
 					};
 				});
 			}
@@ -1210,6 +1251,7 @@ export class IndexerEngine {
 				chunkType: chunk.chunkType,
 				primarySymbol: chunk.primarySymbol,
 				hasOverlap: false,
+				metadata: chunk.metadata,
 			});
 			chunksContent.set(chunkId, chunk.content);
 		}

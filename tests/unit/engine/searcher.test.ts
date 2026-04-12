@@ -34,7 +34,7 @@ function createMetadataStoreMock(): MetadataStore {
 		replaceChunks: vi.fn(),
 		listChunks: vi.fn(),
 		replaceSymbols: vi.fn(),
-		listSymbols: vi.fn(),
+		listSymbols: vi.fn().mockResolvedValue([]),
 		searchSymbols: vi.fn(),
 		replaceDependencies: vi.fn(),
 		listDependencies: vi.fn(),
@@ -196,6 +196,129 @@ describe("SearchEngine", () => {
 				primarySymbol: undefined,
 			},
 		]);
+	});
+
+	it("prefers the most query-relevant overlapping symbol at search time", async () => {
+		readFileMock.mockResolvedValue(
+			[
+				"class AuthController {",
+				"  loginAsUser() {",
+				"    return this.loginService.loginAsUser();",
+				"  }",
+				"",
+				"  federateCallback() {",
+				"    return this.authService.handleMagicLinkLogin();",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const metadata = createMetadataStoreMock();
+		vi.mocked(metadata.listSymbols).mockResolvedValue([
+			{
+				snapshotId: "snap-1",
+				id: "sym-1",
+				filePath: "src/auth.controller.ts",
+				kind: "method",
+				name: "loginAsUser",
+				exported: false,
+				range: {
+					start: { line: 2, character: 0 },
+					end: { line: 4, character: 1 },
+				},
+			},
+			{
+				snapshotId: "snap-1",
+				id: "sym-2",
+				filePath: "src/auth.controller.ts",
+				kind: "method",
+				name: "federateCallback",
+				exported: false,
+				range: {
+					start: { line: 6, character: 0 },
+					end: { line: 8, character: 1 },
+				},
+			},
+		]);
+		const vectors = createVectorStoreMock([
+			{
+				chunkId: "chunk-4",
+				snapshotId: "snap-1",
+				filePath: "src/auth.controller.ts",
+				startLine: 2,
+				endLine: 8,
+				contentHash: "hash-4",
+				score: 0.93,
+				chunkType: "impl",
+				primarySymbol: "loginAsUser",
+			},
+		]);
+		const embedder = createEmbedderMock([[0.4, 0.5, 0.6]]);
+		const engine = new SearchEngine(metadata, vectors, embedder, "/repo");
+
+		const results = await engine.search(
+			"project-1",
+			"snap-1",
+			"magic link login",
+			{ includeContent: false },
+		);
+
+		expect(results[0]?.primarySymbol).toBe("federateCallback");
+		expect(readFileMock).toHaveBeenCalledWith(
+			"/repo/src/auth.controller.ts",
+			"utf-8",
+		);
+	});
+
+	it("falls back to the indexed primary symbol when overlap scoring finds no match", async () => {
+		readFileMock.mockResolvedValue(
+			"export function runTask() {}\nexport function syncTask() {}",
+		);
+		const metadata = createMetadataStoreMock();
+		vi.mocked(metadata.listSymbols).mockResolvedValue([
+			{
+				snapshotId: "snap-1",
+				id: "sym-1",
+				filePath: "src/app.ts",
+				kind: "function",
+				name: "runTask",
+				exported: true,
+				range: {
+					start: { line: 1, character: 0 },
+					end: { line: 1, character: 28 },
+				},
+			},
+			{
+				snapshotId: "snap-1",
+				id: "sym-2",
+				filePath: "src/app.ts",
+				kind: "function",
+				name: "syncTask",
+				exported: true,
+				range: {
+					start: { line: 2, character: 0 },
+					end: { line: 2, character: 29 },
+				},
+			},
+		]);
+		const vectors = createVectorStoreMock([
+			{
+				chunkId: "chunk-5",
+				snapshotId: "snap-1",
+				filePath: "src/app.ts",
+				startLine: 1,
+				endLine: 2,
+				contentHash: "hash-5",
+				score: 0.88,
+				chunkType: "impl",
+				primarySymbol: "runTask",
+			},
+		]);
+		const embedder = createEmbedderMock([[0.9, 0.1, 0.2]]);
+		const engine = new SearchEngine(metadata, vectors, embedder, "/repo");
+
+		const results = await engine.search("project-1", "snap-1", "payments");
+
+		expect(results[0]?.primarySymbol).toBe("runTask");
 	});
 
 	it("filters out results below minScore after applying chunk-type penalties", async () => {

@@ -670,6 +670,15 @@ describe("IndexerEngine internals", () => {
 				result.chunkRecords.map((chunk: ChunkRecord) => chunk.chunkType),
 			).toEqual(["imports", "impl"]);
 			expect(result.chunkRecords[1]?.primarySymbol).toBe("runTask");
+			expect(result.chunkRecords[1]?.metadata?.overlappingSymbols).toEqual([
+				{
+					name: "runTask",
+					kind: "function",
+					startLine: 2,
+					endLine: 3,
+					signature: "function runTask(): void",
+				},
+			]);
 			expect(result.metrics.churn).toBe(7);
 		});
 

@@ -53,6 +53,20 @@ export interface ChunkRecord {
 		| "types";
 	primarySymbol?: string;
 	hasOverlap?: boolean;
+	metadata?: ChunkMetadata;
+}
+
+export interface ChunkMetadata {
+	overlappingSymbols?: ChunkOverlapSymbol[];
+	[key: string]: unknown;
+}
+
+export interface ChunkOverlapSymbol {
+	name: string;
+	kind: string;
+	startLine: number;
+	endLine: number;
+	signature?: string;
 }
 
 export interface SymbolRecord {
