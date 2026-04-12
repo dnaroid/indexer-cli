@@ -63,16 +63,114 @@ The ~0.68 band is where false positives concentrate. A threshold at 0.70 would e
 
 ### Problem
 
-The `function` metadata in search results does not reflect the name of the enclosing function/method. Instead, it shows a variable name or parameter found somewhere inside the matched code chunk.
+The `function` metadata in search results does not reflect the name of the enclosing function/method. Instead, it shows a variable name, parameter, or identifier found somewhere inside the matched code chunk — often the first prominent identifier after the function declaration.
 
 ### Evidence
 
-| Query              | Result line                                            | Expected `function`     | Actual `function`     |
-| ------------------ | ------------------------------------------------------ | ----------------------- | --------------------- |
-| `password reset`   | `auth.service.ts:148-208 (score: 0.72, function: user)`    | `resetPassword`         | `user`                |
-| `magic link login` | `auth.controller.ts:176-193 (score: 0.75, function: host)` | `magicLinkLogin`        | `host`                |
-| `email template`   | `custom-email.lambda.js:22-70 (score: 0.83, function: template)` | `handler` or similar    | `template`            |
-| `stripe webhook`   | `billing.service.ts:299-360 (score: 0.80, function: user)` | `handleStripeWebhook`   | `user`                |
+| Query                        | Result file:lines                       | Expected `function`                              | Actual `function` | Score |
+| ---------------------------- | --------------------------------------- | ------------------------------------------------ | ----------------- | ----- |
+| `password reset`             | `auth.service.ts:148-208`               | `resetPassword`                                  | `user`            | 0.72  |
+| `magic link login`           | `auth.controller.ts:176-193`            | `federateCallback`                               | `host`            | 0.75  |
+| `magic link login`           | `auth.service.ts:269-291`               | `sendMagicLink`                                  | `hash`            | 0.73  |
+| `magic link login`           | `emails.ts:11-49`                       | `magicLink`                                      | `config`          | 0.71  |
+| `billing subscription cancel` | `billing.service.ts:404-471`            | `abortSubscription`                              | `updatedUser`     | 0.85  |
+| `billing subscription cancel` | `stripe.service.ts:157-220`             | `abortCurrentAndNextSubscription`                | `schedules`       | 0.84  |
+| `billing subscription cancel` | `stripe.service.ts:78-162`              | `getCustomerSubscriptionsAndSchedules` / `abortSubscription` | `subs`      | 0.83  |
+| `email template`             | `custom-email.lambda.js:22-70`          | `handler`                                        | `template`        | 0.83  |
+| `stripe webhook`             | `billing.service.ts:299-360`            | `handleStripeWebhook`                            | `user`            | 0.80  |
+
+**Pattern**: The `function` value is always a variable or parameter name from inside the function body, never the declared function name.
+
+### Detailed repro steps
+
+**Test project**: `/Volumes/128GBSSD/Projects/smart-learning-platform-server`
+
+#### Case 1: `password reset` → `function: user`
+
+```bash
+cd /Volumes/128GBSSD/Projects/smart-learning-platform-server
+npx indexer-cli search "password reset"
+```
+
+Output:
+```
+src/models/auth/auth.service.ts:148-208 (score: 0.72, function: user)
+```
+
+Actual code at `auth.service.ts:148-208` (read the file):
+```typescript
+async resetPassword({ email }: RegisterDto) {   // ← declared name: resetPassword
+    const user = await this.usersRepository.findOne({ where: { email } });  // ← "user" picked up
+    if (user) {
+      user.confirmation_code = this.generateConfirmationCode();
+      await this.usersRepository.save(user);
+      ...
+```
+
+The `function` field shows `user` — a local variable from line ~150, not the method name `resetPassword` on line 148.
+
+#### Case 2: `magic link login` → `function: host`
+
+```bash
+npx indexer-cli search "magic link login"
+```
+
+Output:
+```
+src/models/auth/auth.controller.ts:176-193 (score: 0.75, function: host)
+```
+
+Actual code at `auth.controller.ts:176-193`:
+```typescript
+@Get("link")
+async federateCallback(@Query() ...) {          // ← declared name: federateCallback
+    const host = req.get("host");                // ← "host" picked up
+    return res.redirect(`${host}/en/federate-callback?token=...`);
+```
+
+The `function` field shows `host` — an Express request property, not the method name `federateCallback`.
+
+#### Case 3: `billing subscription cancel` → `function: schedules`
+
+```bash
+npx indexer-cli search "billing subscription cancel"
+```
+
+Output:
+```
+src/models/stripe/stripe.service.ts:157-220 (score: 0.84, function: schedules)
+```
+
+Actual code at `stripe.service.ts:157-220`:
+```typescript
+async abortCurrentAndNextSubscription(customer: string) {  // ← declared name
+    const { subscriptions, schedules } = await ...;         // ← "schedules" picked up
+```
+
+The `function` field shows `schedules` — a destructured variable from the return value.
+
+#### Case 4: `magic link login` → `function: config`
+
+```bash
+npx indexer-cli search "magic link login"
+```
+
+Output:
+```
+src/models/aws/emails.ts:11-49 (score: 0.71, function: config)
+```
+
+Actual code at `emails.ts:11-49`:
+```typescript
+const config = () => {                   // ← this is a module-level const, NOT the exported function
+    return configService.getAppConfig();
+};
+
+export function magicLink(to: string, hash: string) {  // ← this is the actual exported function
+    const subj = `Your magic link for ${config().siteTitle} sign in`;
+```
+
+The `function` field shows `config` — a private helper, not the exported `magicLink` function that the chunk is actually about.
 
 ### Impact
 
@@ -82,17 +180,18 @@ The `function` metadata in search results does not reflect the name of the enclo
 
 ### Root cause hypothesis
 
-The `function` value is likely extracted as the first identifier found in the chunk, or the closest AST node name, rather than the enclosing function/method declaration. For example:
+The `function` value is likely extracted as the first prominent identifier found in the chunk after function declaration, or from an imperfect AST traversal. The pattern across all evidence:
 
-```typescript
-// In auth.service.ts:148-208
-async resetPassword(user: User, ...) {  // ← should be "resetPassword"
-  const token = user.resetToken;         // ← "user" is picked up instead
-```
+1. **Destructured variables** are picked up: `{ subscriptions, schedules }` → `schedules`
+2. **Local variables** are picked up: `const user = await ...` → `user`
+3. **Request properties** are picked up: `req.get("host")` → `host`
+4. **Module-level helpers** override exported functions: `const config = () => ...` over `export function magicLink`
+
+The extraction logic appears to grab a "representative identifier" from inside the chunk rather than resolving the enclosing function/method declaration from the AST.
 
 ### Proposed fix
 
-1. **Use the enclosing function/method name** from the AST, not an internal identifier.
+1. **Use the enclosing function/method name** from the AST, not an internal identifier. Walk up the AST tree from the matched chunk range to find the nearest `FunctionDeclaration`, `MethodDefinition`, or `ArrowFunctionExpression` with a name.
 2. **Or: label the field more accurately** as `context` instead of `function`, since it doesn't consistently represent a function name.
 3. **Or: include both** — `function: resetPassword, variable: user` — to preserve the current behavior while adding the correct name.
 

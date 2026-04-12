@@ -418,16 +418,17 @@ export class IndexerEngine {
 			return explicitPrimary;
 		}
 
-		const inChunk = symbolRecords.filter(
+		// Match symbols whose range overlaps the chunk range
+		const overlapping = symbolRecords.filter(
 			(symbol) =>
-				symbol.range.start.line >= chunk.range.startLine &&
-				symbol.range.start.line <= chunk.range.endLine,
+				symbol.range.start.line <= chunk.range.endLine &&
+				symbol.range.end.line >= chunk.range.startLine,
 		);
-		if (inChunk.length === 0) {
+		if (overlapping.length === 0) {
 			return undefined;
 		}
 
-		const priority = new Map<string, number>([
+		const kindPriority = new Map<string, number>([
 			["function", 5],
 			["method", 5],
 			["class", 4],
@@ -436,13 +437,27 @@ export class IndexerEngine {
 			["variable", 1],
 		]);
 
-		return inChunk.sort((a, b) => {
-			const aPriority = priority.get(a.kind) ?? 0;
-			const bPriority = priority.get(b.kind) ?? 0;
+		return overlapping.sort((a, b) => {
+			const aPriority = kindPriority.get(a.kind) ?? 0;
+			const bPriority = kindPriority.get(b.kind) ?? 0;
 			if (aPriority !== bPriority) {
 				return bPriority - aPriority;
 			}
-			return a.range.start.line - b.range.start.line;
+			// Symbols starting inside the chunk are more representative than
+			// enclosing ones that only overlap from before the chunk start
+			const aInside = a.range.start.line >= chunk.range.startLine ? 1 : 0;
+			const bInside = b.range.start.line >= chunk.range.startLine ? 1 : 0;
+			if (aInside !== bInside) {
+				return bInside - aInside;
+			}
+			if (aInside) {
+				// First symbol in chunk is most representative
+				return a.range.start.line - b.range.start.line;
+			}
+			// For enclosing symbols, prefer the most specific (smallest span)
+			const aSpan = a.range.end.line - a.range.start.line;
+			const bSpan = b.range.end.line - b.range.start.line;
+			return aSpan - bSpan;
 		})[0]?.name;
 	}
 

@@ -310,7 +310,6 @@ export class TypeScriptPlugin implements LanguagePlugin {
 					segment.statementKinds ?? [],
 					index === 0,
 				),
-				primarySymbol: this.extractPrimarySymbol(segment.text),
 			},
 		}));
 	}
@@ -362,27 +361,6 @@ export class TypeScriptPlugin implements LanguagePlugin {
 		if (hasType) return "types";
 
 		return "impl";
-	}
-
-	private extractPrimarySymbol(text: string): string | undefined {
-		const trimmed = text.trim();
-		if (!trimmed) return undefined;
-
-		const declarationMatch = trimmed.match(
-			/\b(function|class|interface|type|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/,
-		);
-		if (declarationMatch) {
-			return declarationMatch[2];
-		}
-
-		const methodMatch = trimmed.match(
-			/\b([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^)]*\)\s*\{/,
-		);
-		if (methodMatch) {
-			return methodMatch[1];
-		}
-
-		return undefined;
 	}
 
 	private estimateTokens(text: string): number {
