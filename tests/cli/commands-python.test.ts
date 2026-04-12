@@ -337,10 +337,8 @@ describe.sequential("CLI e2e Python", () => {
 			expect(withContent.exitCode).toBe(0);
 			expect(withoutContent.exitCode).toBe(0);
 			expect(parseSearchResults(withContent.stdout).length).toBeGreaterThan(0);
-			expect(withContentLines.length).toBeGreaterThan(
-				withoutContentResults.length,
-			);
-			expect(withoutContentLines.length).toBe(withoutContentResults.length);
+			expect(withContent.stdout).toContain("class AppLogger");
+			expect(withoutContent.stdout).not.toContain("class AppLogger");
 		});
 
 		it("renders text output", () => {

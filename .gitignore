@@ -14,5 +14,7 @@ yarn-error.log*
 /dist/
 /coverage/
 /.sisyphus/
+/.indexer-cli/
+/.claude/
 .indexer-cli/
 .claude/
