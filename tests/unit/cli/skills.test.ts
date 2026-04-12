@@ -22,7 +22,7 @@ describe("generated skills", () => {
 		expect(skill).toBeDefined();
 		expect(skill?.directory).toBe("repo-context");
 		expect(skill?.content).toContain("name: repo-context");
-		expect(skill?.content).toContain("npx indexer-cli context");
+		expect(skill?.content).toContain("npx -y indexer-cli context");
 	});
 
 	it("keeps the refined semantic-search template structure", () => {

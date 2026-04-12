@@ -12,9 +12,12 @@ import { ensureIndexed } from "./ensure-indexed.js";
 
 type SearchResult = Awaited<ReturnType<SearchEngine["search"]>>[number];
 
-function parseMinScore(input?: string): number | undefined {
+function parseMinScore(
+	input?: string,
+	fallback: number = 0.55,
+): number | undefined {
 	if (!input) {
-		return 0.45;
+		return fallback;
 	}
 
 	const minScore = Number.parseFloat(input);
@@ -42,7 +45,7 @@ export function registerSearchCommand(program: Command): void {
 		)
 		.option(
 			"--min-score <number>",
-			"filter out results with score below the given value (0..1, default: 0.45)",
+			"filter out results with score below the given value (0..1, default: from config)",
 		)
 		.option(
 			"--include-content",
@@ -102,7 +105,10 @@ export function registerSearchCommand(program: Command): void {
 					}
 
 					const maxFiles = Number.parseInt(options?.maxFiles ?? "3", 10);
-					const minScore = parseMinScore(options?.minScore);
+					const minScore = parseMinScore(
+						options?.minScore,
+						config.get("searchMinScore"),
+					);
 					const chunkTypes = options?.chunkTypes
 						?.split(",")
 						.map((value) => value.trim())

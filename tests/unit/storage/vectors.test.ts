@@ -275,24 +275,24 @@ describe("SqliteVecVectorStore search", () => {
 			{
 				...createVectorRecord(0),
 				chunkId: "chunk-far",
-				embedding: [5, 5, 5],
+				embedding: [0, 1, 0],
 			},
 			{
 				...createVectorRecord(1),
 				chunkId: "chunk-near",
-				embedding: [1, 1, 1],
+				embedding: [1, 0, 0],
 			},
 		]);
 
-		const results = await store.search([0, 0, 0], 1, {
+		const results = await store.search([1, 0, 0], 1, {
 			projectId: "project-1",
 			snapshotId: "snap-1",
 		});
 
 		expect(results).toHaveLength(1);
 		expect(results[0].chunkId).toBe("chunk-near");
-		expect(results[0].distance).toBeCloseTo(Math.sqrt(3));
-		expect(results[0].score).toBeCloseTo(1 / (1 + Math.sqrt(3)));
+		expect(results[0].distance).toBeCloseTo(0);
+		expect(results[0].score).toBeCloseTo(1);
 		store.close();
 	});
 
@@ -391,7 +391,7 @@ describe("SqliteVecVectorStore search", () => {
 			},
 		]);
 
-		const results = await store.search([0, 0, 0], 1, {
+		const results = await store.search([0.25, 0.25, 0.25], 1, {
 			projectId: "project-1",
 			snapshotId: "snap-1",
 		});
@@ -407,7 +407,7 @@ describe("SqliteVecVectorStore search", () => {
 		expect(r.chunkType).toBe("impl");
 		expect(r.primarySymbol).toBe("MyFunc");
 		expect(typeof r.distance).toBe("number");
-		expect(typeof r.score).toBe("number");
+		expect(r.score).toBeCloseTo(1);
 		store.close();
 	});
 

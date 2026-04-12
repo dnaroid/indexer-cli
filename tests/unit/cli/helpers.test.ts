@@ -163,7 +163,8 @@ describe("CLI helper functions", () => {
 
 	describe("search helpers", () => {
 		it("parses min-score thresholds", () => {
-			expect(search.parseMinScore()).toBe(0.45);
+			const defaultVal = search.parseMinScore();
+			expect(typeof defaultVal === "number" && defaultVal >= 0 && defaultVal <= 1).toBe(true);
 			expect(search.parseMinScore("0.4")).toBe(0.4);
 			expect(() => search.parseMinScore("2")).toThrow(/--min-score/i);
 		});

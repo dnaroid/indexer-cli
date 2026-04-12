@@ -16,6 +16,7 @@ const DEFAULT_CONFIG = {
 	indexBatchSize: 8,
 	logLevel: "error",
 	excludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
+	searchMinScore: 0.55,
 };
 
 describe("ConfigManager", () => {

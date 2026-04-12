@@ -188,6 +188,10 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 	}
 
 	private async fallbackSequentialEmbed(texts: string[]): Promise<number[][]> {
+		logger.warn(
+			"Using legacy /api/embeddings endpoint — vectors may not be normalized. " +
+				"Update Ollama to a version that supports /api/embed for best results.",
+		);
 		const embeddings: number[][] = [];
 
 		for (const text of texts) {

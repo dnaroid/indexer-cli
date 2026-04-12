@@ -13,6 +13,7 @@ export interface IndexerConfig {
 	indexBatchSize: number;
 	logLevel: string;
 	excludePaths: string[];
+	searchMinScore: number;
 }
 
 export const DEFAULT_CONFIG: IndexerConfig = {
@@ -27,6 +28,7 @@ export const DEFAULT_CONFIG: IndexerConfig = {
 	indexBatchSize: 8,
 	logLevel: "error",
 	excludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
+	searchMinScore: 0.55,
 };
 
 export class ConfigManager {
@@ -82,6 +84,12 @@ export class ConfigManager {
 					this.config.excludePaths = excludePaths;
 				}
 			}
+			if (
+				typeof parsed.searchMinScore === "number" &&
+				parsed.searchMinScore >= 0 &&
+				parsed.searchMinScore <= 1
+			)
+				this.config.searchMinScore = parsed.searchMinScore;
 		} catch {
 			// config unreadable — keep defaults
 		}

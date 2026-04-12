@@ -1,6 +1,6 @@
 {
   "name": "indexer-cli",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Lightweight CLI project indexer with semantic search via Ollama",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -24,6 +24,7 @@
     "start": "tsx bin/indexer-cli.js",
     "indexer-cli": "tsx bin/indexer-cli.js",
     "indexer-cli:init": "tsx bin/indexer-cli.js init",
+    "indexer-cli:uninstall": "tsx bin/indexer-cli.js uninstall -f",
     "refresh-skills": "tsx bin/indexer-cli.js init --refresh-skills",
     "install:global": "npm run build && npm link --force",
     "uninstall:global": "npm unlink -g indexer-cli",

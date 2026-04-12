@@ -203,7 +203,7 @@ export class SqliteVecVectorStore implements VectorStore {
 
 		const rows = db
 			.prepare(`
-				SELECT vm.*, vec_distance_L2(vc.embedding, vec_f32(?)) AS distance
+				SELECT vm.*, vec_distance_cosine(vc.embedding, vec_f32(?)) AS distance
 				FROM vec_chunks vc
 				JOIN vector_meta vm ON vc.chunk_id = vm.chunk_id
 				WHERE ${conditions.join(" AND ")}
@@ -225,7 +225,7 @@ export class SqliteVecVectorStore implements VectorStore {
 			contentHash: row.content_hash,
 			chunkType: row.chunk_type || undefined,
 			primarySymbol: row.primary_symbol || undefined,
-			score: 1 / (1 + row.distance),
+			score: Math.max(0, 1 - row.distance / 2),
 			distance: row.distance,
 		}));
 	}
