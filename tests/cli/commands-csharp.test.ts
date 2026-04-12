@@ -391,6 +391,32 @@ describe.sequential("CLI e2e CSharp", () => {
 				).toBe(true);
 			}
 		});
+
+		it("reports function names, not local variable names, in function metadata", () => {
+			const result = runCLI(
+				[
+					"search",
+					"payment processing stripe checkout provider order cents",
+					"--max-files",
+					"10",
+					"--min-score",
+					"0.4",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results.length).toBeGreaterThan(0);
+
+			for (const searchResult of results) {
+				if (searchResult.primarySymbol) {
+					expect(searchResult.primarySymbol).not.toBe("receipt");
+					expect(searchResult.primarySymbol).not.toBe("response");
+					expect(searchResult.primarySymbol).not.toBe("score");
+				}
+			}
+		});
 	});
 
 	describe("structure", () => {

@@ -372,6 +372,36 @@ describe.sequential("CLI e2e Python", () => {
 				expect(searchResult.filePath.startsWith("src/services")).toBe(true);
 			}
 		});
+
+		it("reports function names, not local variable names, in function metadata", () => {
+			const result = runCLI(
+				[
+					"search",
+					"session token validate user authentication",
+					"--max-files",
+					"10",
+					"--min-score",
+					"0.4",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results.length).toBeGreaterThan(0);
+
+			for (const searchResult of results) {
+				if (searchResult.primarySymbol) {
+					expect(searchResult.primarySymbol).not.toBe("email");
+					expect(searchResult.primarySymbol).not.toBe("name");
+					expect(searchResult.primarySymbol).not.toBe("normalized");
+					expect(searchResult.primarySymbol).not.toBe("payload");
+					expect(searchResult.primarySymbol).not.toBe("token");
+					expect(searchResult.primarySymbol).not.toBe("session");
+					expect(searchResult.primarySymbol).not.toBe("expires_at");
+				}
+			}
+		});
 	});
 
 	describe("structure", () => {

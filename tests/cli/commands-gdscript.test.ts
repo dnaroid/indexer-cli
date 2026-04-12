@@ -316,6 +316,31 @@ describe.sequential("CLI e2e GDScript", () => {
 				expect(searchResult.filePath.startsWith("scripts/db")).toBe(true);
 			}
 		});
+
+		it("reports function names, not local variable names, in function metadata", () => {
+			const result = runCLI(
+				[
+					"search",
+					"save profile progress logger warning",
+					"--max-files",
+					"10",
+					"--min-score",
+					"0.4",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results.length).toBeGreaterThan(0);
+
+			for (const searchResult of results) {
+				if (searchResult.primarySymbol) {
+					expect(searchResult.primarySymbol).not.toBe("defaults");
+					expect(searchResult.primarySymbol).not.toBe("entry");
+				}
+			}
+		});
 	});
 
 	describe("structure", () => {
