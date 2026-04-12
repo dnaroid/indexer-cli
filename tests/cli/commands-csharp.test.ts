@@ -413,7 +413,16 @@ describe.sequential("CLI e2e CSharp", () => {
 				if (searchResult.primarySymbol) {
 					expect(searchResult.primarySymbol).not.toBe("receipt");
 					expect(searchResult.primarySymbol).not.toBe("response");
+					expect(searchResult.primarySymbol).not.toBe("settings");
+					expect(searchResult.primarySymbol).not.toBe("playerId");
+					expect(searchResult.primarySymbol).not.toBe("displayName");
+					expect(searchResult.primarySymbol).not.toBe("normalized");
 					expect(searchResult.primarySymbol).not.toBe("score");
+					expect(searchResult.primarySymbol).not.toBe("echo");
+					expect(searchResult.primarySymbol).not.toBe("worker");
+					expect(searchResult.primarySymbol).not.toBe("sessionResponse");
+					expect(searchResult.primarySymbol).not.toBe("paymentResponse");
+					expect(searchResult.primarySymbol).not.toBe("combatReady");
 				}
 			}
 		});

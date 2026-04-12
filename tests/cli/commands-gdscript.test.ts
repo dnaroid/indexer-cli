@@ -338,6 +338,16 @@ describe.sequential("CLI e2e GDScript", () => {
 				if (searchResult.primarySymbol) {
 					expect(searchResult.primarySymbol).not.toBe("defaults");
 					expect(searchResult.primarySymbol).not.toBe("entry");
+					expect(searchResult.primarySymbol).not.toBe("response");
+					expect(searchResult.primarySymbol).not.toBe("score");
+					expect(searchResult.primarySymbol).not.toBe("loader");
+					expect(searchResult.primarySymbol).not.toBe("history");
+					expect(searchResult.primarySymbol).not.toBe("elapsed");
+					expect(searchResult.primarySymbol).not.toBe("retries");
+					expect(searchResult.primarySymbol).not.toBe("message");
+					expect(searchResult.primarySymbol).not.toBe("code");
+					expect(searchResult.primarySymbol).not.toBe("error_type");
+					expect(searchResult.primarySymbol).not.toBe("total");
 				}
 			}
 		});
