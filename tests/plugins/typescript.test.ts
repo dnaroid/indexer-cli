@@ -419,7 +419,32 @@ describe("TypeScriptPlugin", () => {
 			expect(chunks).toHaveLength(1);
 			expect(chunks[0].content).toContain("const value0 = 0;");
 			expect(chunks[0].content).toContain("const value7 = 7;");
-			expect(chunks[0].metadata?.primarySymbol).toBe("value0");
+			expect(chunks[0].metadata?.primarySymbol).toBeUndefined();
+		});
+
+		it("does not return local variable as primarySymbol for mid-method chunks", () => {
+			const parsed = parseInline(
+				"inline/auth.service.ts",
+				[
+					"class AuthService {",
+					"  async resetPassword(user: string, token: string) {",
+					"    const existingUser = await this.repo.find(user);",
+					"    const resetToken = user.resetToken;",
+					"    return existingUser;",
+					"  }",
+					"}",
+				].join("\n"),
+			);
+
+			const chunks = plugin.splitIntoChunks(parsed, {
+				targetTokens: 40,
+				maxTokens: 80,
+			});
+			for (const chunk of chunks) {
+				expect(chunk.metadata?.primarySymbol).not.toBe("existingUser");
+				expect(chunk.metadata?.primarySymbol).not.toBe("resetToken");
+				expect(chunk.metadata?.primarySymbol).not.toBe("user");
+			}
 		});
 
 		it("returns no chunks for whitespace-only content", () => {

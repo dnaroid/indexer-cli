@@ -381,6 +381,39 @@ describe.sequential("CLI e2e", () => {
 				expect(result.filePath.startsWith("src/services")).toBe(true);
 			}
 		});
+
+		it("reports function names, not local variable names, in function metadata", () => {
+			const result = runCLI(
+				[
+					"search",
+					"session token validate user authentication",
+					"--max-files",
+					"10",
+					"--min-score",
+					"0.4",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results.length).toBeGreaterThan(0);
+
+			for (const r of results) {
+				if (r.primarySymbol) {
+					expect(r.primarySymbol).not.toBe("user");
+					expect(r.primarySymbol).not.toBe("token");
+					expect(r.primarySymbol).not.toBe("session");
+					expect(r.primarySymbol).not.toBe("expiresAt");
+					expect(r.primarySymbol).not.toBe("payload");
+					expect(r.primarySymbol).not.toBe("parts");
+					expect(r.primarySymbol).not.toBe("decoded");
+					expect(r.primarySymbol).not.toBe("normalized");
+					expect(r.primarySymbol).not.toBe("email");
+					expect(r.primarySymbol).not.toBe("name");
+				}
+			}
+		});
 	});
 
 	describe("structure", () => {

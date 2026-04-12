@@ -369,7 +369,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 		if (!trimmed) return undefined;
 
 		const declarationMatch = trimmed.match(
-			/\b(function|class|interface|type|enum|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)/,
+			/\b(function|class|interface|type|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/,
 		);
 		if (declarationMatch) {
 			return declarationMatch[2];
