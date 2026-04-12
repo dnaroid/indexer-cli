@@ -18,7 +18,7 @@ function parseSearchResults(
 	output: string,
 ): Array<{ filePath: string; score: number; primarySymbol?: string }> {
 	return output
-		.split("---")
+		.split("\n")
 		.map((block) => {
 			const match = block
 				.trim()

@@ -28,6 +28,36 @@ type ContextData = {
 
 const DEFAULT_TEST_EXCLUDE_PATH_PATTERNS = ["tests/**", "**/tests/**"];
 
+function estimateTokens(data: {
+	architecture?: { fileStats: Record<string, number>; entrypoints: string[] };
+	modules: Array<{ path: string }>;
+	symbols: Array<{
+		file: string;
+		name: string;
+		kind: string;
+		signature?: string;
+	}>;
+	dependencies: Record<string, string[]>;
+}): number {
+	let charCount = 0;
+	if (data.architecture) {
+		charCount += Object.entries(data.architecture.fileStats)
+			.map(([k, v]) => `${k}: ${v}`)
+			.join(", ").length;
+		charCount += data.architecture.entrypoints.join(", ").length;
+	}
+	for (const mod of data.modules) charCount += mod.path.length + 1;
+	for (const sym of data.symbols) {
+		charCount +=
+			`${sym.file}::${sym.name} (${sym.kind})${sym.signature ? ` — ${sym.signature}` : ""}`
+				.length + 1;
+	}
+	for (const [from, to] of Object.entries(data.dependencies)) {
+		charCount += `${from} -> ${to.join(", ")}`.length + 1;
+	}
+	return Math.ceil(charCount / 4);
+}
+
 function parseMaxDeps(input?: string): number | undefined {
 	if (!input) {
 		return undefined;

@@ -28,7 +28,7 @@ function parseSearchResults(
 	output: string,
 ): Array<{ filePath: string; score: number; primarySymbol?: string }> {
 	return output
-		.split("---")
+		.split("\n")
 		.map((block) => {
 			const match = block
 				.trim()
@@ -418,7 +418,12 @@ describe.sequential("CLI e2e Ruby", () => {
 
 		it("shows private Ruby methods as non-exported", () => {
 			const result = runCLI(
-				["structure", "--path-prefix", "lib/services/user_service.rb"],
+				[
+					"structure",
+					"--path-prefix",
+					"lib/services/user_service.rb",
+					"--include-internal",
+				],
 				{
 					cwd: TEMP_DIR,
 				},

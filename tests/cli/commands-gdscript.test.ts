@@ -24,7 +24,7 @@ function parseSearchResults(
 	output: string,
 ): Array<{ filePath: string; score: number; primarySymbol?: string }> {
 	return output
-		.split("---")
+		.split("\n")
 		.map((block) => {
 			const match = block
 				.trim()
@@ -339,9 +339,12 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("filters functions with --kind function", () => {
-			const result = runCLI(["structure", "--kind", "function"], {
-				cwd: TEMP_DIR,
-			});
+			const result = runCLI(
+				["structure", "--kind", "function", "--include-internal"],
+				{
+					cwd: TEMP_DIR,
+				},
+			);
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("_ready (function");

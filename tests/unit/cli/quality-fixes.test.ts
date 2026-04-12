@@ -83,6 +83,7 @@ const structure = await loadInternals<{
 		maxDepth?: number,
 		fileCounter?: { printed: number; hidden: number },
 		maxFiles?: number,
+		includeInternal?: boolean,
 	) => void;
 }>(
 	"../../../src/cli/commands/structure.ts",
@@ -422,9 +423,19 @@ describe("CLI quality fixes", () => {
 			const root = structure.createNode();
 			structure.insertPath(root, "src/empty.ts");
 
-			structure.printTree(root, "", "", new Map<string, SymbolRecord[]>(), 0);
+			structure.printTree(
+				root,
+				"",
+				"",
+				new Map<string, SymbolRecord[]>(),
+				0,
+				undefined,
+				undefined,
+				undefined,
+				false,
+			);
 
-			expect(logs).toEqual(["src/", "  empty.ts", "    (no symbols)"]);
+			expect(logs).toEqual(["src/", "  empty.ts", "    (no exported symbols)"]);
 		});
 	});
 });
