@@ -497,12 +497,11 @@ describe.sequential("CLI e2e Ruby", () => {
 	});
 
 	describe("context", () => {
-		it("returns text context with symbols, modules, dependencies, and meta", () => {
+		it("returns text context with modules, symbols, and dependencies", () => {
 			const result = runCLI(["context"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Architecture");
-			expect(result.stdout).toContain(`Files: ruby: ${FIXTURE_FILE_COUNT}`);
+			expect(result.stdout).toContain("## Modules");
 			expect(result.stdout).toContain("bin/app.rb");
 			expect(result.stdout).toContain("## Key Symbols");
 			expect(result.stdout).toContain(
@@ -511,14 +510,15 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(result.stdout).toContain(
 				"lib/payments/processor.rb::ProcessorBase",
 			);
-			expect(result.stdout).toContain("Estimated tokens:");
+			expect(result.stdout).not.toContain("## Architecture");
+			expect(result.stdout).not.toContain("Estimated tokens:");
 		});
 
 		it("renders text output", () => {
 			const result = runCLI(["context"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Architecture");
+			expect(result.stdout).toContain("## Modules");
 			expect(result.stdout).toContain("## Key Symbols");
 		});
 
@@ -550,9 +550,7 @@ describe.sequential("CLI e2e Ruby", () => {
 				cwd: TEMP_DIR,
 			});
 			const dependencySection =
-				result.stdout
-					.split("## Module Dependencies")[1]
-					?.split("Estimated tokens:")[0] ?? "";
+				result.stdout.split("## Module Dependencies")[1] ?? "";
 			const dependencyLines = dependencySection
 				.split("\n")
 				.filter((line) => line.includes(" -> "));

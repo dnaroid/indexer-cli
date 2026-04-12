@@ -142,6 +142,9 @@ function collectDescendantFiles(
 	return entries;
 }
 
+const NO_SYMBOLS_EXPORTED_ONLY = "(no exported symbols)";
+const NO_SYMBOLS_ALL = "(no symbols)";
+
 function printTree(
 	node: TreeNode,
 	indent: string,
@@ -151,7 +154,11 @@ function printTree(
 	maxDepth?: number,
 	fileCounter?: { printed: number; hidden: number },
 	maxFiles?: number,
+	includeInternal?: boolean,
 ): void {
+	const noSymbolsText = includeInternal
+		? NO_SYMBOLS_ALL
+		: NO_SYMBOLS_EXPORTED_ONLY;
 	if (maxDepth !== undefined && depth >= maxDepth) {
 		if (node.files.size > 0) {
 			const summary = summarizeHiddenChildren(node);
@@ -174,7 +181,7 @@ function printTree(
 				console.log(`${indent}  ${symbol.name} (${symbol.kind}${exported})`);
 			}
 			if (file.symbols.length === 0) {
-				console.log(`${indent}  (no symbols)`);
+				console.log(`${indent}  ${noSymbolsText}`);
 			}
 		}
 		return;
@@ -206,6 +213,7 @@ function printTree(
 			maxDepth,
 			fileCounter,
 			maxFiles,
+			includeInternal,
 		);
 	}
 
@@ -232,7 +240,7 @@ function printTree(
 				console.log(`${indent}  ${symbol.name} (${symbol.kind}${exported})`);
 			}
 		} else {
-			console.log(`${indent}  (no symbols)`);
+			console.log(`${indent}  ${noSymbolsText}`);
 		}
 	}
 }
@@ -249,12 +257,17 @@ export function registerStructureCommand(program: Command): void {
 			"limit directory traversal depth in the rendered tree",
 		)
 		.option("--max-files <number>", "limit number of files shown in output")
+		.option(
+			"--include-internal",
+			"include non-exported symbols (methods, private members)",
+		)
 		.action(
 			async (options?: {
 				pathPrefix?: string;
 				kind?: string;
 				maxDepth?: string;
 				maxFiles?: string;
+				includeInternal?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
@@ -306,6 +319,9 @@ export function registerStructureCommand(program: Command): void {
 						) {
 							continue;
 						}
+						if (!options?.includeInternal && !symbol.exported) {
+							continue;
+						}
 						const current = symbolsByFile.get(symbol.filePath) ?? [];
 						current.push(symbol);
 						symbolsByFile.set(symbol.filePath, current);
@@ -330,6 +346,7 @@ export function registerStructureCommand(program: Command): void {
 						maxDepth,
 						fileCounter,
 						maxFiles,
+						options?.includeInternal,
 					);
 					if (fileCounter && fileCounter.hidden > 0) {
 						console.log(

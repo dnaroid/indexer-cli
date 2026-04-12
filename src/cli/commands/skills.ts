@@ -205,8 +205,9 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		allowedTools: ["Bash(npx indexer-cli structure:*)"],
 		rules: [
 			"Prefer structure when layout matters more than implementation snippets.",
-			"ALWAYS use --path-prefix or --kind to keep output focused — unfiltered output dumps every symbol in the repo and can exceed 2500 tokens.",
+			"ALWAYS use --path-prefix or --kind to keep output focused — unfiltered output can exceed 2500 tokens.",
 			"Combine --path-prefix with --kind for the tightest result (e.g. --path-prefix src/engine --kind class).",
+			"By default only exported symbols are shown (classes, exported functions, interfaces, types). Use --include-internal to see private methods and non-exported helpers.",
 		],
 		skipWhen: [
 			"You need dependency relationships rather than physical structure",
@@ -216,10 +217,12 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"npx indexer-cli structure --path-prefix src/<area>",
 			"npx indexer-cli structure --path-prefix src/<area> --kind class",
 			"npx indexer-cli structure --kind function",
+			"npx indexer-cli structure --path-prefix src/<area> --include-internal",
 		],
 		cliReference: [
-			"Options: --path-prefix <string>, --kind <string>, --max-depth <number>, --max-files <number>.",
+			"Options: --path-prefix <string>, --kind <string>, --max-depth <number>, --max-files <number>, --include-internal.",
 			"Allowed --kind values: function, class, method, interface, type, variable, module, signal.",
+			"By default shows only exported symbols. Add --include-internal to show all symbols (methods, private members).",
 		],
 	},
 	{
@@ -261,8 +264,10 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		allowedTools: ["Bash(npx indexer-cli context:*)"],
 		rules: [
 			"Prefer context when you want breadth over exact source snippets.",
-			"ALWAYS use --scope — default `--scope all` outputs every symbol in the repo and can exceed 5000 tokens. Use --scope relevant-to:<path> for a focused neighborhood or --scope changed for uncommitted changes.",
+			"ALWAYS use --scope — default `--scope all` outputs every symbol in the repo. Use --scope relevant-to:<path> for a focused neighborhood or --scope changed for uncommitted changes.",
+			"Use --compact to omit symbol signatures and show only file::name (kind) — saves ~50% tokens.",
 			"Lower --max-deps when you need a tighter prompt budget.",
+			"Tests are excluded by default. Add --include-tests to see test files and symbols.",
 		],
 		skipWhen: [
 			"You need exact implementation locations or ranked chunks",
@@ -271,11 +276,13 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		commandSamples: [
 			"npx indexer-cli context --scope relevant-to:src/<area>",
 			"npx indexer-cli context --scope changed",
-			"npx indexer-cli context --scope relevant-to:src/<area> --max-deps 10",
+			"npx indexer-cli context --scope relevant-to:src/<area> --max-deps 10 --compact",
+			"npx indexer-cli context --scope relevant-to:src --compact",
 		],
 		cliReference: [
-			"Options: --scope <scope>, --max-deps <number>, --include-fixtures.",
+			"Options: --scope <scope>, --max-deps <number>, --include-fixtures, --include-tests, --compact.",
 			"Allowed --scope values: all, changed, relevant-to:<path>.",
+			"--compact omits symbol signatures for token savings. --include-tests includes test files.",
 		],
 	},
 	{
@@ -294,6 +301,9 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"Use <file>::<symbol> syntax when the same symbol name exists in multiple files (e.g. `explain src/engine/indexer.ts::IndexerEngine`).",
 			"Use bare <symbol> when the name is unique in the codebase.",
 			"Keep the prompt centered on a single symbol for the cleanest output.",
+			"Use --path-prefix to limit results to files under a specific path (e.g. --path-prefix src/).",
+			"Tests and fixtures are excluded by default. Add --include-fixtures to include them.",
+			"Exact name matches take priority; fuzzy matches only appear when no exact match exists.",
 		],
 		skipWhen: [
 			"You need to discover candidate symbols first",
@@ -302,8 +312,13 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		commandSamples: [
 			"npx indexer-cli explain <symbol>",
 			"npx indexer-cli explain <file>::<symbol>",
+			"npx indexer-cli explain <symbol> --path-prefix src/",
 		],
-		cliReference: ["Positional args: <symbol> or <file>::<symbol>."],
+		cliReference: [
+			"Positional args: <symbol> or <file>::<symbol>.",
+			"Options: --path-prefix <string>, --include-fixtures.",
+			"Tests/fixtures excluded by default. Exact matches prioritized over fuzzy matches.",
+		],
 	},
 	{
 		name: "dependency-trace",

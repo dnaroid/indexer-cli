@@ -406,10 +406,7 @@ describe.sequential("CLI e2e GDScript", () => {
 			const result = runCLI(["context"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Architecture");
-			expect(result.stdout).toContain(
-				`Files: gdscript: ${FIXTURE_GDSCRIPT_FILE_COUNT}`,
-			);
+			expect(result.stdout).toContain("## Modules");
 			expect(result.stdout).toContain("scripts/main.gd");
 			expect(result.stdout).toContain("## Key Symbols");
 			expect(result.stdout).toContain(
@@ -442,7 +439,7 @@ describe.sequential("CLI e2e GDScript", () => {
 			});
 
 			expect(textResult.exitCode).toBe(0);
-			expect(textResult.stdout).toContain("## Architecture");
+			expect(textResult.stdout).toContain("## Modules");
 			expect(changed.exitCode).toBe(0);
 			expect(changed.stdout).toContain("scripts/resources/health_resource.gd");
 		});

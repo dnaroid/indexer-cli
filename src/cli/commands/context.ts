@@ -14,10 +14,6 @@ import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
 type ContextData = {
-	architecture: {
-		fileStats: Record<string, number>;
-		entrypoints: string[];
-	};
 	modules: Array<{
 		path: string;
 	}>;
@@ -29,6 +25,8 @@ type ContextData = {
 	}>;
 	dependencies: Record<string, string[]>;
 };
+
+const DEFAULT_TEST_EXCLUDE_PATH_PATTERNS = ["tests/**", "**/tests/**"];
 
 function parseMaxDeps(input?: string): number | undefined {
 	if (!input) {
@@ -72,24 +70,6 @@ function limitDependencies(
 	};
 }
 
-function estimateTokens(data: ContextData): number {
-	let charCount = 0;
-	charCount += Object.entries(data.architecture.fileStats)
-		.map(([k, v]) => `${k}: ${v}`)
-		.join(", ").length;
-	charCount += data.architecture.entrypoints.join(", ").length;
-	for (const mod of data.modules) charCount += mod.path.length + 1;
-	for (const sym of data.symbols) {
-		charCount +=
-			`${sym.file}::${sym.name} (${sym.kind})${sym.signature ? ` — ${sym.signature}` : ""}`
-				.length + 1;
-	}
-	for (const [from, to] of Object.entries(data.dependencies)) {
-		charCount += `${from} -> ${to.join(", ")}`.length + 1;
-	}
-	return Math.ceil(charCount / 4);
-}
-
 function normalizeScopePath(
 	inputPath: string,
 	resolvedProjectPath: string,
@@ -101,22 +81,9 @@ function normalizeScopePath(
 	return projectRelativePath.replace(/\\/g, "/").replace(/^\.\//, "");
 }
 
-function formatPlain(data: ContextData): void {
-	console.log("## Architecture\n");
-	const stats = Object.entries(data.architecture.fileStats)
-		.sort((a, b) => b[1] - a[1])
-		.map(([lang, count]) => `${lang}: ${count}`)
-		.join(", ");
-	if (stats) console.log(`Files: ${stats}`);
-
-	if (data.architecture.entrypoints.length > 0) {
-		console.log(
-			`Entry points: ${data.architecture.entrypoints.slice(0, 5).join(", ")}`,
-		);
-	}
-
+function formatPlain(data: ContextData, options?: { compact?: boolean }): void {
 	if (data.modules.length > 0) {
-		console.log("\n## Modules\n");
+		console.log("## Modules\n");
 		for (const mod of data.modules) {
 			console.log(mod.path);
 		}
@@ -125,7 +92,11 @@ function formatPlain(data: ContextData): void {
 	if (data.symbols.length > 0) {
 		console.log("\n## Key Symbols\n");
 		for (const sym of data.symbols) {
-			const sig = sym.signature ? ` — ${sym.signature}` : "";
+			const sig = options?.compact
+				? ""
+				: sym.signature
+					? ` — ${sym.signature}`
+					: "";
 			console.log(`${sym.file}::${sym.name} (${sym.kind})${sig}`);
 		}
 	}
@@ -157,11 +128,15 @@ export function registerContextCommand(program: Command): void {
 			"30",
 		)
 		.option("--include-fixtures", "include fixture/vendor paths in output")
+		.option("--include-tests", "include test paths in output")
+		.option("--compact", "use compact one-line-per-symbol output")
 		.action(
 			async (options?: {
 				scope?: string;
 				maxDeps?: string;
 				includeFixtures?: boolean;
+				includeTests?: boolean;
+				compact?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
@@ -224,6 +199,8 @@ export function registerContextCommand(program: Command): void {
 							scope.slice(relevantToPrefix.length),
 							resolvedProjectPath,
 						);
+						const normalizedTargetPath = targetPath.replace(/\/+$/, "");
+						const targetDirectoryPrefix = `${normalizedTargetPath}/`;
 						const moduleFiles = architecture?.module_files ?? {};
 						const dependencyMap = architecture?.dependency_map?.internal ?? {};
 						const targetModuleKey = Object.entries(moduleFiles).find(
@@ -231,20 +208,40 @@ export function registerContextCommand(program: Command): void {
 								moduleFilePaths.some(
 									(filePath) =>
 										normalizeScopePath(filePath, resolvedProjectPath) ===
-										targetPath,
+										normalizedTargetPath,
 								),
 						)?.[0];
+						const targetModuleKeys = targetModuleKey
+							? new Set([targetModuleKey])
+							: new Set(
+									Object.entries(moduleFiles)
+										.filter(([, moduleFilePaths]) =>
+											moduleFilePaths.some((filePath) =>
+												normalizeScopePath(
+													filePath,
+													resolvedProjectPath,
+												).startsWith(targetDirectoryPrefix),
+											),
+										)
+										.map(([moduleKey]) => moduleKey),
+								);
 
-						if (targetModuleKey) {
-							const relatedModuleKeys = new Set<string>([
-								targetModuleKey,
-								...(dependencyMap[targetModuleKey] ?? []),
-								...Object.entries(dependencyMap)
-									.filter(([, toModules]) =>
-										toModules.includes(targetModuleKey),
-									)
-									.map(([fromModule]) => fromModule),
-							]);
+						if (targetModuleKeys.size > 0) {
+							const relatedModuleKeys = new Set<string>(targetModuleKeys);
+							for (const moduleKey of targetModuleKeys) {
+								for (const dependencyModule of dependencyMap[moduleKey] ?? []) {
+									relatedModuleKeys.add(dependencyModule);
+								}
+							}
+							for (const [fromModule, toModules] of Object.entries(
+								dependencyMap,
+							)) {
+								if (
+									toModules.some((toModule) => targetModuleKeys.has(toModule))
+								) {
+									relatedModuleKeys.add(fromModule);
+								}
+							}
 
 							scopeFilePaths = new Set(
 								Array.from(relatedModuleKeys).flatMap(
@@ -253,7 +250,7 @@ export function registerContextCommand(program: Command): void {
 							);
 						} else {
 							scopeFilePaths = null;
-							scopeWarning = `No module found for path \"${targetPath}\"; falling back to full context.`;
+							scopeWarning = `No module found for path \"${normalizedTargetPath}\"; falling back to full context.`;
 						}
 					}
 
@@ -261,12 +258,18 @@ export function registerContextCommand(program: Command): void {
 						scopeFilePaths !== null
 							? files.filter((file) => scopeFilePaths.has(file.path))
 							: files;
-					const visibleFiles = options?.includeFixtures
-						? scopedFiles
-						: scopedFiles.filter(
-								(file) =>
-									!matchesPathPatterns(file.path, config.get("excludePaths")),
-							);
+					const excludePatterns = [
+						...(options?.includeFixtures ? [] : config.get("excludePaths")),
+						...(options?.includeTests
+							? []
+							: DEFAULT_TEST_EXCLUDE_PATH_PATTERNS),
+					];
+					const visibleFiles =
+						excludePatterns.length === 0
+							? scopedFiles
+							: scopedFiles.filter(
+									(file) => !matchesPathPatterns(file.path, excludePatterns),
+								);
 					const filePathSet = new Set(visibleFiles.map((file) => file.path));
 
 					const visibleSymbols = allSymbols.filter((symbol) =>
@@ -313,10 +316,6 @@ export function registerContextCommand(program: Command): void {
 					);
 
 					const contextData: ContextData = {
-						architecture: {
-							fileStats: architecture?.file_stats ?? {},
-							entrypoints: architecture?.entrypoints ?? [],
-						},
 						modules: visibleFiles
 							.filter((file) => filesWithExports.has(file.path))
 							.map((file) => ({ path: file.path })),
@@ -335,15 +334,7 @@ export function registerContextCommand(program: Command): void {
 						console.warn(`Warning: ${scopeWarning}`);
 					}
 
-					const estimatedTokens = estimateTokens(contextData);
-
-					formatPlain(contextData);
-					if (estimatedTokens > 0) {
-						const estimatedChars = (estimatedTokens * 4) / 1000;
-						console.log(
-							`\nEstimated tokens: ${estimatedTokens} (~${estimatedChars.toFixed(1)}k chars)`,
-						);
-					}
+					formatPlain(contextData, { compact: options?.compact });
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);

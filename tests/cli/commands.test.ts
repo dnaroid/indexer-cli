@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -505,23 +505,24 @@ describe.sequential("CLI e2e", () => {
 	});
 
 	describe("context", () => {
-		it("returns text context with symbols, modules, dependencies, and meta", () => {
+		it("returns compact text context with modules, symbols, and dependencies", () => {
 			const result = runCLI(["context"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Architecture");
-			expect(result.stdout).toContain("typescript: 31");
+			expect(result.stdout).toContain("## Modules");
+			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("## Key Symbols");
 			expect(result.stdout).toContain("PaymentProcessor");
 			expect(result.stdout).toContain("## Module Dependencies");
-			expect(result.stdout).toContain("Estimated tokens:");
+			expect(result.stdout).not.toContain("## Architecture");
+			expect(result.stdout).not.toContain("Estimated tokens:");
 		});
 
 		it("renders text output", () => {
 			const result = runCLI(["context"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Architecture");
+			expect(result.stdout).toContain("## Modules");
 			expect(result.stdout).toContain("## Key Symbols");
 		});
 
@@ -560,6 +561,68 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("src/inventory/manager.ts");
+		});
+
+		it("supports directory-level relevant-to scope", () => {
+			const result = runCLIWithStreams([
+				"context",
+				"--scope",
+				"relevant-to:src/inventory",
+			]);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("src/inventory/manager.ts");
+			expect(result.stdout).toContain("src/inventory/tracker.ts");
+			expect(result.stderr).not.toContain(
+				'No module found for path "src/inventory"',
+			);
+		});
+
+		it("excludes tests by default and supports --include-tests", () => {
+			const testsDir = path.join(TEMP_DIR, "tests");
+			const testFile = path.join(testsDir, "context-helper.ts");
+			mkdirSync(testsDir, { recursive: true });
+			writeFileSync(
+				testFile,
+				'export function createContextFixture(): string {\n\treturn "ok";\n}\n',
+				"utf-8",
+			);
+
+			try {
+				const defaultResult = runCLI(["context"], { cwd: TEMP_DIR });
+				const includedResult = runCLI(["context", "--include-tests"], {
+					cwd: TEMP_DIR,
+				});
+
+				expect(defaultResult.exitCode).toBe(0);
+				expect(defaultResult.stdout).not.toContain("tests/context-helper.ts");
+				expect(includedResult.exitCode).toBe(0);
+				expect(includedResult.stdout).toContain("tests/context-helper.ts");
+				expect(includedResult.stdout).toContain(
+					"tests/context-helper.ts::createContextFixture",
+				);
+			} finally {
+				rmSync(testsDir, { recursive: true, force: true });
+			}
+		});
+
+		it("supports --compact symbol output", () => {
+			const result = runCLI(["context", "--compact"], { cwd: TEMP_DIR });
+			const keySymbolsSection =
+				result.stdout
+					.split("## Key Symbols")[1]
+					?.split("## Module Dependencies")[0] ?? "";
+			const paymentProcessorLine = keySymbolsSection
+				.split("\n")
+				.find((line) =>
+					line.includes("src/payments/processor.ts::PaymentProcessor"),
+				);
+
+			expect(result.exitCode).toBe(0);
+			expect(paymentProcessorLine).toMatch(
+				/src\/payments\/processor\.ts::PaymentProcessor \([^)]+\)$/,
+			);
+			expect(paymentProcessorLine).not.toContain(" — ");
 		});
 	});
 

@@ -152,16 +152,21 @@ export async function ensureIndexed(
 		return;
 	}
 
-	const release = await acquireIndexLock(repoRoot, {
-		waitMs: 5_000,
-		retryIntervalMs: 1000,
-	}).catch(() => null);
-
-	if (!release) {
-		if (!silent) {
-			console.log("Skipping auto-index: another process holds the lock.");
+	let release: (() => Promise<void>) | null = null;
+	try {
+		release = await acquireIndexLock(repoRoot, {
+			waitMs: 30_000,
+			retryIntervalMs: 500,
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		if (message.includes("already in progress")) {
+			if (!silent) {
+				console.error("Skipping auto-index: another process holds the lock.");
+			}
+			return;
 		}
-		return;
+		throw error;
 	}
 
 	try {
@@ -215,7 +220,7 @@ export async function ensureIndexed(
 
 			const mode = updatedPlan.isFullReindex ? "full" : "incremental";
 			if (!silent) {
-				console.log(`Indexing (${mode})...`);
+				console.error(`Indexing (${mode})...`);
 			}
 
 			const result = await engine.indexProject({
@@ -227,7 +232,7 @@ export async function ensureIndexed(
 				onProgress: silent
 					? undefined
 					: (processed, total) => {
-							console.log(`  ${processed}/${total} files...`);
+							console.error(`  ${processed}/${total} files...`);
 						},
 			});
 
@@ -238,11 +243,11 @@ export async function ensureIndexed(
 			});
 
 			if (!silent) {
-				console.log("Index updated.");
-				console.log(`  Snapshot: ${result.snapshotId}`);
-				console.log(`  Files indexed: ${result.filesIndexed}`);
-				console.log(`  Chunks created: ${chunkCount}`);
-				console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
+				console.error("Index updated.");
+				console.error(`  Snapshot: ${result.snapshotId}`);
+				console.error(`  Files indexed: ${result.filesIndexed}`);
+				console.error(`  Chunks created: ${chunkCount}`);
+				console.error(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
 			}
 
 			if (!silent && result.errors.length > 0) {
