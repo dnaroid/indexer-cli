@@ -499,10 +499,9 @@ describe("CLI quality fixes", () => {
 			);
 
 			expect(logs).toEqual([
-				"src/",
-				"  cli/commands/",
-				"    index.ts",
-				"    structure.ts — function: registerStructureCommand; function (internal): parseMaxDepth, parseMaxFiles",
+				"src/cli/commands/",
+				"  index.ts",
+				"  structure.ts — function: registerStructureCommand; function (internal): parseMaxDepth, parseMaxFiles",
 			]);
 		});
 	});
