@@ -13,12 +13,6 @@ type TreeNode = {
 	directories: Map<string, TreeNode>;
 };
 
-type FileWithSymbols = {
-	name: string;
-	path: string;
-	symbols: Array<{ name: string; kind: string; exported: boolean }>;
-};
-
 type CollapsedDirectory = {
 	label: string;
 	prefix: string;
@@ -100,69 +94,6 @@ function countFiles(node: TreeNode): number {
 
 function summarizeHiddenChildren(node: TreeNode): string {
 	return `... (${node.directories.size + node.files.size} children)`;
-}
-
-function collectDescendantFiles(
-	node: TreeNode,
-	prefix: string,
-	symbolsByFile: Map<string, SymbolRecord[]>,
-	fileCounter?: { printed: number; hidden: number },
-	maxFiles?: number,
-): FileWithSymbols[] {
-	const entries: FileWithSymbols[] = [];
-	const directoryEntries = Array.from(node.directories.entries()).sort((a, b) =>
-		a[0].localeCompare(b[0]),
-	);
-	const fileEntries = Array.from(node.files).sort((a, b) => a.localeCompare(b));
-
-	for (const fileName of fileEntries) {
-		if (
-			maxFiles !== undefined &&
-			fileCounter &&
-			fileCounter.printed >= maxFiles
-		) {
-			fileCounter.hidden += 1;
-			continue;
-		}
-
-		const filePath = prefix ? `${prefix}/${fileName}` : fileName;
-		if (fileCounter) {
-			fileCounter.printed += 1;
-		}
-		entries.push({
-			name: fileName,
-			path: filePath,
-			symbols: (symbolsByFile.get(filePath) ?? []).map((symbol) => ({
-				name: symbol.name,
-				kind: symbol.kind,
-				exported: symbol.exported,
-			})),
-		});
-	}
-
-	for (const [directoryName, childNode] of directoryEntries) {
-		if (
-			maxFiles !== undefined &&
-			fileCounter &&
-			fileCounter.printed >= maxFiles
-		) {
-			fileCounter.hidden += countFiles(childNode);
-			continue;
-		}
-
-		const childPrefix = prefix ? `${prefix}/${directoryName}` : directoryName;
-		entries.push(
-			...collectDescendantFiles(
-				childNode,
-				childPrefix,
-				symbolsByFile,
-				fileCounter,
-				maxFiles,
-			),
-		);
-	}
-
-	return entries;
 }
 
 function getSymbolKindRank(kind: string): number {
@@ -281,18 +212,31 @@ function printTree(
 	includeInternal?: boolean,
 ): void {
 	if (maxDepth !== undefined && depth >= maxDepth) {
-		for (const file of collectDescendantFiles(
-			node,
-			prefix,
-			symbolsByFile,
-			fileCounter,
-			maxFiles,
-		)) {
-			const suffix =
-				prefix && file.path.startsWith(`${prefix}/`)
-					? file.path.slice(prefix.length + 1)
-					: file.path;
-			printFileLine(indent, suffix, file.symbols, includeInternal);
+		for (const fileName of Array.from(node.files).sort()) {
+			if (
+				maxFiles !== undefined &&
+				fileCounter &&
+				fileCounter.printed >= maxFiles
+			) {
+				fileCounter.hidden += 1;
+				continue;
+			}
+			if (fileCounter) {
+				fileCounter.printed += 1;
+			}
+			const filePath = prefix ? `${prefix}/${fileName}` : fileName;
+			printFileLine(
+				indent,
+				fileName,
+				symbolsByFile.get(filePath) ?? [],
+				includeInternal,
+			);
+		}
+
+		for (const [dirName, childNode] of Array.from(
+			node.directories.entries(),
+		).sort((a, b) => a[0].localeCompare(b[0]))) {
+			console.log(`${indent}${dirName}/ ${summarizeHiddenChildren(childNode)}`);
 		}
 		return;
 	}
