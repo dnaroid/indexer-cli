@@ -506,7 +506,7 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("typescript: 31");
 			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("Module dependency graph");
-			expect(result.stdout).toMatch(/src\/payments|src\/services|src\/auth/);
+			expect(result.stdout).toMatch(/payments|services|auth/);
 		});
 
 		it("renders text output", () => {

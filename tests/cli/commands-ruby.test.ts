@@ -499,7 +499,7 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(result.stdout).toContain("Entrypoints");
 			expect(result.stdout).toContain("bin/app.rb");
 			expect(result.stdout).toContain("Module dependency graph");
-			expect(result.stdout).toMatch(/lib\/payments|lib\/services|lib\/auth/);
+			expect(result.stdout).toMatch(/payments|services|auth/);
 		});
 
 		it("renders text output", () => {
@@ -519,7 +519,8 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("  ruby: 2");
 			expect(result.stdout).toContain("Module dependency graph");
-			expect(result.stdout).toContain("lib/payments");
+			expect(result.stdout).toContain("lib/");
+			expect(result.stdout).toContain("payments");
 		});
 
 		it("detects the Ruby bin entrypoint", () => {

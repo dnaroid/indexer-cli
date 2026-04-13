@@ -25,6 +25,39 @@ function summarizeExternalDependencies(
 	);
 }
 
+function formatDependencyTree(entries: [string, string[]][]): void {
+	if (entries.length === 0) {
+		console.log("  none");
+		return;
+	}
+
+	const groups = new Map<string, [string, string[]][]>();
+	for (const entry of entries) {
+		const [from] = entry;
+		const slashIdx = from.indexOf("/");
+		const groupKey = slashIdx >= 0 ? from.slice(0, slashIdx) : "";
+		if (!groups.has(groupKey)) groups.set(groupKey, []);
+		groups.get(groupKey)!.push(entry);
+	}
+
+	for (const [groupKey, groupEntries] of groups) {
+		const prefix = groupKey ? groupKey + "/" : "";
+
+		if (prefix) {
+			console.log(`  ${groupKey}/`);
+		}
+
+		for (const [from, tos] of groupEntries) {
+			const localFrom = prefix ? from.slice(prefix.length) : from;
+			const localTos = tos.map((t) =>
+				prefix && t.startsWith(prefix) ? t.slice(prefix.length) : t,
+			);
+			const indent = prefix ? "    " : "  ";
+			console.log(`${indent}${localFrom} -> ${localTos.join(", ")}`);
+		}
+	}
+}
+
 function formatPlain(architecture: ArchitectureSnapshot): void {
 	console.log("File stats by language");
 	const fileEntries = Object.entries(architecture.file_stats ?? {}).sort(
@@ -52,13 +85,7 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 	const internalEntries = Object.entries(
 		architecture.dependency_map?.internal ?? {},
 	).sort((a, b) => a[0].localeCompare(b[0]));
-	if (internalEntries.length === 0) {
-		console.log("  none");
-	} else {
-		for (const [from, to] of internalEntries) {
-			console.log(`  ${from} -> ${to.join(", ")}`);
-		}
-	}
+	formatDependencyTree(internalEntries);
 
 	const internalDependencies = architecture.dependency_map?.internal ?? {};
 	const cycles: string[] = [];
@@ -101,13 +128,7 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 	const unresolvedEntries = Object.entries(
 		architecture.dependency_map?.unresolved ?? {},
 	).sort((a, b) => a[0].localeCompare(b[0]));
-	if (unresolvedEntries.length === 0) {
-		console.log("  none");
-	} else {
-		for (const [from, to] of unresolvedEntries) {
-			console.log(`  ${from} -> ${to.join(", ")}`);
-		}
-	}
+	formatDependencyTree(unresolvedEntries);
 }
 
 export function registerArchitectureCommand(program: Command): void {
