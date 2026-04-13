@@ -360,7 +360,7 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("scripts/");
 			expect(result.stdout).toContain("combat_manager.gd");
-			expect(result.stdout).toContain("CombatManager (class");
+			expect(result.stdout).toContain("class: CombatManager");
 		});
 
 		it("filters classes with --kind class", () => {
@@ -369,8 +369,8 @@ describe.sequential("CLI e2e GDScript", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("CombatManager (class");
-			expect(result.stdout).not.toContain("(function");
+			expect(result.stdout).toContain("class: CombatManager");
+			expect(result.stdout).not.toContain("function:");
 		});
 
 		it("filters functions with --kind function", () => {
@@ -382,8 +382,8 @@ describe.sequential("CLI e2e GDScript", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("_ready (function");
-			expect(result.stdout).not.toContain("(class");
+			expect(result.stdout).toContain("function (internal): _process, _ready");
+			expect(result.stdout).not.toContain("class:");
 		});
 
 		it("filters signals with --kind signal", () => {
@@ -392,8 +392,8 @@ describe.sequential("CLI e2e GDScript", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("damage_dealt (signal");
-			expect(result.stdout).not.toContain("(function");
+			expect(result.stdout).toContain("signal: combat_ended, damage_dealt");
+			expect(result.stdout).not.toContain("function:");
 		});
 
 		it("renders text output and respects path filtering", () => {

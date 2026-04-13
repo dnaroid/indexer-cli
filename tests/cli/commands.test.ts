@@ -423,8 +423,8 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("src/");
 			expect(result.stdout).toContain("payments/");
-			expect(result.stdout).toContain("processor.ts");
-			expect(result.stdout).toContain("PaymentProcessor");
+			expect(result.stdout).toContain("processor.ts —");
+			expect(result.stdout).toContain("interface: PaymentProcessor");
 		});
 
 		it("filters classes with --kind class", () => {
@@ -433,8 +433,8 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("UserService (class, exported)");
-			expect(result.stdout).not.toContain("createSession (function, exported)");
+			expect(result.stdout).toContain("class: UserService");
+			expect(result.stdout).not.toContain("function: createSession");
 		});
 
 		it("filters functions with --kind function", () => {
@@ -443,8 +443,8 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("createSession (function, exported)");
-			expect(result.stdout).not.toContain("UserService (class, exported)");
+			expect(result.stdout).toContain("function: createSession");
+			expect(result.stdout).not.toContain("class: UserService");
 		});
 
 		it("filters interfaces with --kind interface", () => {
@@ -453,9 +453,9 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("AppConfig (interface, exported)");
-			expect(result.stdout).toContain("PaymentProcessor (interface, exported)");
-			expect(result.stdout).not.toContain("createSession (function, exported)");
+			expect(result.stdout).toContain("interface: AppConfig");
+			expect(result.stdout).toContain("interface: PaymentProcessor");
+			expect(result.stdout).not.toContain("function: createSession");
 		});
 
 		it("renders text output", () => {
@@ -472,10 +472,48 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("src/");
 			expect(result.stdout).toContain("payments/");
-			expect(result.stdout).toContain("processor.ts");
+			expect(result.stdout).toContain("processor.ts —");
 			expect(result.stdout).not.toContain("src/auth/session.ts");
 			expect(result.stdout).not.toContain("services/");
+		});
+
+		it("excludes fixtures by default and includes them with --include-fixtures", () => {
+			const fixturesDir = path.join(TEMP_DIR, "fixtures", "support");
+			const fixtureFile = path.join(fixturesDir, "structure-fixture.ts");
+			mkdirSync(fixturesDir, { recursive: true });
+			writeFileSync(
+				fixtureFile,
+				'export function createFixtureValue(): string {\n\treturn "fixture";\n}\n',
+				"utf-8",
+			);
+
+			try {
+				const defaultResult = runCLI(
+					["structure", "--path-prefix", "fixtures"],
+					{ cwd: TEMP_DIR },
+				);
+				const includedResult = runCLI(
+					["structure", "--path-prefix", "fixtures", "--include-fixtures"],
+					{ cwd: TEMP_DIR },
+				);
+
+				expect(defaultResult.exitCode).toBe(0);
+				expect(defaultResult.stdout).toContain(
+					"No indexed files found for the requested filters.",
+				);
+				expect(includedResult.exitCode).toBe(0);
+				expect(includedResult.stdout).toContain("fixtures/");
+				expect(includedResult.stdout).toContain(
+					"structure-fixture.ts — function: createFixtureValue",
+				);
+			} finally {
+				rmSync(path.join(TEMP_DIR, "fixtures"), {
+					recursive: true,
+					force: true,
+				});
+			}
 		});
 
 		it("shows deeply nested files with --max-depth 2", () => {

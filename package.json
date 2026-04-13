@@ -19,7 +19,7 @@
 		"access": "public"
 	},
 	"scripts": {
-		"build": "tsc",
+		"build": "tsx scripts/generate-skills-version.ts && tsc",
 		"dev": "tsc --watch",
 		"start": "tsx bin/indexer-cli.js",
 		"indexer-cli": "tsx bin/indexer-cli.js",

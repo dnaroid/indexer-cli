@@ -1,0 +1,1 @@
+export const SKILLS_VERSION = 2074424482;

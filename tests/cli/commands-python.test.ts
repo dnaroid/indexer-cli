@@ -411,7 +411,9 @@ describe.sequential("CLI e2e Python", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("src/");
 			expect(result.stdout).toContain("processor.py");
-			expect(result.stdout).toContain("PaymentProcessor (class");
+			expect(result.stdout).toContain(
+				"class: PaymentAuditHook, PaymentProcessor, PaymentReceipt, PaymentRequest",
+			);
 		});
 
 		it("filters classes with --kind class", () => {
@@ -420,8 +422,8 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("UserValidator (class");
-			expect(result.stdout).not.toContain("(function");
+			expect(result.stdout).toContain("class: Policy, UserValidator");
+			expect(result.stdout).not.toContain("function:");
 		});
 
 		it("filters functions with --kind function", () => {
@@ -430,8 +432,10 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("create_session (function");
-			expect(result.stdout).not.toContain("(class");
+			expect(result.stdout).toContain(
+				"function: create_access_session, create_session, login_user, read_access_token, validate_token",
+			);
+			expect(result.stdout).not.toContain("class:");
 		});
 
 		it("renders text output", () => {

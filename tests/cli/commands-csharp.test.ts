@@ -435,7 +435,7 @@ describe.sequential("CLI e2e CSharp", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Assets/");
 			expect(result.stdout).toContain("PaymentProcessor.cs");
-			expect(result.stdout).toContain("PaymentProcessor (class");
+			expect(result.stdout).toContain("class: PaymentProcessor");
 		});
 
 		it("filters classes with --kind class", () => {
@@ -444,8 +444,8 @@ describe.sequential("CLI e2e CSharp", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("CombatManager (class");
-			expect(result.stdout).not.toContain("(method");
+			expect(result.stdout).toContain("class: CombatManager");
+			expect(result.stdout).not.toContain("method:");
 		});
 
 		it("filters methods with --kind method", () => {
@@ -454,9 +454,11 @@ describe.sequential("CLI e2e CSharp", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("ValidatePlayer (method");
+			expect(result.stdout).toContain(
+				"method: FormatDisplayName, ValidatePlayer",
+			);
 			expect(result.stdout).toMatch(/ProcessPayment|Awake|Update/);
-			expect(result.stdout).not.toContain("(class");
+			expect(result.stdout).not.toContain("class:");
 		});
 
 		it("renders text output", () => {

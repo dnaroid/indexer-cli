@@ -1,14 +1,17 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseSemver } from "../../../src/core/version-check.js";
 
-const { uninstallMock, initMock } = vi.hoisted(() => ({
-	uninstallMock: vi.fn(),
-	initMock: vi.fn(),
-}));
+const { uninstallMock, initMock, refreshSkillsMock, mockSkillsVersion } =
+	vi.hoisted(() => ({
+		uninstallMock: vi.fn(),
+		initMock: vi.fn(),
+		refreshSkillsMock: vi.fn(),
+		mockSkillsVersion: 999999,
+	}));
 
 vi.mock("../../../src/cli/commands/uninstall.js", () => ({
 	performUninstall: uninstallMock,
@@ -16,10 +19,15 @@ vi.mock("../../../src/cli/commands/uninstall.js", () => ({
 
 vi.mock("../../../src/cli/commands/init.js", () => ({
 	performInit: initMock,
+	refreshClaudeSkills: refreshSkillsMock,
 }));
 
 vi.mock("../../../src/core/version.js", () => ({
 	PACKAGE_VERSION: "0.5.0",
+}));
+
+vi.mock("../../../src/core/skills-version.js", () => ({
+	SKILLS_VERSION: mockSkillsVersion,
 }));
 
 const tempDirs: string[] = [];
@@ -40,6 +48,7 @@ afterEach(async () => {
 	vi.restoreAllMocks();
 	uninstallMock.mockReset();
 	initMock.mockReset();
+	refreshSkillsMock.mockReset();
 	process.exitCode = undefined;
 
 	await Promise.all(
@@ -195,5 +204,123 @@ describe("checkAndMigrateIfNeeded", () => {
 		expect(result).toBe(false);
 		expect(process.exitCode).toBe(1);
 		expect(initMock).not.toHaveBeenCalled();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// checkAndRefreshSkills
+// ---------------------------------------------------------------------------
+
+describe("checkAndRefreshSkills", () => {
+	it("returns false when .indexer-cli/ directory does not exist", async () => {
+		const tempDir = createTempDir();
+		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+		const { checkAndRefreshSkills } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await checkAndRefreshSkills();
+
+		expect(result).toBe(false);
+		expect(refreshSkillsMock).not.toHaveBeenCalled();
+	});
+
+	it("returns false when skillsVersion matches current version", async () => {
+		const tempDir = createTempDir();
+		writeConfig(
+			tempDir,
+			JSON.stringify({ version: "0.5.0", skillsVersion: mockSkillsVersion }),
+		);
+		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+		const { checkAndRefreshSkills } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await checkAndRefreshSkills();
+
+		expect(result).toBe(false);
+		expect(refreshSkillsMock).not.toHaveBeenCalled();
+	});
+
+	it("refreshes skills and writes new version when skillsVersion differs", async () => {
+		const tempDir = createTempDir();
+		writeConfig(
+			tempDir,
+			JSON.stringify({ version: "0.5.0", skillsVersion: 12345 }),
+		);
+		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+		const { checkAndRefreshSkills } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await checkAndRefreshSkills();
+
+		expect(result).toBe(true);
+		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
+		expect(refreshSkillsMock).toHaveBeenCalledWith(tempDir);
+
+		const updated = JSON.parse(
+			readFileSync(path.join(tempDir, ".indexer-cli", "config.json"), "utf8"),
+		);
+		expect(updated.skillsVersion).toBe(mockSkillsVersion);
+	});
+
+	it("refreshes skills when config has no skillsVersion field", async () => {
+		const tempDir = createTempDir();
+		writeConfig(tempDir, JSON.stringify({ version: "0.5.0" }));
+		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+		const { checkAndRefreshSkills } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await checkAndRefreshSkills();
+
+		expect(result).toBe(true);
+		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
+
+		const updated = JSON.parse(
+			readFileSync(path.join(tempDir, ".indexer-cli", "config.json"), "utf8"),
+		);
+		expect(updated.skillsVersion).toBe(mockSkillsVersion);
+	});
+
+	it("preserves other config fields when updating skillsVersion", async () => {
+		const tempDir = createTempDir();
+		writeConfig(
+			tempDir,
+			JSON.stringify({
+				version: "0.5.0",
+				skillsVersion: 12345,
+				vectorSize: 768,
+				ollamaBaseUrl: "http://localhost:11434",
+			}),
+		);
+		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+		const { checkAndRefreshSkills } = await import(
+			"../../../src/core/version-check.js"
+		);
+		await checkAndRefreshSkills();
+
+		const updated = JSON.parse(
+			readFileSync(path.join(tempDir, ".indexer-cli", "config.json"), "utf8"),
+		);
+		expect(updated.vectorSize).toBe(768);
+		expect(updated.ollamaBaseUrl).toBe("http://localhost:11434");
+		expect(updated.version).toBe("0.5.0");
+	});
+
+	it("returns false when config contains invalid JSON", async () => {
+		const tempDir = createTempDir();
+		writeConfig(tempDir, "not json");
+		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+		const { checkAndRefreshSkills } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await checkAndRefreshSkills();
+
+		expect(result).toBe(false);
+		expect(refreshSkillsMock).not.toHaveBeenCalled();
 	});
 });

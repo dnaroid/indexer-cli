@@ -414,7 +414,7 @@ describe("CLI quality fixes", () => {
 			vi.restoreAllMocks();
 		});
 
-		it("prints a no-symbols annotation for files without extracted symbols", () => {
+		it("prints files without a no-symbols annotation", () => {
 			const logs: string[] = [];
 			vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
 				logs.push(args.join(" "));
@@ -435,7 +435,75 @@ describe("CLI quality fixes", () => {
 				false,
 			);
 
-			expect(logs).toEqual(["src/", "  empty.ts", "    (no exported symbols)"]);
+			expect(logs).toEqual(["src/", "  empty.ts"]);
+		});
+
+		it("collapses single-child directory chains and groups internal symbols inline", () => {
+			const logs: string[] = [];
+			vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+				logs.push(args.join(" "));
+			});
+			const structureFilePath = "src/cli/commands/structure.ts";
+			const range = {
+				start: { line: 1, character: 0 },
+				end: { line: 1, character: 1 },
+			};
+
+			const root = structure.createNode();
+			structure.insertPath(root, structureFilePath);
+			structure.insertPath(root, "src/cli/commands/index.ts");
+
+			structure.printTree(
+				root,
+				"",
+				"",
+				new Map<string, SymbolRecord[]>([
+					[
+						structureFilePath,
+						[
+							{
+								snapshotId: "s",
+								id: "1",
+								filePath: structureFilePath,
+								name: "registerStructureCommand",
+								kind: "function",
+								exported: true,
+								range,
+							},
+							{
+								snapshotId: "s",
+								id: "2",
+								filePath: structureFilePath,
+								name: "parseMaxDepth",
+								kind: "function",
+								exported: false,
+								range,
+							},
+							{
+								snapshotId: "s",
+								id: "3",
+								filePath: structureFilePath,
+								name: "parseMaxFiles",
+								kind: "function",
+								exported: false,
+								range,
+							},
+						],
+					],
+				]),
+				0,
+				undefined,
+				undefined,
+				undefined,
+				true,
+			);
+
+			expect(logs).toEqual([
+				"src/",
+				"  cli/commands/",
+				"    index.ts",
+				"    structure.ts — function: registerStructureCommand; function (internal): parseMaxDepth, parseMaxFiles",
+			]);
 		});
 	});
 });

@@ -412,7 +412,7 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("lib/");
 			expect(result.stdout).toContain("processor.rb");
-			expect(result.stdout).toContain("ProcessorBase (module");
+			expect(result.stdout).toContain("module: Payments, ProcessorBase");
 		});
 
 		it("filters classes with --kind class", () => {
@@ -421,8 +421,8 @@ describe.sequential("CLI e2e Ruby", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("UserService (class");
-			expect(result.stdout).not.toContain("(method");
+			expect(result.stdout).toContain("class: UserService");
+			expect(result.stdout).not.toContain("method:");
 		});
 
 		it("filters methods with --kind method", () => {
@@ -431,8 +431,10 @@ describe.sequential("CLI e2e Ruby", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("create_session (method");
-			expect(result.stdout).not.toContain("(class");
+			expect(result.stdout).toContain(
+				"method: create_session, login_access, validate_token",
+			);
+			expect(result.stdout).not.toContain("class:");
 		});
 
 		it("filters modules with --kind module", () => {
@@ -441,8 +443,8 @@ describe.sequential("CLI e2e Ruby", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("ProcessorBase (module");
-			expect(result.stdout).not.toContain("(class");
+			expect(result.stdout).toContain("module: Payments, ProcessorBase");
+			expect(result.stdout).not.toContain("class:");
 		});
 
 		it("shows private Ruby methods as non-exported", () => {
@@ -459,8 +461,12 @@ describe.sequential("CLI e2e Ruby", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("normalize_email (method)");
-			expect(result.stdout).not.toContain("normalize_email (method, exported)");
+			expect(result.stdout).toContain(
+				"method (internal): build_name, normalize_email",
+			);
+			expect(result.stdout).not.toContain(
+				"method: build_name, normalize_email",
+			);
 		});
 
 		it("renders text output", () => {

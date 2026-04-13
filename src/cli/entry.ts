@@ -10,7 +10,10 @@ import { registerContextCommand } from "./commands/context.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
 import { PACKAGE_VERSION } from "../core/version.js";
-import { checkAndMigrateIfNeeded } from "../core/version-check.js";
+import {
+	checkAndMigrateIfNeeded,
+	checkAndRefreshSkills,
+} from "../core/version-check.js";
 import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
 
 const SKIP_MIGRATION_COMMANDS = new Set(["setup", "init", "uninstall"]);
@@ -55,6 +58,7 @@ program.hook("preAction", async (thisCommand, actionCommand) => {
 	const commandName = actionCommand.name();
 	if (!SKIP_MIGRATION_COMMANDS.has(commandName)) {
 		await checkAndMigrateIfNeeded();
+		await checkAndRefreshSkills();
 	}
 });
 

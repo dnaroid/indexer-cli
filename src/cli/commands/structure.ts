@@ -3,6 +3,7 @@ import type { Command } from "commander";
 import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID, type SymbolRecord } from "../../core/types.js";
+import { matchesPathPatterns } from "../../engine/architecture.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
@@ -11,6 +12,36 @@ type TreeNode = {
 	files: Set<string>;
 	directories: Map<string, TreeNode>;
 };
+
+type FileWithSymbols = {
+	name: string;
+	path: string;
+	symbols: Array<{ name: string; kind: string; exported: boolean }>;
+};
+
+type CollapsedDirectory = {
+	label: string;
+	prefix: string;
+	node: TreeNode;
+	depth: number;
+};
+
+const SYMBOL_KIND_ORDER = [
+	"class",
+	"interface",
+	"type",
+	"function",
+	"method",
+	"variable",
+	"signal",
+	"module",
+] as const;
+
+const SYMBOL_KIND_RANK = new Map<string, number>(
+	SYMBOL_KIND_ORDER.map(
+		(kind, index) => [kind, index] satisfies [string, number],
+	),
+);
 
 function parseMaxDepth(value?: string): number | undefined {
 	if (!value) {
@@ -77,16 +108,8 @@ function collectDescendantFiles(
 	symbolsByFile: Map<string, SymbolRecord[]>,
 	fileCounter?: { printed: number; hidden: number },
 	maxFiles?: number,
-): Array<{
-	name: string;
-	path: string;
-	symbols: Array<{ name: string; kind: string; exported: boolean }>;
-}> {
-	const entries: Array<{
-		name: string;
-		path: string;
-		symbols: Array<{ name: string; kind: string; exported: boolean }>;
-	}> = [];
+): FileWithSymbols[] {
+	const entries: FileWithSymbols[] = [];
 	const directoryEntries = Array.from(node.directories.entries()).sort((a, b) =>
 		a[0].localeCompare(b[0]),
 	);
@@ -142,8 +165,109 @@ function collectDescendantFiles(
 	return entries;
 }
 
-const NO_SYMBOLS_EXPORTED_ONLY = "(no exported symbols)";
-const NO_SYMBOLS_ALL = "(no symbols)";
+function getSymbolKindRank(kind: string): number {
+	return SYMBOL_KIND_RANK.get(kind) ?? SYMBOL_KIND_ORDER.length;
+}
+
+function sortSymbols(
+	symbols: Array<{ name: string; kind: string; exported: boolean }>,
+): Array<{ name: string; kind: string; exported: boolean }> {
+	return [...symbols].sort((a, b) => {
+		const kindRank = getSymbolKindRank(a.kind) - getSymbolKindRank(b.kind);
+		if (kindRank !== 0) {
+			return kindRank;
+		}
+
+		const kindName = a.kind.localeCompare(b.kind);
+		if (kindName !== 0) {
+			return kindName;
+		}
+
+		if (a.exported !== b.exported) {
+			return a.exported ? -1 : 1;
+		}
+
+		return a.name.localeCompare(b.name);
+	});
+}
+
+function formatSymbols(
+	symbols: Array<{ name: string; kind: string; exported: boolean }>,
+	includeInternal?: boolean,
+): string | undefined {
+	if (symbols.length === 0) {
+		return undefined;
+	}
+
+	const groups = new Map<string, { label: string; names: string[] }>();
+
+	for (const symbol of sortSymbols(symbols)) {
+		const isInternal = includeInternal && !symbol.exported;
+		const label = isInternal ? `${symbol.kind} (internal)` : symbol.kind;
+		const key = `${symbol.kind}:${isInternal ? "internal" : "exported"}`;
+		const group = groups.get(key);
+
+		if (group) {
+			group.names.push(symbol.name);
+			continue;
+		}
+
+		groups.set(key, { label, names: [symbol.name] });
+	}
+
+	return Array.from(groups.values())
+		.map((group) => `${group.label}: ${group.names.join(", ")}`)
+		.join("; ");
+}
+
+function printFileLine(
+	indent: string,
+	fileLabel: string,
+	symbols: Array<{ name: string; kind: string; exported: boolean }>,
+	includeInternal?: boolean,
+): void {
+	const formattedSymbols = formatSymbols(symbols, includeInternal);
+	console.log(
+		formattedSymbols
+			? `${indent}${fileLabel} — ${formattedSymbols}`
+			: `${indent}${fileLabel}`,
+	);
+}
+
+function collapseDirectoryChain(
+	directoryName: string,
+	childNode: TreeNode,
+	prefix: string,
+	depth: number,
+	maxDepth?: number,
+): CollapsedDirectory {
+	const segments = [directoryName];
+	let node = childNode;
+	let currentDepth = depth + 1;
+
+	while (
+		node.files.size === 0 &&
+		node.directories.size === 1 &&
+		(maxDepth === undefined || currentDepth < maxDepth)
+	) {
+		const [nextName, nextNode] =
+			Array.from(node.directories.entries())[0] ?? [];
+		if (!nextName || !nextNode) {
+			break;
+		}
+		segments.push(nextName);
+		node = nextNode;
+		currentDepth += 1;
+	}
+
+	const relativePath = segments.join("/");
+	return {
+		label: `${relativePath}/`,
+		prefix: prefix ? `${prefix}/${relativePath}` : relativePath,
+		node,
+		depth: currentDepth,
+	};
+}
 
 function printTree(
 	node: TreeNode,
@@ -156,18 +280,7 @@ function printTree(
 	maxFiles?: number,
 	includeInternal?: boolean,
 ): void {
-	const noSymbolsText = includeInternal
-		? NO_SYMBOLS_ALL
-		: NO_SYMBOLS_EXPORTED_ONLY;
 	if (maxDepth !== undefined && depth >= maxDepth) {
-		if (node.files.size > 0) {
-			const summary = summarizeHiddenChildren(node);
-			if (summary !== "... (0 children)") {
-				console.log(`${indent}${summary}`);
-			}
-			return;
-		}
-
 		for (const file of collectDescendantFiles(
 			node,
 			prefix,
@@ -175,14 +288,7 @@ function printTree(
 			fileCounter,
 			maxFiles,
 		)) {
-			console.log(`${indent}${file.path}`);
-			for (const symbol of file.symbols) {
-				const exported = symbol.exported ? ", exported" : "";
-				console.log(`${indent}  ${symbol.name} (${symbol.kind}${exported})`);
-			}
-			if (file.symbols.length === 0) {
-				console.log(`${indent}  ${noSymbolsText}`);
-			}
+			printFileLine(indent, file.path, file.symbols, includeInternal);
 		}
 		return;
 	}
@@ -202,14 +308,28 @@ function printTree(
 			continue;
 		}
 
-		const nextPrefix = prefix ? `${prefix}/${directoryName}` : directoryName;
-		console.log(`${indent}${directoryName}/`);
+		const collapsedDirectory =
+			depth === 0
+				? {
+						label: `${directoryName}/`,
+						prefix: prefix ? `${prefix}/${directoryName}` : directoryName,
+						node: childNode,
+						depth: depth + 1,
+					}
+				: collapseDirectoryChain(
+						directoryName,
+						childNode,
+						prefix,
+						depth,
+						maxDepth,
+					);
+		console.log(`${indent}${collapsedDirectory.label}`);
 		printTree(
-			childNode,
+			collapsedDirectory.node,
 			`${indent}  `,
-			nextPrefix,
+			collapsedDirectory.prefix,
 			symbolsByFile,
-			depth + 1,
+			collapsedDirectory.depth,
 			maxDepth,
 			fileCounter,
 			maxFiles,
@@ -228,20 +348,16 @@ function printTree(
 		}
 
 		const filePath = prefix ? `${prefix}/${fileName}` : fileName;
-		console.log(`${indent}${fileName}`);
 		if (fileCounter) {
 			fileCounter.printed += 1;
 		}
 
-		const symbols = symbolsByFile.get(filePath) ?? [];
-		if (symbols.length > 0) {
-			for (const symbol of symbols) {
-				const exported = symbol.exported ? ", exported" : "";
-				console.log(`${indent}  ${symbol.name} (${symbol.kind}${exported})`);
-			}
-		} else {
-			console.log(`${indent}  ${noSymbolsText}`);
-		}
+		printFileLine(
+			indent,
+			fileName,
+			symbolsByFile.get(filePath) ?? [],
+			includeInternal,
+		);
 	}
 }
 
@@ -257,6 +373,7 @@ export function registerStructureCommand(program: Command): void {
 			"limit directory traversal depth in the rendered tree",
 		)
 		.option("--max-files <number>", "limit number of files shown in output")
+		.option("--include-fixtures", "include fixture/vendor paths in output")
 		.option(
 			"--include-internal",
 			"include non-exported symbols (methods, private members)",
@@ -267,6 +384,7 @@ export function registerStructureCommand(program: Command): void {
 				kind?: string;
 				maxDepth?: string;
 				maxFiles?: string;
+				includeFixtures?: boolean;
 				includeInternal?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
@@ -286,7 +404,7 @@ export function registerStructureCommand(program: Command): void {
 
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
-						silent: false,
+						silent: !process.stderr.isTTY,
 					});
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
@@ -303,6 +421,18 @@ export function registerStructureCommand(program: Command): void {
 							pathPrefix: options?.pathPrefix,
 						},
 					);
+					const excludePatterns = options?.includeFixtures
+						? []
+						: config.get("excludePaths");
+					const visibleFiles =
+						excludePatterns.length === 0
+							? files
+							: files.filter(
+									(file) => !matchesPathPatterns(file.path, excludePatterns),
+								);
+					const visibleFilePaths = new Set(
+						visibleFiles.map((file) => file.path),
+					);
 					const allSymbols = await metadata.listSymbols(
 						DEFAULT_PROJECT_ID,
 						snapshot.id,
@@ -310,6 +440,9 @@ export function registerStructureCommand(program: Command): void {
 					const symbolsByFile = new Map<string, SymbolRecord[]>();
 
 					for (const symbol of allSymbols) {
+						if (!visibleFilePaths.has(symbol.filePath)) {
+							continue;
+						}
 						if (options?.kind && symbol.kind !== options.kind) {
 							continue;
 						}
@@ -327,13 +460,13 @@ export function registerStructureCommand(program: Command): void {
 						symbolsByFile.set(symbol.filePath, current);
 					}
 
-					if (files.length === 0) {
+					if (visibleFiles.length === 0) {
 						console.log("No indexed files found for the requested filters.");
 						return;
 					}
 
 					const root = createNode();
-					for (const file of files) {
+					for (const file of visibleFiles) {
 						insertPath(root, file.path);
 					}
 
