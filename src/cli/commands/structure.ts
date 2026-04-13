@@ -288,7 +288,11 @@ function printTree(
 			fileCounter,
 			maxFiles,
 		)) {
-			printFileLine(indent, file.name, file.symbols, includeInternal);
+			const suffix =
+				prefix && file.path.startsWith(`${prefix}/`)
+					? file.path.slice(prefix.length + 1)
+					: file.path;
+			printFileLine(indent, suffix, file.symbols, includeInternal);
 		}
 		return;
 	}
