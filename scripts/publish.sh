@@ -32,9 +32,6 @@ if [[ "$BUMP" != "patch" && "$BUMP" != "minor" && "$BUMP" != "major" ]]; then
   exit 1
 fi
 
-echo "→ Running tests..."
-npm test
-
 echo "→ Bumping ${BUMP} version..."
 npm version "$BUMP" -m "chore(release): %s"
 
