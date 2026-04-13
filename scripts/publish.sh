@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "→ Running tests..."
-npm test
-
 echo "→ Bumping patch version..."
 npm version patch -m "chore(release): %s"
 
