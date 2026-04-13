@@ -141,7 +141,7 @@ export async function ensureIndexed(
 		silent?: boolean;
 	},
 ): Promise<void> {
-	const silent = options?.silent ?? false;
+	const silent = options?.silent ?? !process.stderr.isTTY;
 	const git = new SimpleGitOperations();
 	const snapshot =
 		(await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID)) ??
