@@ -25,36 +25,213 @@ function summarizeExternalDependencies(
 	);
 }
 
-function formatDependencyTree(entries: [string, string[]][]): void {
-	if (entries.length === 0) {
-		console.log("  none");
-		return;
-	}
+// Prefix-trie grouping with DP: finds the set of group headings that
+// minimises total rendered output length. No hardcoded path heuristics.
 
-	const groups = new Map<string, [string, string[]][]>();
-	for (const entry of entries) {
-		const [from] = entry;
-		const slashIdx = from.indexOf("/");
-		const groupKey = slashIdx >= 0 ? from.slice(0, slashIdx) : "";
-		if (!groups.has(groupKey)) groups.set(groupKey, []);
-		groups.get(groupKey)!.push(entry);
-	}
+interface TrieNode {
+	segment: string;
+	fullPrefix: string;
+	children: TrieNode[];
+	childMap: Map<string, TrieNode>;
+	entry?: { key: string; values: unknown[] };
+	descendantEntryCount: number;
+	firstSeen: number;
+}
 
-	for (const [groupKey, groupEntries] of groups) {
-		const prefix = groupKey ? groupKey + "/" : "";
+type LeafRenderer = (
+	key: string,
+	values: unknown[],
+	localPrefix: string,
+) => string;
 
-		if (prefix) {
-			console.log(`  ${groupKey}/`);
+interface PlanPart {
+	kind: "heading" | "leaf";
+	text: string;
+	depth: number;
+}
+
+interface Plan {
+	cost: number;
+	headingCount: number;
+	parts: PlanPart[];
+}
+
+function relativePath(full: string, base: string): string {
+	if (!base) return full;
+	if (full === base) return ".";
+	const prefix = base + "/";
+	return full.startsWith(prefix) ? full.slice(prefix.length) : full;
+}
+
+function buildTrie(entries: [string, unknown[]][]): TrieNode {
+	const root: TrieNode = {
+		segment: "",
+		fullPrefix: "",
+		children: [],
+		childMap: new Map(),
+		descendantEntryCount: 0,
+		firstSeen: Number.MAX_SAFE_INTEGER,
+	};
+
+	for (let i = 0; i < entries.length; i++) {
+		const [key, values] = entries[i];
+		let node = root;
+		const parts = key.split("/").filter(Boolean);
+
+		for (let p = 0; p < parts.length; p++) {
+			const seg = parts[p];
+			let child = node.childMap.get(seg);
+			if (!child) {
+				child = {
+					segment: seg,
+					fullPrefix: parts.slice(0, p + 1).join("/"),
+					children: [],
+					childMap: new Map(),
+					descendantEntryCount: 0,
+					firstSeen: i,
+				};
+				node.childMap.set(seg, child);
+				node.children.push(child);
+			}
+			node = child;
+			node.firstSeen = Math.min(node.firstSeen, i);
 		}
 
-		for (const [from, tos] of groupEntries) {
-			const localFrom = prefix ? from.slice(prefix.length) : from;
-			const localTos = tos.map((t) =>
-				prefix && t.startsWith(prefix) ? t.slice(prefix.length) : t,
-			);
-			const indent = prefix ? "    " : "  ";
-			console.log(`${indent}${localFrom} -> ${localTos.join(", ")}`);
+		node.entry = { key, values };
+	}
+
+	const countDescendants = (node: TrieNode): number => {
+		let n = node.entry ? 1 : 0;
+		for (const child of node.children) n += countDescendants(child);
+		node.descendantEntryCount = n;
+		node.children.sort((a, b) => a.firstSeen - b.firstSeen);
+		return n;
+	};
+
+	countDescendants(root);
+	return root;
+}
+
+function formatGrouped(
+	entries: [string, unknown[]][],
+	renderLeaf: LeafRenderer,
+	indent = "  ",
+): string {
+	if (entries.length === 0) return "  none";
+
+	const root = buildTrie(entries);
+	const memo = new Map<string, Plan>();
+
+	const lineCost = (text: string, depth: number) =>
+		depth * indent.length + text.length + 1;
+
+	function solve(node: TrieNode, basePrefix: string, depth: number): Plan {
+		const memoKey = `${node.fullPrefix}|${basePrefix}|${depth}`;
+		const hit = memo.get(memoKey);
+		if (hit) return hit;
+
+		let inline: Plan = { cost: 0, headingCount: 0, parts: [] };
+
+		if (node.entry) {
+			const text = renderLeaf(node.entry.key, node.entry.values, basePrefix);
+			inline.cost += lineCost(text, depth);
+			inline.parts.push({ kind: "leaf", text, depth });
 		}
+
+		for (const child of node.children) {
+			const childPlan = solve(child, basePrefix, depth);
+			inline.cost += childPlan.cost;
+			inline.headingCount += childPlan.headingCount;
+			inline.parts.push(...childPlan.parts);
+		}
+
+		let best = inline;
+
+		if (node.fullPrefix && node.descendantEntryCount >= 2) {
+			const headingText = relativePath(node.fullPrefix, basePrefix) + "/";
+			let grouped: Plan = {
+				cost: lineCost(headingText, depth),
+				headingCount: 1,
+				parts: [{ kind: "heading", text: headingText, depth }],
+			};
+
+			if (node.entry) {
+				const text = renderLeaf(
+					node.entry.key,
+					node.entry.values,
+					node.fullPrefix,
+				);
+				grouped.cost += lineCost(text, depth + 1);
+				grouped.parts.push({ kind: "leaf", text, depth: depth + 1 });
+			}
+
+			for (const child of node.children) {
+				const childPlan = solve(child, node.fullPrefix, depth + 1);
+				grouped.cost += childPlan.cost;
+				grouped.headingCount += childPlan.headingCount;
+				grouped.parts.push(...childPlan.parts);
+			}
+
+			if (
+				grouped.cost < best.cost ||
+				(grouped.cost === best.cost && grouped.headingCount < best.headingCount)
+			) {
+				best = grouped;
+			}
+		}
+
+		memo.set(memoKey, best);
+		return best;
+	}
+
+	const plan = solve(root, "", 0);
+
+	return plan.parts
+		.map((part) => indent.repeat(part.depth + 1) + part.text)
+		.join("\n");
+}
+
+function renderDependencyEdge(
+	key: string,
+	values: unknown[],
+	localPrefix: string,
+): string {
+	const rhs = (values as string[]).map((v) => relativePath(v, localPrefix));
+	return `${relativePath(key, localPrefix)} -> ${rhs.join(", ")}`;
+}
+
+function renderExternalCount(
+	key: string,
+	values: unknown[],
+	localPrefix: string,
+): string {
+	const count = values[0] as number;
+	return `${relativePath(key, localPrefix)}: ${count} file${count !== 1 ? "s" : ""}`;
+}
+
+function printDependencySection(
+	label: string,
+	entries: [string, string[]][],
+): void {
+	console.log(label);
+	for (const line of formatGrouped(
+		entries as [string, unknown[]][],
+		renderDependencyEdge,
+	).split("\n")) {
+		console.log(line);
+	}
+}
+
+function printExternalSection(
+	label: string,
+	entries: [string, number][],
+): void {
+	console.log(label);
+	for (const line of formatGrouped(
+		entries.map(([k, v]) => [k, [v]] as [string, unknown[]]),
+		renderExternalCount,
+	).split("\n")) {
+		console.log(line);
 	}
 }
 
@@ -81,11 +258,10 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 		}
 	}
 
-	console.log("Module dependency graph");
 	const internalEntries = Object.entries(
 		architecture.dependency_map?.internal ?? {},
 	).sort((a, b) => a[0].localeCompare(b[0]));
-	formatDependencyTree(internalEntries);
+	printDependencySection("Module dependency graph", internalEntries);
 
 	const internalDependencies = architecture.dependency_map?.internal ?? {};
 	const cycles: string[] = [];
@@ -109,26 +285,18 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 		}
 	}
 
-	console.log("External dependencies summary");
 	const externalSummary = summarizeExternalDependencies(
 		architecture.dependency_map?.external ?? {},
 	);
 	const extEntries = Object.entries(externalSummary).sort((a, b) =>
 		a[0].localeCompare(b[0]),
 	);
-	if (extEntries.length === 0) {
-		console.log("  none");
-	} else {
-		for (const [key, value] of extEntries) {
-			console.log(`  ${key}: ${value} file${value !== 1 ? "s" : ""}`);
-		}
-	}
+	printExternalSection("External dependencies summary", extEntries);
 
-	console.log("Unresolved dependencies");
 	const unresolvedEntries = Object.entries(
 		architecture.dependency_map?.unresolved ?? {},
 	).sort((a, b) => a[0].localeCompare(b[0]));
-	formatDependencyTree(unresolvedEntries);
+	printDependencySection("Unresolved dependencies", unresolvedEntries);
 }
 
 export function registerArchitectureCommand(program: Command): void {
