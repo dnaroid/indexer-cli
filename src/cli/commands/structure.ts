@@ -288,7 +288,7 @@ function printTree(
 			fileCounter,
 			maxFiles,
 		)) {
-			printFileLine(indent, file.path, file.symbols, includeInternal);
+			printFileLine(indent, file.name, file.symbols, includeInternal);
 		}
 		return;
 	}
@@ -308,21 +308,13 @@ function printTree(
 			continue;
 		}
 
-		const collapsedDirectory =
-			depth === 0
-				? {
-						label: `${directoryName}/`,
-						prefix: prefix ? `${prefix}/${directoryName}` : directoryName,
-						node: childNode,
-						depth: depth + 1,
-					}
-				: collapseDirectoryChain(
-						directoryName,
-						childNode,
-						prefix,
-						depth,
-						maxDepth,
-					);
+		const collapsedDirectory = collapseDirectoryChain(
+			directoryName,
+			childNode,
+			prefix,
+			depth,
+			maxDepth,
+		);
 		console.log(`${indent}${collapsedDirectory.label}`);
 		printTree(
 			collapsedDirectory.node,
