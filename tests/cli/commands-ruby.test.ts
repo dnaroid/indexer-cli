@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -534,82 +533,6 @@ describe.sequential("CLI e2e Ruby", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("bin/app.rb");
-		});
-	});
-
-	describe("context", () => {
-		it("returns text context with modules, symbols, and dependencies", () => {
-			const result = runCLI(["context"], { cwd: TEMP_DIR });
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Modules");
-			expect(result.stdout).toContain("bin/app.rb");
-			expect(result.stdout).toContain("## Key Symbols");
-			expect(result.stdout).toContain(
-				"lib/services/user_service.rb::UserService",
-			);
-			expect(result.stdout).toContain(
-				"lib/payments/processor.rb::ProcessorBase",
-			);
-			expect(result.stdout).not.toContain("## Architecture");
-			expect(result.stdout).not.toContain("Estimated tokens:");
-		});
-
-		it("renders text output", () => {
-			const result = runCLI(["context"], { cwd: TEMP_DIR });
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Modules");
-			expect(result.stdout).toContain("## Key Symbols");
-		});
-
-		it("supports --scope changed", () => {
-			const orderPath = path.join(
-				TEMP_DIR,
-				"lib",
-				"services",
-				"order_service.rb",
-			);
-			const original = readTextFile(orderPath);
-			const updated = original.replace(
-				'status: "created"',
-				'status: "submitted"',
-			);
-
-			writeFileSync(orderPath, updated, "utf-8");
-
-			const result = runCLI(["context", "--scope", "changed"], {
-				cwd: TEMP_DIR,
-			});
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("lib/services/order_service.rb");
-		});
-
-		it("respects --max-deps", () => {
-			const result = runCLI(["context", "--max-deps", "1"], {
-				cwd: TEMP_DIR,
-			});
-			const dependencySection =
-				result.stdout.split("## Module Dependencies")[1] ?? "";
-			const dependencyLines = dependencySection
-				.split("\n")
-				.filter((line) => line.includes(" -> "));
-
-			expect(result.exitCode).toBe(0);
-			expect(dependencyLines.length).toBeLessThanOrEqual(1);
-		});
-
-		it("resolves relevant-to scope across module boundaries", () => {
-			const result = runCLI(
-				["context", "--scope", "relevant-to:lib/services/order_service.rb"],
-				{
-					cwd: TEMP_DIR,
-				},
-			);
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("lib/services/order_service.rb");
 		});
 	});
 

@@ -256,39 +256,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		],
 		cliReference: ["Options: --path-prefix <string>, --include-fixtures."],
 	},
-	{
-		name: "repo-context",
-		directory: "repo-context",
-		description:
-			"FIRST choice for changed-area and subsystem summaries. Load this before opening many files when you need whole-repo orientation, changed-scope context, or a dependency-neighborhood snapshot without exact implementation snippets. ALWAYS pass --scope; without it the output can exceed 5000 tokens.",
-		heading: "Use repo-context for dense summaries",
-		useWhen:
-			"Use this when the agent wants a compressed view of a subsystem, changed area, or dependency neighborhood without opening many files.",
-		focusHint:
-			"Keep the scope explicit so the summary stays dense instead of drifting across the repo.",
-		allowedTools: ["Bash(npx -y indexer-cli context:*)"],
-		rules: [
-			"Prefer context when you want breadth over exact source snippets.",
-			"ALWAYS use --scope — default `--scope all` outputs every symbol in the repo. Use --scope relevant-to:<path> for a focused neighborhood or --scope changed for uncommitted changes.",
-			"Use --compact to omit symbol signatures and show only file::name (kind) — saves ~50% tokens.",
-			"Lower --max-deps when you need a tighter prompt budget.",
-			"Tests are excluded by default. Add --include-tests to see test files and symbols.",
-		],
-		skipWhen: [
-			"You need exact implementation locations or ranked chunks",
-			"You need a file tree or architecture graph instead of a summary",
-		],
-		commandSamples: [
-			"npx -y indexer-cli context --scope relevant-to:<area>",
-			"npx -y indexer-cli context --scope changed",
-			"npx -y indexer-cli context --scope relevant-to:<area> --max-deps 10 --compact",
-		],
-		cliReference: [
-			"Options: --scope <scope>, --max-deps <number>, --include-fixtures, --include-tests, --compact.",
-			"Allowed --scope values: all, changed, relevant-to:<path>.",
-			"--compact omits symbol signatures for token savings. --include-tests includes test files.",
-		],
-	},
+
 	{
 		name: "symbol-explain",
 		directory: "symbol-explain",

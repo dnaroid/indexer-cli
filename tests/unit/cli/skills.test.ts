@@ -14,17 +14,6 @@ describe("generated skills", () => {
 		).toBe(false);
 	});
 
-	it("still generates the repo-context skill", () => {
-		const skill = GENERATED_SKILLS.find(
-			(entry) => entry.name === "repo-context",
-		);
-
-		expect(skill).toBeDefined();
-		expect(skill?.directory).toBe("repo-context");
-		expect(skill?.content).toContain("name: repo-context");
-		expect(skill?.content).toContain("npx -y indexer-cli context");
-	});
-
 	it("keeps the refined semantic-search template structure", () => {
 		const skill = GENERATED_SKILLS.find(
 			(entry) => entry.name === "semantic-search",

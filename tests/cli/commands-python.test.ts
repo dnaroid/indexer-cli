@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -515,72 +514,6 @@ describe.sequential("CLI e2e Python", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("manage.py");
 			expect(result.stdout).toContain("src/__main__.py");
-		});
-	});
-
-	describe("context", () => {
-		it("returns text context with modules, symbols, and dependencies", () => {
-			const result = runCLI(["context"], { cwd: TEMP_DIR });
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Modules");
-			expect(result.stdout).toContain("manage.py");
-			expect(result.stdout).toContain("## Key Symbols");
-			expect(result.stdout).toContain(
-				"src/payments/processor.py::PaymentProcessor",
-			);
-			expect(result.stdout).toContain("src/utils/errors.py::AppError");
-			expect(result.stdout).not.toContain("## Architecture");
-			expect(result.stdout).not.toContain("Estimated tokens:");
-		});
-
-		it("renders text output", () => {
-			const result = runCLI(["context"], { cwd: TEMP_DIR });
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Modules");
-			expect(result.stdout).toContain("## Key Symbols");
-		});
-
-		it("supports --scope changed", () => {
-			const orderPath = path.join(TEMP_DIR, "src", "services", "order.py");
-			const original = readTextFile(orderPath);
-			const updated = original.replace('"paid"', '"queued"');
-
-			writeFileSync(orderPath, updated, "utf-8");
-
-			const result = runCLI(["context", "--scope", "changed"], {
-				cwd: TEMP_DIR,
-			});
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("src/services/order.py");
-		});
-
-		it("respects --max-deps", () => {
-			const result = runCLI(["context", "--max-deps", "1"], {
-				cwd: TEMP_DIR,
-			});
-			const dependencySection =
-				result.stdout.split("## Module Dependencies")[1] ?? "";
-			const dependencyLines = dependencySection
-				.split("\n")
-				.filter((line) => line.includes(" -> "));
-
-			expect(result.exitCode).toBe(0);
-			expect(dependencyLines.length).toBeLessThanOrEqual(1);
-		});
-
-		it("resolves relevant-to scope across module boundaries", () => {
-			const result = runCLI(
-				["context", "--scope", "relevant-to:src/services/order.py"],
-				{
-					cwd: TEMP_DIR,
-				},
-			);
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("src/services/order.py");
 		});
 	});
 

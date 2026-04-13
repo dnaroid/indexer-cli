@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import os from "node:os";
 import path from "node:path";
@@ -550,93 +549,6 @@ describe.sequential("CLI e2e CSharp", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("UnityEngine");
 			expect(result.stdout).toContain("System");
-		});
-	});
-
-	describe("context", () => {
-		it("returns text context with modules, symbols, and dependencies", () => {
-			const result = runCLI(["context"], { cwd: TEMP_DIR });
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Modules");
-			expect(result.stdout).toContain("Assets/Scripts/Game/GameManager.cs");
-			expect(result.stdout).toContain("## Key Symbols");
-			expect(result.stdout).toContain(
-				"Assets/Scripts/Payments/PaymentProcessor.cs::PaymentProcessor",
-			);
-			expect(result.stdout).toContain(
-				"Assets/Scripts/Utils/ErrorHandler.cs::ErrorHandler",
-			);
-			expect(result.stdout).not.toContain("## Architecture");
-			expect(result.stdout).not.toContain("Estimated tokens:");
-		});
-
-		it("renders text output", () => {
-			const result = runCLI(["context"], { cwd: TEMP_DIR });
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Modules");
-			expect(result.stdout).toContain("## Key Symbols");
-		});
-
-		it("supports --scope changed", () => {
-			const paymentPath = path.join(
-				TEMP_DIR,
-				"Assets",
-				"Scripts",
-				"Payments",
-				"PaymentProcessor.cs",
-			);
-			const original = readTextFile(paymentPath);
-			const updated = original.replace(
-				"return amountCents > 0;",
-				"return amountCents >= 100;",
-			);
-
-			writeFileSync(paymentPath, updated, "utf-8");
-
-			const result = runCLI(["context", "--scope", "changed"], {
-				cwd: TEMP_DIR,
-			});
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Modules");
-			expect(result.stdout).toContain(
-				"Assets/Scripts/Payments/PaymentProcessor.cs",
-			);
-			expect(result.stdout).toContain(
-				"Assets/Scripts/Payments/PaymentProcessor.cs::PaymentProcessor",
-			);
-		});
-
-		it("respects --max-deps", () => {
-			const result = runCLI(["context", "--max-deps", "1"], {
-				cwd: TEMP_DIR,
-			});
-			const dependencySection =
-				result.stdout.split("## Module Dependencies")[1] ?? "";
-			const dependencyLines = dependencySection
-				.split("\n")
-				.filter((line) => line.includes(" -> "));
-
-			expect(result.exitCode).toBe(0);
-			expect(dependencyLines.length).toBeLessThanOrEqual(1);
-		});
-
-		it("supports relevant-to scope", () => {
-			const result = runCLI(
-				[
-					"context",
-					"--scope",
-					"relevant-to:Assets/Scripts/Payments/StripeProcessor.cs",
-				],
-				{ cwd: TEMP_DIR },
-			);
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain(
-				"Assets/Scripts/Payments/StripeProcessor.cs",
-			);
 		});
 	});
 

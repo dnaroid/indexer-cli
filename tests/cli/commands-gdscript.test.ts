@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -436,50 +435,6 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(result.stdout).toContain("Entrypoints");
 			expect(result.stdout).toContain("gdscript");
 			expect(result.stdout).toMatch(/Node|CanvasLayer|Resource/);
-		});
-	});
-
-	describe("context", () => {
-		it("returns text context with GDScript symbols and dependencies", () => {
-			const result = runCLI(["context"], { cwd: TEMP_DIR });
-
-			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("## Modules");
-			expect(result.stdout).toContain("scripts/main.gd");
-			expect(result.stdout).toContain("## Key Symbols");
-			expect(result.stdout).toContain(
-				"scripts/combat/combat_manager.gd::CombatManager",
-			);
-			expect(result.stdout).toContain(
-				"scripts/combat/combat_manager.gd::damage_dealt",
-			);
-			expect(result.stdout).toContain("## Module Dependencies");
-		});
-
-		it("renders text output and supports changed scope with a GDScript edit", () => {
-			const textResult = runCLI(["context"], { cwd: TEMP_DIR });
-			const healthPath = path.join(
-				TEMP_DIR,
-				"scripts",
-				"resources",
-				"health_resource.gd",
-			);
-			const original = readTextFile(healthPath);
-			const updated = original.replace(
-				"@export var regeneration_rate: float = 1.5",
-				"@export var regeneration_rate: float = 2.0",
-			);
-
-			writeFileSync(healthPath, updated, "utf-8");
-
-			const changed = runCLI(["context", "--scope", "changed"], {
-				cwd: TEMP_DIR,
-			});
-
-			expect(textResult.exitCode).toBe(0);
-			expect(textResult.stdout).toContain("## Modules");
-			expect(changed.exitCode).toBe(0);
-			expect(changed.stdout).toContain("scripts/resources/health_resource.gd");
 		});
 	});
 

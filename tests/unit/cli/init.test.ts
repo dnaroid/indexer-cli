@@ -56,16 +56,10 @@ describe("init command helpers", () => {
 
 		const skillsRoot = path.join(projectRoot, ".claude", "skills");
 		mkdirSync(path.join(skillsRoot, "semantic-search"), { recursive: true });
-		mkdirSync(path.join(skillsRoot, "repo-context"), { recursive: true });
 		mkdirSync(path.join(skillsRoot, "custom-skill"), { recursive: true });
 		writeFileSync(
 			path.join(skillsRoot, "semantic-search", "SKILL.md"),
 			"stale semantic search",
-			"utf8",
-		);
-		writeFileSync(
-			path.join(skillsRoot, "repo-context", "SKILL.md"),
-			"stale repo context",
 			"utf8",
 		);
 		writeFileSync(
@@ -76,15 +70,11 @@ describe("init command helpers", () => {
 
 		await initInternals.refreshClaudeSkills(
 			projectRoot,
-			["semantic-search", "repo-context"],
+			["semantic-search"],
 			[
 				{
 					directory: "semantic-search",
 					content: "name: semantic-search\n",
-				},
-				{
-					directory: "repo-context",
-					content: "name: repo-context\n",
 				},
 			],
 		);
@@ -93,17 +83,12 @@ describe("init command helpers", () => {
 			path.join(skillsRoot, "semantic-search", "SKILL.md"),
 			"utf8",
 		);
-		const repoContext = readFileSync(
-			path.join(skillsRoot, "repo-context", "SKILL.md"),
-			"utf8",
-		);
 		const customSkill = readFileSync(
 			path.join(skillsRoot, "custom-skill", "SKILL.md"),
 			"utf8",
 		);
 
 		expect(semanticSearch).toContain("name: semantic-search");
-		expect(repoContext).toContain("name: repo-context");
 		expect(customSkill).toBe("keep me");
 	});
 

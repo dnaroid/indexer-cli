@@ -65,34 +65,6 @@ const search = await loadInternals<{
 	["parseMinScore"],
 );
 
-const context = await loadInternals<{
-	parseMaxDeps: (input?: string) => number | undefined;
-	limitDependencies: (
-		dependencies: Record<string, string[]>,
-		maxDeps: number | undefined,
-	) => {
-		dependencies: Record<string, string[]>;
-		shown: number;
-		total: number;
-		truncated: boolean;
-	};
-	estimateTokens: (data: {
-		architecture: { fileStats: Record<string, number>; entrypoints: string[] };
-		modules: Array<{ path: string }>;
-		symbols: Array<{
-			file: string;
-			name: string;
-			kind: string;
-			signature?: string;
-		}>;
-		dependencies: Record<string, string[]>;
-	}) => number;
-}>(
-	"../../../src/cli/commands/context.ts",
-	/type ContextData = [\s\S]*?(?=function normalizeScopePath)/,
-	["parseMaxDeps", "limitDependencies", "estimateTokens"],
-);
-
 const structure = await loadInternals<{
 	parseMaxDepth: (value?: string) => number | undefined;
 	parseMaxFiles: (value?: string) => number | undefined;
@@ -164,59 +136,11 @@ describe("CLI helper functions", () => {
 	describe("search helpers", () => {
 		it("parses min-score thresholds", () => {
 			const defaultVal = search.parseMinScore();
-			expect(typeof defaultVal === "number" && defaultVal >= 0 && defaultVal <= 1).toBe(true);
+			expect(
+				typeof defaultVal === "number" && defaultVal >= 0 && defaultVal <= 1,
+			).toBe(true);
 			expect(search.parseMinScore("0.4")).toBe(0.4);
 			expect(() => search.parseMinScore("2")).toThrow(/--min-score/i);
-		});
-	});
-
-	describe("context helpers", () => {
-		it("parses max dependency limits", () => {
-			expect(context.parseMaxDeps()).toBeUndefined();
-			expect(context.parseMaxDeps("30")).toBe(30);
-			expect(() => context.parseMaxDeps("0")).toThrow(/--max-deps/i);
-		});
-
-		it("limits dependency output and reports truncation", () => {
-			expect(
-				context.limitDependencies(
-					{
-						b: ["c"],
-						a: ["b"],
-						c: ["d"],
-					},
-					2,
-				),
-			).toEqual({
-				dependencies: {
-					a: ["b"],
-					b: ["c"],
-				},
-				shown: 2,
-				total: 3,
-				truncated: true,
-			});
-		});
-
-		it("estimates tokens from text-based character count", () => {
-			const data = {
-				architecture: {
-					fileStats: { typescript: 10 },
-					entrypoints: ["src/index.ts"],
-				},
-				modules: [{ path: "src/app.ts" }],
-				symbols: [
-					{
-						file: "src/app.ts",
-						name: "App",
-						kind: "class",
-						signature: "class App {}",
-					},
-				],
-				dependencies: { "src/app.ts": ["src/core.ts"] },
-			};
-			const tokens = context.estimateTokens(data);
-			expect(tokens).toBeGreaterThan(0);
 		});
 	});
 

@@ -26,8 +26,6 @@
 		"indexer-cli:init": "tsx bin/indexer-cli.js init",
 		"indexer-cli:uninstall": "tsx bin/indexer-cli.js uninstall -f",
 		"refresh-skills": "tsx bin/indexer-cli.js init --refresh-skills",
-		"install:global": "npm run build && npm link --force",
-		"uninstall:global": "npm unlink -g indexer-cli",
 		"test": "vitest run tests/unit/",
 		"test:full": "vitest run tests/unit/ tests/cli/ --testTimeout=180000",
 		"test:watch": "vitest",

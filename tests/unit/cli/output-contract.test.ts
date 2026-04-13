@@ -16,7 +16,6 @@ describe("CLI text-only output contract", () => {
 			"../../../src/cli/commands/search.ts",
 			"../../../src/cli/commands/structure.ts",
 			"../../../src/cli/commands/architecture.ts",
-			"../../../src/cli/commands/context.ts",
 			"../../../src/cli/commands/explain.ts",
 			"../../../src/cli/commands/deps.ts",
 		];
@@ -35,7 +34,6 @@ describe("CLI text-only output contract", () => {
 			"../../../src/cli/commands/search.ts",
 			"../../../src/cli/commands/structure.ts",
 			"../../../src/cli/commands/architecture.ts",
-			"../../../src/cli/commands/context.ts",
 			"../../../src/cli/commands/explain.ts",
 			"../../../src/cli/commands/deps.ts",
 		];
@@ -45,12 +43,6 @@ describe("CLI text-only output contract", () => {
 			expect(source).not.toContain("console.log(JSON.stringify");
 			expect(source).not.toContain("console.error(JSON.stringify");
 		}
-	});
-
-	it("removes the legacy context --format option", () => {
-		const source = readSource("../../../src/cli/commands/context.ts");
-
-		expect(source).not.toContain("--format <format>");
 	});
 
 	it("uses the renamed search --max-files option consistently", () => {

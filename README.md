@@ -54,10 +54,9 @@ npx indexer-cli search "authentication middleware"
 
 After `init`, the repo contains focused skills like `.claude/skills/semantic-search/SKILL.md`,
 `.claude/skills/repo-structure/SKILL.md`, `.claude/skills/repo-architecture/SKILL.md`,
-`.claude/skills/repo-context/SKILL.md`, `.claude/skills/symbol-explain/SKILL.md`, and
-`.claude/skills/dependency-trace/SKILL.md`, so coding agents can load
+`.claude/skills/symbol-explain/SKILL.md`, and `.claude/skills/dependency-trace/SKILL.md`, so coding agents can load
 the right indexed discovery workflow for
-`npx indexer-cli search`, `npx indexer-cli structure`, `npx indexer-cli architecture`, `npx indexer-cli context`,
+`npx indexer-cli search`, `npx indexer-cli structure`, `npx indexer-cli architecture`,
 `npx indexer-cli explain`, and `npx indexer-cli deps` before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
@@ -84,7 +83,6 @@ Those skills cover repository discovery flows such as:
 npx indexer-cli search "<query>"
 npx indexer-cli structure --path-prefix src/<area>
 npx indexer-cli architecture
-npx indexer-cli context --scope relevant-to:src/<area>
 ```
 
 All discovery commands return human-readable text output, optimized for coding agents.
@@ -155,17 +153,6 @@ dependency graph.
 |--------------------------|----------------------------------------|
 | `--path-prefix <string>` | Limit output to files under this path  |
 | `--include-fixtures`     | Include fixture/vendor paths in output |
-
-### `npx indexer-cli context`
-
-Output dense project context aggregated from the index. Useful for getting a concise overview of a codebase area
-without pulling in entire files.
-
-| Option                | Default | Description                                                     |
-|-----------------------|---------|-----------------------------------------------------------------|
-| `--scope <scope>`     | all     | `all`, `changed` (uncommitted changes), or `relevant-to:<path>` |
-| `--max-deps <number>` | 30      | Maximum number of dependency edges to output                    |
-| `--include-fixtures`  | —       | Include fixture/vendor paths in output                          |
 
 ### `npx indexer-cli explain <symbol>`
 
