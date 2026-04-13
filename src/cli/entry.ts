@@ -10,6 +10,7 @@ import { registerContextCommand } from "./commands/context.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
 import { PACKAGE_VERSION } from "../core/version.js";
+import { SKILLS_VERSION } from "../core/skills-version.js";
 import {
 	checkAndMigrateIfNeeded,
 	checkAndRefreshSkills,
@@ -39,7 +40,7 @@ program
 	.description(
 		"Lightweight project indexer with semantic search. Run project commands from the root of the target project; `setup` can run anywhere.",
 	)
-	.version(PACKAGE_VERSION)
+	.version(`${PACKAGE_VERSION} (skills: ${SKILLS_VERSION})`)
 	.addHelpText("after", `\n${PROJECT_ROOT_PROGRAM_HELP}\n`)
 	.exitOverride();
 

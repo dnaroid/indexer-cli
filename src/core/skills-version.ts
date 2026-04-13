@@ -1,1 +1,1 @@
-export const SKILLS_VERSION = 2074424482;
+export const SKILLS_VERSION = 3033707447;
