@@ -145,7 +145,7 @@ Use it only for a quick scan when you expect fewer than 5 results.
 If you know the subsystem, add \`--path-prefix\`.
 
 \`\`\`bash
-npx -y indexer-cli search "password reset" --path-prefix src/auth
+npx -y indexer-cli search "password reset" --path-prefix auth
 \`\`\`
 
 ## Skip when
@@ -159,7 +159,7 @@ npx -y indexer-cli search "password reset" --path-prefix src/auth
 \`\`\`bash
 # Phase 1: discover
 npx -y indexer-cli search "rate limiting"
-npx -y indexer-cli search "password reset" --path-prefix src/auth
+npx -y indexer-cli search "password reset" --path-prefix auth
 
 # Phase 2: Read returned files/lines with Read tool
 
@@ -208,7 +208,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		rules: [
 			"Prefer structure when layout matters more than implementation snippets.",
 			"ALWAYS use --path-prefix or --kind to keep output focused.",
-			"Combine --path-prefix with --kind for the tightest result (e.g. --path-prefix src/engine --kind class).",
+			"Combine --path-prefix with --kind for the tightest result (e.g. --path-prefix engine --kind class).",
 			"By default only exported symbols are shown. Use --include-internal to see private methods and non-exported helpers.",
 			"Fixtures and vendor paths are excluded by default. Use --include-fixtures to include them.",
 		],
@@ -217,10 +217,10 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"You need semantic search results rather than a tree",
 		],
 		commandSamples: [
-			"npx -y indexer-cli structure --path-prefix src/<area>",
-			"npx -y indexer-cli structure --path-prefix src/<area> --kind class",
+			"npx -y indexer-cli structure --path-prefix <area>",
+			"npx -y indexer-cli structure --path-prefix <area> --kind class",
 			"npx -y indexer-cli structure --kind function",
-			"npx -y indexer-cli structure --path-prefix src/<area> --include-internal",
+			"npx -y indexer-cli structure --path-prefix <area> --include-internal",
 			"npx -y indexer-cli structure --include-fixtures",
 		],
 		cliReference: [
@@ -252,7 +252,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		],
 		commandSamples: [
 			"npx -y indexer-cli architecture",
-			"npx -y indexer-cli architecture --path-prefix src/<area>",
+			"npx -y indexer-cli architecture --path-prefix <area>",
 		],
 		cliReference: ["Options: --path-prefix <string>, --include-fixtures."],
 	},
@@ -279,10 +279,9 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"You need a file tree or architecture graph instead of a summary",
 		],
 		commandSamples: [
-			"npx -y indexer-cli context --scope relevant-to:src/<area>",
+			"npx -y indexer-cli context --scope relevant-to:<area>",
 			"npx -y indexer-cli context --scope changed",
-			"npx -y indexer-cli context --scope relevant-to:src/<area> --max-deps 10 --compact",
-			"npx -y indexer-cli context --scope relevant-to:src --compact",
+			"npx -y indexer-cli context --scope relevant-to:<area> --max-deps 10 --compact",
 		],
 		cliReference: [
 			"Options: --scope <scope>, --max-deps <number>, --include-fixtures, --include-tests, --compact.",
@@ -303,10 +302,10 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		allowedTools: ["Bash(npx -y indexer-cli explain:*)"],
 		rules: [
 			"Use explain only when the symbol name is already known.",
-			"Use <file>::<symbol> syntax when the same symbol name exists in multiple files (e.g. `explain src/engine/indexer.ts::IndexerEngine`).",
+			"Use <file>::<symbol> syntax when the same symbol name exists in multiple files (e.g. `explain engine/indexer.ts::IndexerEngine`).",
 			"Use bare <symbol> when the name is unique in the codebase.",
 			"Keep the prompt centered on a single symbol for the cleanest output.",
-			"Use --path-prefix to limit results to files under a specific path (e.g. --path-prefix src/).",
+			"Use --path-prefix to limit results to files under a specific path.",
 			"Tests and fixtures are excluded by default. Add --include-fixtures to include them.",
 			"Exact name matches take priority; fuzzy matches only appear when no exact match exists.",
 		],
@@ -317,7 +316,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 		commandSamples: [
 			"npx -y indexer-cli explain <symbol>",
 			"npx -y indexer-cli explain <file>::<symbol>",
-			"npx -y indexer-cli explain <symbol> --path-prefix src/",
+			"npx -y indexer-cli explain <symbol> --path-prefix <area>",
 		],
 		cliReference: [
 			"Positional args: <symbol> or <file>::<symbol>.",
