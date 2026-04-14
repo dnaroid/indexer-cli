@@ -23,7 +23,8 @@ export function parseSemver(version: string): [number, number, number] | null {
 
 /**
  * Compare CLI version with config version.
- * If major.minor differs, run uninstall + init to re-sync.
+ * If major version differs, run uninstall + init to re-sync.
+ * Minor and patch changes do not trigger migration.
  *
  * @returns true if migration was performed, false otherwise
  */
@@ -57,8 +58,8 @@ export async function checkAndMigrateIfNeeded(): Promise<boolean> {
 
 	if (!current || !stored) return false;
 
-	// Compare major.minor (release line). Patch changes are skipped.
-	if (current[0] === stored[0] && current[1] === stored[1]) {
+	// Compare major version only. Minor and patch changes do not trigger migration.
+	if (current[0] === stored[0]) {
 		return false;
 	}
 

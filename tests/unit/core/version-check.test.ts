@@ -146,9 +146,9 @@ describe("checkAndMigrateIfNeeded", () => {
 		expect(initMock).not.toHaveBeenCalled();
 	});
 
-	it("returns false when config version matches current minor", async () => {
+	it("returns false when config version matches current major", async () => {
 		const tempDir = createTempDir();
-		// PACKAGE_VERSION is read from package.json at runtime ("0.5.0")
+		// PACKAGE_VERSION is mocked as "0.5.0" — same major, same full version
 		writeConfig(tempDir, JSON.stringify({ version: "0.5.0" }));
 		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
 
@@ -162,8 +162,9 @@ describe("checkAndMigrateIfNeeded", () => {
 		expect(initMock).not.toHaveBeenCalled();
 	});
 
-	it("migrates when config has different minor version", async () => {
+	it("returns false when config has different minor but same major", async () => {
 		const tempDir = createTempDir();
+		// PACKAGE_VERSION is "0.5.0", config is "0.3.0" — same major, different minor
 		writeConfig(tempDir, JSON.stringify({ version: "0.3.0" }));
 		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
 
@@ -172,13 +173,25 @@ describe("checkAndMigrateIfNeeded", () => {
 		);
 		const result = await checkAndMigrateIfNeeded();
 
-		expect(result).toBe(true);
-		expect(uninstallMock).toHaveBeenCalledTimes(1);
-		expect(uninstallMock).toHaveBeenCalledWith(tempDir);
-		expect(initMock).toHaveBeenCalledTimes(1);
-		expect(initMock).toHaveBeenCalledWith(tempDir, {
-			skipIndexing: false,
-		});
+		expect(result).toBe(false);
+		expect(uninstallMock).not.toHaveBeenCalled();
+		expect(initMock).not.toHaveBeenCalled();
+	});
+
+	it("returns false when config has different patch but same major", async () => {
+		const tempDir = createTempDir();
+		// PACKAGE_VERSION is "0.5.0", config is "0.5.3" — same major, different patch
+		writeConfig(tempDir, JSON.stringify({ version: "0.5.3" }));
+		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+		const { checkAndMigrateIfNeeded } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await checkAndMigrateIfNeeded();
+
+		expect(result).toBe(false);
+		expect(uninstallMock).not.toHaveBeenCalled();
+		expect(initMock).not.toHaveBeenCalled();
 	});
 
 	it("migrates when config has different major version", async () => {
@@ -202,7 +215,7 @@ describe("checkAndMigrateIfNeeded", () => {
 
 	it("returns false and sets exitCode when migration fails", async () => {
 		const tempDir = createTempDir();
-		writeConfig(tempDir, JSON.stringify({ version: "0.3.0" }));
+		writeConfig(tempDir, JSON.stringify({ version: "1.0.0" }));
 		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
 
 		uninstallMock.mockRejectedValue(new Error("disk on fire"));
