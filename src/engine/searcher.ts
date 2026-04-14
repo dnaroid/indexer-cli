@@ -60,7 +60,7 @@ const TEST_FILE_PATTERNS_BY_EXTENSION: Record<string, RegExp> = {
 	".gd": /\.test\.gd$/i,
 };
 
-function isTestFile(filePath: string): boolean {
+export function isTestFile(filePath: string): boolean {
 	const normalized = filePath.replace(/\\/g, "/");
 
 	for (const pattern of TEST_PATH_PATTERNS) {

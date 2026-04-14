@@ -147,6 +147,7 @@ files if needed.
 | `--kind <string>`        | Filter by symbol kind: `function`, `class`, `method`, `interface`, `type`, `variable`, `module`, `signal` |
 | `--max-depth <number>`   | Limit directory traversal depth in the rendered tree                                                      |
 | `--max-files <number>`   | Limit number of files shown in output                                                                     |
+| `--no-tests`             | Exclude test files from output                                                                            |
 
 ### `idx architecture`
 

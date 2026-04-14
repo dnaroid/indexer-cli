@@ -533,6 +533,39 @@ describe.sequential("CLI e2e", () => {
 			}
 		});
 
+		it("excludes test files with --no-tests", () => {
+			const testsDir = path.join(TEMP_DIR, "__tests__");
+			const testFile = path.join(testsDir, "example.test.ts");
+			mkdirSync(testsDir, { recursive: true });
+			writeFileSync(
+				testFile,
+				"export function testHelper(): boolean {\n\treturn true;\n}\n",
+				"utf-8",
+			);
+
+			try {
+				runCLI(["init"], { cwd: TEMP_DIR });
+				runCLI(["index", "--full"], { cwd: TEMP_DIR });
+
+				const defaultResult = runCLI(["structure"], { cwd: TEMP_DIR });
+				const noTestsResult = runCLI(["structure", "--no-tests"], {
+					cwd: TEMP_DIR,
+				});
+
+				expect(defaultResult.exitCode).toBe(0);
+				expect(defaultResult.stdout).toContain("__tests__/");
+				expect(defaultResult.stdout).toContain("example.test.ts");
+
+				expect(noTestsResult.exitCode).toBe(0);
+				expect(noTestsResult.stdout).not.toContain("__tests__/");
+				expect(noTestsResult.stdout).not.toContain("example.test.ts");
+				expect(noTestsResult.stdout).toContain("src/");
+			} finally {
+				rmSync(testsDir, { recursive: true, force: true });
+				runCLI(["index", "--full"], { cwd: TEMP_DIR });
+			}
+		});
+
 		it("shows deeply nested files with --max-depth 3", () => {
 			const result = runCLI(["structure", "--max-depth", "3"], {
 				cwd: TEMP_DIR,

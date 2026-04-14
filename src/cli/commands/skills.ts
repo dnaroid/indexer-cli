@@ -211,6 +211,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"Combine --path-prefix with --kind for the tightest result (e.g. --path-prefix engine --kind class).",
 			"By default only exported symbols are shown. Use --include-internal to see private methods and non-exported helpers.",
 			"Fixtures and vendor paths are excluded by default. Use --include-fixtures to include them.",
+			"Test files are included by default. Use --no-tests to exclude them and focus on production code.",
 		],
 		skipWhen: [
 			"You need dependency relationships rather than physical structure",
@@ -222,12 +223,15 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"idx structure --kind function",
 			"idx structure --path-prefix <area> --include-internal",
 			"idx structure --include-fixtures",
+			"idx structure --no-tests",
+			"idx structure --path-prefix <area> --no-tests",
 		],
 		cliReference: [
-			"Options: --path-prefix <string>, --kind <string>, --max-depth <number>, --max-files <number>, --include-internal, --include-fixtures.",
+			"Options: --path-prefix <string>, --kind <string>, --max-depth <number>, --max-files <number>, --include-internal, --include-fixtures, --no-tests.",
 			"Allowed --kind values: function, class, method, interface, type, variable, module, signal.",
 			"By default shows only exported symbols. Add --include-internal to show all symbols (methods, private members).",
 			"By default excludes fixtures/vendor paths. Add --include-fixtures to include them.",
+			"By default includes test files. Add --no-tests to exclude test files from output.",
 		],
 	},
 	{

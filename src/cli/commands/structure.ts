@@ -4,6 +4,7 @@ import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID, type SymbolRecord } from "../../core/types.js";
 import { matchesPathPatterns } from "../../engine/architecture.js";
+import { isTestFile } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
@@ -318,6 +319,7 @@ export function registerStructureCommand(program: Command): void {
 			"--include-internal",
 			"include non-exported symbols (methods, private members)",
 		)
+		.option("--no-tests", "exclude test files from output")
 		.action(
 			async (options?: {
 				pathPrefix?: string;
@@ -326,6 +328,7 @@ export function registerStructureCommand(program: Command): void {
 				maxFiles?: string;
 				includeFixtures?: boolean;
 				includeInternal?: boolean;
+				tests?: boolean;
 			}) => {
 				const resolvedProjectPath = process.cwd();
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
@@ -387,8 +390,12 @@ export function registerStructureCommand(program: Command): void {
 							: files.filter(
 									(file) => !matchesPathPatterns(file.path, excludePatterns),
 								);
+					const filteredFiles =
+						options?.tests === false
+							? visibleFiles.filter((file) => !isTestFile(file.path))
+							: visibleFiles;
 					const visibleFilePaths = new Set(
-						visibleFiles.map((file) => file.path),
+						filteredFiles.map((file) => file.path),
 					);
 					const allSymbols = await metadata.listSymbols(
 						DEFAULT_PROJECT_ID,
@@ -417,13 +424,13 @@ export function registerStructureCommand(program: Command): void {
 						symbolsByFile.set(symbol.filePath, current);
 					}
 
-					if (visibleFiles.length === 0) {
+					if (filteredFiles.length === 0) {
 						console.log("No indexed files found for the requested filters.");
 						return;
 					}
 
 					const root = createNode();
-					for (const file of visibleFiles) {
+					for (const file of filteredFiles) {
 						insertPath(root, file.path);
 					}
 

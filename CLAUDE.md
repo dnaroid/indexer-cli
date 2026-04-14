@@ -9,5 +9,5 @@
 
 ## Change discipline
 
-- When adding or changing functionality, keep `README.md` in sync.
+- When adding or changing functionality, keep `README.md` and `src/cli/commands/skills.ts` in sync.
 - When adding or changing functionality, update tests as needed: unit tests and/or CLI tests.
