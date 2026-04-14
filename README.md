@@ -180,6 +180,16 @@ Remove the `.indexer-cli/` directory from the current working directory. Also re
 
 Deprecated generated skill directories such as `context-pack` are cleaned up when present.
 
+### `idx reinit <dir>`
+
+Reinitialize indexer in all projects within a directory. Scans immediate subdirectories for `.indexer-cli/`
+and performs a full uninstall + init for each. Useful for batch-updating projects after a CLI upgrade.
+
+| Option              | Description                                      |
+|---------------------|--------------------------------------------------|
+| `--refresh-skills`  | Recreate `.claude/skills/` during reinit         |
+| `-f, --force`       | Skip confirmation prompt                         |
+
 ## License
 
 MIT

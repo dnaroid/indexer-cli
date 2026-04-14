@@ -5,6 +5,7 @@ import { registerSearchCommand } from "./commands/search.js";
 import { registerStructureCommand } from "./commands/structure.js";
 import { registerArchitectureCommand } from "./commands/architecture.js";
 import { registerUninstallCommand } from "./commands/uninstall.js";
+import { registerReinitCommand } from "./commands/reinit.js";
 import { registerSetupCommand } from "./commands/setup.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
@@ -16,7 +17,12 @@ import {
 } from "../core/version-check.js";
 import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
 
-const SKIP_MIGRATION_COMMANDS = new Set(["setup", "init", "uninstall"]);
+const SKIP_MIGRATION_COMMANDS = new Set([
+	"setup",
+	"init",
+	"uninstall",
+	"reinit",
+]);
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.helpDisplayed",
@@ -52,6 +58,7 @@ registerArchitectureCommand(program);
 registerExplainCommand(program);
 registerDepsCommand(program);
 registerUninstallCommand(program);
+registerReinitCommand(program);
 
 program.hook("preAction", async (thisCommand, actionCommand) => {
 	const commandName = actionCommand.name();
