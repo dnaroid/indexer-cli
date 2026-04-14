@@ -125,3 +125,14 @@ describe("init command helpers", () => {
 		expect(semanticSearch).toContain("name: semantic-search");
 	});
 });
+
+describe("init command hook", () => {
+	it("uses idx command in post-commit hook", () => {
+		const source = readFileSync(
+			path.resolve(import.meta.dirname, "../../../src/cli/commands/init.ts"),
+			"utf8",
+		);
+		expect(source).toContain("idx index --skip-if-locked");
+		expect(source).not.toContain("npx -y indexer-cli index");
+	});
+});

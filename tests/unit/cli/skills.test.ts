@@ -39,4 +39,45 @@ describe("generated skills", () => {
 			expectIntroParagraphStructure(skill.content);
 		}
 	});
+
+	it("all skills reference idx, not npx", () => {
+		for (const skill of GENERATED_SKILLS) {
+			expect(
+				skill.content,
+				`${skill.name} should not contain "npx -y indexer-cli"`,
+			).not.toContain("npx -y indexer-cli");
+
+			const hasIdxCommand = [
+				"idx search",
+				"idx structure",
+				"idx architecture",
+				"idx explain",
+				"idx deps",
+			].some((cmd) => skill.content.includes(cmd));
+			expect(
+				hasIdxCommand,
+				`${skill.name} should contain an idx command (search, structure, architecture, explain, or deps)`,
+			).toBe(true);
+		}
+	});
+
+	it("all skill allowed-tools use idx", () => {
+		for (const skill of GENERATED_SKILLS) {
+			// semantic-search uses rawContent, so its allowed-tools line is embedded in the YAML
+			if (skill.name === "semantic-search") {
+				expect(skill.content).toContain("Bash(idx search:*)");
+				expect(skill.content).not.toContain("Bash(npx");
+				continue;
+			}
+			// rendered skills have an explicit allowed-tools line from renderSkill()
+			expect(
+				skill.content,
+				`${skill.name} should have allowed-tools with idx`,
+			).toMatch(/allowed-tools:.*Bash\(idx/);
+			expect(
+				skill.content,
+				`${skill.name} should not have allowed-tools with npx`,
+			).not.toMatch(/allowed-tools:.*Bash\(npx/);
+		}
+	});
 });

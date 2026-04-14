@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 
 const SCRIPT_CONTENT =
-	'#!/bin/sh\nexec npm_config_loglevel=silent npx -y indexer-cli@latest "$@"\n';
+	'#!/bin/sh\nexport npm_config_loglevel=silent\nexec npx -y indexer-cli@latest "$@"\n';
 
 /**
  * Ensure ~/.local/bin/idx exists and is executable.

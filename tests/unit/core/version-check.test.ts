@@ -5,13 +5,19 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseSemver } from "../../../src/core/version-check.js";
 
-const { uninstallMock, initMock, refreshSkillsMock, mockSkillsVersion } =
-	vi.hoisted(() => ({
-		uninstallMock: vi.fn(),
-		initMock: vi.fn(),
-		refreshSkillsMock: vi.fn(),
-		mockSkillsVersion: 999999,
-	}));
+const {
+	uninstallMock,
+	initMock,
+	refreshSkillsMock,
+	ensureIdxBinaryMock,
+	mockSkillsVersion,
+} = vi.hoisted(() => ({
+	uninstallMock: vi.fn(),
+	initMock: vi.fn(),
+	refreshSkillsMock: vi.fn(),
+	ensureIdxBinaryMock: vi.fn(),
+	mockSkillsVersion: 999999,
+}));
 
 vi.mock("../../../src/cli/commands/uninstall.js", () => ({
 	performUninstall: uninstallMock,
@@ -20,6 +26,10 @@ vi.mock("../../../src/cli/commands/uninstall.js", () => ({
 vi.mock("../../../src/cli/commands/init.js", () => ({
 	performInit: initMock,
 	refreshClaudeSkills: refreshSkillsMock,
+}));
+
+vi.mock("../../../src/core/idx-binary.js", () => ({
+	ensureIdxBinary: ensureIdxBinaryMock,
 }));
 
 vi.mock("../../../src/core/version.js", () => ({
@@ -49,6 +59,7 @@ afterEach(async () => {
 	uninstallMock.mockReset();
 	initMock.mockReset();
 	refreshSkillsMock.mockReset();
+	ensureIdxBinaryMock.mockReset();
 	process.exitCode = undefined;
 
 	await Promise.all(
@@ -223,6 +234,7 @@ describe("checkAndRefreshSkills", () => {
 
 		expect(result).toBe(false);
 		expect(refreshSkillsMock).not.toHaveBeenCalled();
+		expect(ensureIdxBinaryMock).not.toHaveBeenCalled();
 	});
 
 	it("returns false when skillsVersion matches current version", async () => {
@@ -240,6 +252,7 @@ describe("checkAndRefreshSkills", () => {
 
 		expect(result).toBe(false);
 		expect(refreshSkillsMock).not.toHaveBeenCalled();
+		expect(ensureIdxBinaryMock).not.toHaveBeenCalled();
 	});
 
 	it("refreshes skills and writes new version when skillsVersion differs", async () => {
@@ -258,6 +271,7 @@ describe("checkAndRefreshSkills", () => {
 		expect(result).toBe(true);
 		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
 		expect(refreshSkillsMock).toHaveBeenCalledWith(tempDir);
+		expect(ensureIdxBinaryMock).toHaveBeenCalledTimes(1);
 
 		const updated = JSON.parse(
 			readFileSync(path.join(tempDir, ".indexer-cli", "config.json"), "utf8"),
@@ -277,6 +291,7 @@ describe("checkAndRefreshSkills", () => {
 
 		expect(result).toBe(true);
 		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
+		expect(ensureIdxBinaryMock).toHaveBeenCalledTimes(1);
 
 		const updated = JSON.parse(
 			readFileSync(path.join(tempDir, ".indexer-cli", "config.json"), "utf8"),
