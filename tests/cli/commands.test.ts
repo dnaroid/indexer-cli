@@ -356,6 +356,49 @@ describe.sequential("CLI e2e", () => {
 			}
 		});
 
+		it("falls back to global search on nonexistent --path-prefix", () => {
+			const result = runCLI(
+				[
+					"search",
+					"session token validate user authentication",
+					"--path-prefix",
+					"nonexistent",
+					"--max-files",
+					"3",
+					"--min-score",
+					"0.4",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"Path 'nonexistent' not found in indexed files.",
+			);
+			expect(result.stdout).toContain(
+				"Showing results for the entire project instead.",
+			);
+			expect(results.length).toBeGreaterThan(0);
+		});
+
+		it("does not fall back when --path-prefix matches files", () => {
+			const result = runCLI(
+				[
+					"search",
+					"service order creation user validation",
+					"--path-prefix",
+					"src/services",
+					"--max-files",
+					"5",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("not found in indexed files");
+		});
+
 		it("reports function names, not local variable names, in function metadata", () => {
 			const result = runCLI(
 				[
@@ -508,6 +551,58 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout.match(/handler\.ts/g)?.length ?? 0).toBe(2);
 		});
+
+		it("falls back to root structure with depth=1 on nonexistent --path-prefix", () => {
+			const result = runCLI(["structure", "--path-prefix", "nonexistent"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"Path 'nonexistent' not found in indexed files.",
+			);
+			expect(result.stdout).toContain(
+				"Showing results for the entire project instead.",
+			);
+			expect(result.stdout).toContain("src/");
+			expect(result.stdout).not.toContain("src/auth/");
+		});
+
+		it("does not fall back when --path-prefix matches files", () => {
+			const result = runCLI(["structure", "--path-prefix", "src/payments"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("not found in indexed files");
+			expect(result.stdout).toContain("payments/");
+			expect(result.stdout).not.toContain("src/auth/");
+		});
+
+		it("uses max-depth=1 on fallback even if --max-depth was specified", () => {
+			const result = runCLI(
+				["structure", "--path-prefix", "nonexistent", "--max-depth", "5"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"Path 'nonexistent' not found in indexed files.",
+			);
+			expect(result.stdout).toContain("src/");
+			expect(result.stdout).not.toContain("src/auth/");
+		});
+
+		it("uses explicit --max-depth when --path-prefix matches files", () => {
+			const result = runCLI(
+				["structure", "--path-prefix", "src", "--max-depth", "5"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("not found in indexed files");
+			expect(result.stdout).toContain("auth/");
+		});
 	});
 
 	describe("architecture", () => {
@@ -547,6 +642,32 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("src/workers/email.ts");
+		});
+
+		it("falls back to full architecture on nonexistent --path-prefix", () => {
+			const result = runCLI(["architecture", "--path-prefix", "nonexistent"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"Path 'nonexistent' not found in indexed files.",
+			);
+			expect(result.stdout).toContain(
+				"Showing results for the entire project instead.",
+			);
+			expect(result.stdout).toContain("File stats by language");
+			expect(result.stdout).toContain("typescript: 31");
+		});
+
+		it("does not fall back when --path-prefix matches files", () => {
+			const result = runCLI(["architecture", "--path-prefix", "src/payments"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("not found in indexed files");
+			expect(result.stdout).toContain("typescript: 3");
 		});
 	});
 

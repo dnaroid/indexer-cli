@@ -364,68 +364,75 @@ export function registerArchitectureCommand(program: Command): void {
 						const matchingFiles = allFiles.filter((f) =>
 							f.path.startsWith(prefix),
 						);
-						const matchingPaths = new Set(matchingFiles.map((f) => f.path));
-						const matchingModules = Object.fromEntries(
-							Object.entries(visibleArchitecture.module_files ?? {})
-								.map(([key, paths]) => [
-									key,
-									paths.filter((p) => matchingPaths.has(p)),
-								])
-								.filter(([, paths]) => paths.length > 0),
-						);
-						const matchingModuleKeys = new Set(Object.keys(matchingModules));
-						const filteredDeps = (
-							bucket: Record<string, string[]>,
-						): Record<string, string[]> =>
-							Object.fromEntries(
-								Object.entries(bucket)
-									.filter(([from]) => matchingModuleKeys.has(from))
-									.map(([from, to]) => [
-										from,
-										to.filter((t) => matchingModuleKeys.has(t)),
-									]),
-							);
 
-						visibleArchitecture = {
-							...visibleArchitecture,
-							files: matchingFiles,
-							module_files: matchingModules,
-							entrypoints: (visibleArchitecture.entrypoints ?? []).filter(
-								(ep) => matchingPaths.has(ep),
-							),
-							dependency_map: {
-								internal: filteredDeps(
-									visibleArchitecture.dependency_map?.internal ?? {},
+						if (matchingFiles.length === 0) {
+							console.log(
+								`Path '${prefix}' not found in indexed files. Showing results for the entire project instead.`,
+							);
+						} else {
+							const matchingPaths = new Set(matchingFiles.map((f) => f.path));
+							const matchingModules = Object.fromEntries(
+								Object.entries(visibleArchitecture.module_files ?? {})
+									.map(([key, paths]) => [
+										key,
+										paths.filter((p) => matchingPaths.has(p)),
+									])
+									.filter(([, paths]) => paths.length > 0),
+							);
+							const matchingModuleKeys = new Set(Object.keys(matchingModules));
+							const filteredDeps = (
+								bucket: Record<string, string[]>,
+							): Record<string, string[]> =>
+								Object.fromEntries(
+									Object.entries(bucket)
+										.filter(([from]) => matchingModuleKeys.has(from))
+										.map(([from, to]) => [
+											from,
+											to.filter((t) => matchingModuleKeys.has(t)),
+										]),
+								);
+
+							visibleArchitecture = {
+								...visibleArchitecture,
+								files: matchingFiles,
+								module_files: matchingModules,
+								entrypoints: (visibleArchitecture.entrypoints ?? []).filter(
+									(ep) => matchingPaths.has(ep),
 								),
-								external: Object.fromEntries(
-									Object.entries(
-										visibleArchitecture.dependency_map?.external ?? {},
-									).filter(([from]) => matchingModuleKeys.has(from)),
-								),
-								builtin: Object.fromEntries(
-									Object.entries(
-										visibleArchitecture.dependency_map?.builtin ?? {},
-									).filter(([from]) => matchingModuleKeys.has(from)),
-								),
-								unresolved: Object.fromEntries(
-									Object.entries(
-										visibleArchitecture.dependency_map?.unresolved ?? {},
-									).filter(([from]) => matchingModuleKeys.has(from)),
-								),
-							},
-							file_stats: Object.fromEntries(
-								Object.entries(
-									matchingFiles.reduce(
-										(acc, f) => {
-											const lang = f.language || "unknown";
-											acc[lang] = (acc[lang] || 0) + 1;
-											return acc;
-										},
-										{} as Record<string, number>,
+								dependency_map: {
+									internal: filteredDeps(
+										visibleArchitecture.dependency_map?.internal ?? {},
 									),
-								).sort((a, b) => a[0].localeCompare(b[0])),
-							),
-						};
+									external: Object.fromEntries(
+										Object.entries(
+											visibleArchitecture.dependency_map?.external ?? {},
+										).filter(([from]) => matchingModuleKeys.has(from)),
+									),
+									builtin: Object.fromEntries(
+										Object.entries(
+											visibleArchitecture.dependency_map?.builtin ?? {},
+										).filter(([from]) => matchingModuleKeys.has(from)),
+									),
+									unresolved: Object.fromEntries(
+										Object.entries(
+											visibleArchitecture.dependency_map?.unresolved ?? {},
+										).filter(([from]) => matchingModuleKeys.has(from)),
+									),
+								},
+								file_stats: Object.fromEntries(
+									Object.entries(
+										matchingFiles.reduce(
+											(acc, f) => {
+												const lang = f.language || "unknown";
+												acc[lang] = (acc[lang] || 0) + 1;
+												return acc;
+											},
+											{} as Record<string, number>,
+										),
+									).sort((a, b) => a[0].localeCompare(b[0])),
+								),
+							};
+						}
 					}
 
 					formatPlain(visibleArchitecture);

@@ -337,7 +337,7 @@ export function registerStructureCommand(program: Command): void {
 				const metadata = new SqliteMetadataStore(dbPath);
 
 				try {
-					const maxDepth = parseMaxDepth(options?.maxDepth);
+					let maxDepth = parseMaxDepth(options?.maxDepth);
 					const maxFiles = parseMaxFiles(options?.maxFiles);
 					const fileCounter =
 						maxFiles !== undefined ? { printed: 0, hidden: 0 } : undefined;
@@ -354,13 +354,30 @@ export function registerStructureCommand(program: Command): void {
 						);
 					}
 
-					const files = await metadata.listFiles(
+					let effectivePathPrefix = options?.pathPrefix;
+					let files = await metadata.listFiles(
 						DEFAULT_PROJECT_ID,
 						snapshot.id,
 						{
-							pathPrefix: options?.pathPrefix,
+							pathPrefix: effectivePathPrefix,
 						},
 					);
+
+					if (effectivePathPrefix && files.length === 0) {
+						console.log(
+							`Path '${effectivePathPrefix}' not found in indexed files. Showing results for the entire project instead.`,
+						);
+						effectivePathPrefix = undefined;
+						files = await metadata.listFiles(
+							DEFAULT_PROJECT_ID,
+							snapshot.id,
+							{},
+						);
+						if (options?.maxDepth === undefined) {
+							maxDepth = 1;
+						}
+					}
+
 					const excludePatterns = options?.includeFixtures
 						? []
 						: config.get("excludePaths");
@@ -387,8 +404,8 @@ export function registerStructureCommand(program: Command): void {
 							continue;
 						}
 						if (
-							options?.pathPrefix &&
-							!symbol.filePath.startsWith(options.pathPrefix)
+							effectivePathPrefix &&
+							!symbol.filePath.startsWith(effectivePathPrefix)
 						) {
 							continue;
 						}

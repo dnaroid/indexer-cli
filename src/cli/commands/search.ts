@@ -114,13 +114,28 @@ export function registerSearchCommand(program: Command): void {
 						.map((value) => value.trim())
 						.filter(Boolean);
 
+					let effectivePathPrefix = options?.pathPrefix;
+					if (effectivePathPrefix) {
+						const prefixFiles = await metadata.listFiles(
+							DEFAULT_PROJECT_ID,
+							snapshot.id,
+							{ pathPrefix: effectivePathPrefix },
+						);
+						if (prefixFiles.length === 0) {
+							console.log(
+								`Path '${effectivePathPrefix}' not found in indexed files. Showing results for the entire project instead.`,
+							);
+							effectivePathPrefix = undefined;
+						}
+					}
+
 					const results = await searchEngine.search(
 						DEFAULT_PROJECT_ID,
 						snapshot.id,
 						query,
 						{
 							topK: Number.isFinite(maxFiles) && maxFiles > 0 ? maxFiles : 3,
-							pathPrefix: options?.pathPrefix,
+							pathPrefix: effectivePathPrefix,
 							chunkTypes,
 							includeContent: options?.includeContent ?? false,
 							minScore,

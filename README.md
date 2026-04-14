@@ -158,6 +158,11 @@ dependency graph.
 | `--path-prefix <string>` | Limit output to files under this path  |
 | `--include-fixtures`     | Include fixture/vendor paths in output |
 
+When `--path-prefix` is used with `search`, `structure`, or `architecture` and the path does not match any indexed
+files, the CLI prints a warning and automatically runs the command for the entire project instead of returning empty
+results. For `structure`, the fallback also limits depth to 1 (root-level directories only) unless `--max-depth` was
+explicitly specified.
+
 ### `idx explain <symbol>`
 
 Show context for a symbol: its signature, callers, and containing module. Use this to quickly understand what a
