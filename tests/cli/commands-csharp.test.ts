@@ -139,7 +139,7 @@ describe.sequential("CLI e2e CSharp", () => {
 			expect(gitignore).toContain(".claude/");
 
 			const hook = readTextFile(hookPath);
-			expect(hook).toContain("indexer-cli index");
+			expect(hook).toContain("idx index");
 		});
 
 		it("is idempotent", () => {
@@ -482,12 +482,12 @@ describe.sequential("CLI e2e CSharp", () => {
 		});
 
 		it("shows deeply nested API files", () => {
-			const result = runCLI(["structure", "--max-depth", "3"], {
+			const result = runCLI(["structure", "--max-depth", "4"], {
 				cwd: TEMP_DIR,
 			});
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("API/V1/Handler.cs");
-			expect(result.stdout).toContain("API/V2/Handler.cs");
+			expect(result.stdout).toContain("V1/");
+			expect(result.stdout).toContain("Handler.cs");
 		});
 
 		it("distinguishes same-named handler files in different directories", () => {

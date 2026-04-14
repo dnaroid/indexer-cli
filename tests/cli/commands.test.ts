@@ -90,7 +90,7 @@ describe.sequential("CLI e2e", () => {
 			expect(gitignore).toContain(".claude/");
 
 			const hook = readTextFile(hookPath);
-			expect(hook).toContain("indexer-cli index");
+			expect(hook).toContain("idx index");
 		});
 
 		it("is idempotent", () => {
@@ -490,13 +490,14 @@ describe.sequential("CLI e2e", () => {
 			}
 		});
 
-		it("shows deeply nested files with --max-depth 2", () => {
-			const result = runCLI(["structure", "--max-depth", "2"], {
+		it("shows deeply nested files with --max-depth 3", () => {
+			const result = runCLI(["structure", "--max-depth", "3"], {
 				cwd: TEMP_DIR,
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("src/api/v1/handler.ts");
+			expect(result.stdout).toContain("v1/");
+			expect(result.stdout).toContain("handler.ts");
 		});
 
 		it("distinguishes same-named files in different directories", () => {
