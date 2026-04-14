@@ -206,7 +206,9 @@ function renderExternalCount(
 	localPrefix: string,
 ): string {
 	const count = values[0] as number;
-	return `${relativePath(key, localPrefix)}: ${count} file${count !== 1 ? "s" : ""}`;
+	const label = relativePath(key, localPrefix);
+	if (count <= 1) return label;
+	return `${label} (${count} modules)`;
 }
 
 function printDependencySection(

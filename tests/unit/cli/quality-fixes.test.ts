@@ -389,7 +389,7 @@ describe("CLI quality fixes", () => {
 			).toBe(false);
 		});
 
-		it("uses singular and plural external dependency labels", () => {
+		it("omits count for single-module deps, shows (N modules) for multi-module", () => {
 			architecture.formatPlain({
 				file_stats: {},
 				entrypoints: [],
@@ -404,8 +404,8 @@ describe("CLI quality fixes", () => {
 				},
 			});
 
-			expect(logs).toContain("  chalk: 1 file");
-			expect(logs).toContain("  react: 2 files");
+			expect(logs).toContain("  chalk");
+			expect(logs).toContain("  react (2 modules)");
 		});
 	});
 
