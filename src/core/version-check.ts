@@ -5,6 +5,7 @@ import { performUninstall } from "../cli/commands/uninstall.js";
 import { performInit } from "../cli/commands/init.js";
 import { SKILLS_VERSION } from "./skills-version.js";
 import { refreshClaudeSkills } from "../cli/commands/init.js";
+import { ensureIdxBinary } from "./idx-binary.js";
 
 /**
  * Parse a version string into [major, minor, patch].
@@ -118,6 +119,7 @@ export async function checkAndRefreshSkills(): Promise<boolean> {
 	);
 
 	await refreshClaudeSkills(projectRoot);
+	ensureIdxBinary();
 
 	const raw = readFileSync(configPath, "utf8");
 	const parsed = JSON.parse(raw) as Record<string, unknown>;

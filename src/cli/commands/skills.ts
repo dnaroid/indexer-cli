@@ -75,7 +75,7 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 name: semantic-search
 description:
   FIRST choice for CONCEPT and BEHAVIOR questions — "how is scoring calculated", "what happens on order cancel", "what if a user stops paying", "how does the system handle expired subscriptions", "lifecycle of a payment", "flow when X fails". Use BEFORE spawning explore agents for these questions — it traces cross-module behavior that grep misses. Do NOT use for keyword/identifier lookups (use grep/ast-grep instead). If the search term is a code identifier (class name, variable name, function name), this is the WRONG tool — use symbol-explain or grep instead.
-allowed-tools: Bash(npx -y indexer-cli search:*)
+allowed-tools: Bash(idx search:*)
 ---
 
 # Use semantic-search for implementation hunting
@@ -113,7 +113,7 @@ Pick the single best concept word. Add words only to narrow scope.
 Search without \`--include-content\`.
 
 \`\`\`bash
-npx -y indexer-cli search "prize"
+idx search "prize"
 \`\`\`
 
 #### Phase 2: Read
@@ -145,7 +145,7 @@ Use it only for a quick scan when you expect fewer than 5 results.
 If you know the subsystem, add \`--path-prefix\`.
 
 \`\`\`bash
-npx -y indexer-cli search "password reset" --path-prefix auth
+idx search "password reset" --path-prefix auth
 \`\`\`
 
 ## Skip when
@@ -158,13 +158,13 @@ npx -y indexer-cli search "password reset" --path-prefix auth
 
 \`\`\`bash
 # Phase 1: discover
-npx -y indexer-cli search "rate limiting"
-npx -y indexer-cli search "password reset" --path-prefix auth
+idx search "rate limiting"
+idx search "password reset" --path-prefix auth
 
 # Phase 2: Read returned files/lines with Read tool
 
 # Rare exception: inline content when expecting <5 hits
-npx -y indexer-cli search "input validation" --include-content --max-files 3
+idx search "input validation" --include-content --max-files 3
 \`\`\`
 
 ## CLI reference
@@ -186,7 +186,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 - ❌ long synonym-heavy queries
 - ❌ re-searching after Phase 1 already found the locations
 - ❌ grepping the same concept after semantic search already found it
-- ❌ loading this skill via \`skill\` when you already know the \`indexer-cli\` command
+- ❌ loading this skill via \`skill\` when you already know the \`idx\` command
 `,
 		description: "",
 		heading: "",
@@ -204,7 +204,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"Use this when the agent needs to see how files and symbols are organized in an area of the repo before reading implementation details.",
 		focusHint:
 			"Keep the request centered on one repo area or one symbol kind so the tree stays readable.",
-		allowedTools: ["Bash(npx -y indexer-cli structure:*)"],
+		allowedTools: ["Bash(idx structure:*)"],
 		rules: [
 			"Prefer structure when layout matters more than implementation snippets.",
 			"ALWAYS use --path-prefix or --kind to keep output focused.",
@@ -217,11 +217,11 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"You need semantic search results rather than a tree",
 		],
 		commandSamples: [
-			"npx -y indexer-cli structure --path-prefix <area>",
-			"npx -y indexer-cli structure --path-prefix <area> --kind class",
-			"npx -y indexer-cli structure --kind function",
-			"npx -y indexer-cli structure --path-prefix <area> --include-internal",
-			"npx -y indexer-cli structure --include-fixtures",
+			"idx structure --path-prefix <area>",
+			"idx structure --path-prefix <area> --kind class",
+			"idx structure --kind function",
+			"idx structure --path-prefix <area> --include-internal",
+			"idx structure --include-fixtures",
 		],
 		cliReference: [
 			"Options: --path-prefix <string>, --kind <string>, --max-depth <number>, --max-files <number>, --include-internal, --include-fixtures.",
@@ -239,7 +239,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"Use this when the agent needs a high-level snapshot of modules, entry points, and dependency shape before going deeper. This is the cheapest way to orient in an unfamiliar codebase (~140 tokens for a typical project).",
 		focusHint:
 			"Keep the scope to the subsystem that matters so the graph highlights the right boundaries.",
-		allowedTools: ["Bash(npx -y indexer-cli architecture:*)"],
+		allowedTools: ["Bash(idx architecture:*)"],
 		rules: [
 			"Use architecture when the question is about system shape, not a single symbol.",
 			"Filter by path prefix when only one subsystem matters.",
@@ -251,8 +251,8 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"You need dense narrative context instead of a graph-shaped overview",
 		],
 		commandSamples: [
-			"npx -y indexer-cli architecture",
-			"npx -y indexer-cli architecture --path-prefix <area>",
+			"idx architecture",
+			"idx architecture --path-prefix <area>",
 		],
 		cliReference: ["Options: --path-prefix <string>, --include-fixtures."],
 	},
@@ -267,7 +267,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"Use this when the task centers on one function, class, type, or symbol and the agent needs signature, usage, and containing module context fast.",
 		focusHint:
 			"Keep the request centered on one symbol name for the cleanest caller and signature output.",
-		allowedTools: ["Bash(npx -y indexer-cli explain:*)"],
+		allowedTools: ["Bash(idx explain:*)"],
 		rules: [
 			"Use explain only when the symbol name is already known.",
 			"Use <file>::<symbol> syntax when the same symbol name exists in multiple files (e.g. `explain engine/indexer.ts::IndexerEngine`).",
@@ -282,9 +282,9 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"You need repo-wide structure rather than one-symbol context",
 		],
 		commandSamples: [
-			"npx -y indexer-cli explain <symbol>",
-			"npx -y indexer-cli explain <file>::<symbol>",
-			"npx -y indexer-cli explain <symbol> --path-prefix <area>",
+			"idx explain <symbol>",
+			"idx explain <file>::<symbol>",
+			"idx explain <symbol> --path-prefix <area>",
 		],
 		cliReference: [
 			"Positional args: <symbol> or <file>::<symbol>.",
@@ -302,7 +302,7 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"Use this when the agent needs to know who imports a module, what it imports, or how far change impact may spread.",
 		focusHint:
 			"Start with a single path or module and keep depth low until the first-hop trace stops being enough.",
-		allowedTools: ["Bash(npx -y indexer-cli deps:*)"],
+		allowedTools: ["Bash(idx deps:*)"],
 		rules: [
 			"Use deps when the question is about relationships, not source snippets.",
 			"Set --direction callers or --direction callees when only one side matters.",
@@ -313,10 +313,10 @@ Imports and preamble are excluded by default. Use \`--include-imports\` to inclu
 			"You do not yet know the path or symbol to trace",
 		],
 		commandSamples: [
-			"npx -y indexer-cli deps <path>",
-			"npx -y indexer-cli deps <path> --direction callers",
-			"npx -y indexer-cli deps <path> --direction callees",
-			"npx -y indexer-cli deps <path> --depth 2",
+			"idx deps <path>",
+			"idx deps <path> --direction callers",
+			"idx deps <path> --direction callees",
+			"idx deps <path> --depth 2",
 		],
 		cliReference: [
 			"Positional args: <path>.",

@@ -6,7 +6,7 @@ right code.
 ## Overview
 
 The main feature of `indexer-cli` is not just search on its own: it turns your repository into something coding agents
-can navigate efficiently. Running `indexer-cli init` installs project-local discovery skills with semantic names so
+can navigate efficiently. Running `idx init` installs project-local discovery skills with semantic names so
 Claude, OpenCode, and similar tools can pick the right indexed workflow instead of wasting tokens on blind `grep`,
 `find`, and repeated file reads.
 
@@ -18,6 +18,7 @@ post-commit hook keeps the index up to date automatically.
 ## Features
 
 - **Code-agent repo skills**: `init` installs focused autonomous discovery skills for Claude and OpenCode workflows
+- **`idx` command alias**: `setup` installs a clean `idx` wrapper — no npm warnings in agent output
 - **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated
   context loading
 - **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby
@@ -31,33 +32,33 @@ post-commit hook keeps the index up to date automatically.
 
 ## Prerequisites
 
-- [Ollama](https://ollama.ai) installed manually. `npx indexer-cli setup` will verify it, start the daemon if needed,
+- [Ollama](https://ollama.ai) installed manually. `idx setup` will verify it, start the daemon if needed,
   and prepare the `jina-8k` model.
 - Node.js 18+ and build tools (python3, make, C++ compiler) for native dependencies.
 
 ## Quick Start
 
 ```bash
-# 1. Check prerequisites and prepare the embedding model
-npx indexer-cli setup
+# 1. Check prerequisites, prepare the embedding model, and install the idx command
+npx indexer-cli@latest setup
 
 # 2. Initialize indexing and install the discovery skills
 cd /path/to/your/project
-npx indexer-cli init
+idx init
 
 # 3. Index the codebase
-npx indexer-cli index
+idx index
 
 # 4. Search semantically yourself
-npx indexer-cli search "authentication middleware"
+idx search "authentication middleware"
 ```
 
 After `init`, the repo contains focused skills like `.claude/skills/semantic-search/SKILL.md`,
 `.claude/skills/repo-structure/SKILL.md`, `.claude/skills/repo-architecture/SKILL.md`,
 `.claude/skills/symbol-explain/SKILL.md`, and `.claude/skills/dependency-trace/SKILL.md`, so coding agents can load
 the right indexed discovery workflow for
-`npx indexer-cli search`, `npx indexer-cli structure`, `npx indexer-cli architecture`,
-`npx indexer-cli explain`, and `npx indexer-cli deps` before they start burning tokens on broad filesystem scans.
+`idx search`, `idx structure`, `idx architecture`,
+`idx explain`, and `idx deps` before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
 
@@ -74,15 +75,15 @@ In practice, that means:
 
 ## Agent Integration
 
-When you run `npx indexer-cli init`, the CLI creates focused discovery skills for each major read-only discovery
+When you run `idx init`, the CLI creates focused discovery skills for each major read-only discovery
 command under `.claude/skills/` and adds `.claude/` to `.gitignore`.
 
 Those skills cover repository discovery flows such as:
 
 ```bash
-npx indexer-cli search "<query>"
-npx indexer-cli structure --path-prefix src/<area>
-npx indexer-cli architecture
+idx search "<query>"
+idx structure --path-prefix src/<area>
+idx architecture
 ```
 
 All discovery commands return human-readable text output, optimized for coding agents.
@@ -93,12 +94,15 @@ during repo discovery.
 
 ## CLI Commands
 
-### `npx indexer-cli setup`
+### `idx setup`
 
-Check system prerequisites and prepare the Ollama embedding model. `setup` can install some system tools where
-appropriate, but Ollama itself must be installed manually first. Works on macOS and Linux.
+Check system prerequisites, prepare the Ollama embedding model, and install the `idx` command alias in
+`~/.local/bin/`. `setup` can install some system tools where appropriate, but Ollama itself must be installed
+manually first. Works on macOS and Linux.
 
-### `npx indexer-cli init`
+After running `setup`, restart your shell to ensure `idx` is on `PATH`.
+
+### `idx init`
 
 Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-vec vector store, and add `.indexer-cli/`
 to `.gitignore` in the current working directory. Also writes focused discovery skills under `.claude/skills/`,
@@ -108,7 +112,7 @@ adds `.claude/` to `.gitignore`, and installs a Git post-commit hook that automa
 |---------------------|---------------------------------------------------------------------------------|
 | `--refresh-skills`  | Remove this CLI's generated skills under `.claude/skills/` and recreate them    |
 
-### `npx indexer-cli index`
+### `idx index`
 
 Index all supported source files in the current working directory.
 
@@ -119,7 +123,7 @@ Index all supported source files in the current working directory.
 | `--status`  | Show indexing status for the current project               |
 | `--tree`    | Show indexed file tree (use with `--status`)               |
 
-### `npx indexer-cli search <query>`
+### `idx search <query>`
 
 Run a semantic search against the indexed codebase. Automatically re-indexes changed files if needed.
 
@@ -132,7 +136,7 @@ Run a semantic search against the indexed codebase. Automatically re-indexes cha
 | `--min-score <number>`   | 0.45    | Filter out results below this score (0..1)                                                                   |
 | `--include-content`      | —       | Include matched code content in output (omitted by default to save tokens)                                   |
 
-### `npx indexer-cli structure`
+### `idx structure`
 
 Print a file tree annotated with extracted symbols for the current working directory. Automatically re-indexes changed
 files if needed.
@@ -144,7 +148,7 @@ files if needed.
 | `--max-depth <number>`   | Limit directory traversal depth in the rendered tree                                                      |
 | `--max-files <number>`   | Limit number of files shown in output                                                                     |
 
-### `npx indexer-cli architecture`
+### `idx architecture`
 
 Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a
 dependency graph.
@@ -154,12 +158,12 @@ dependency graph.
 | `--path-prefix <string>` | Limit output to files under this path  |
 | `--include-fixtures`     | Include fixture/vendor paths in output |
 
-### `npx indexer-cli explain <symbol>`
+### `idx explain <symbol>`
 
 Show context for a symbol: its signature, callers, and containing module. Use this to quickly understand what a
 specific function, class, or type does and how it is used.
 
-### `npx indexer-cli deps <path>`
+### `idx deps <path>`
 
 Show callers (who imports this) and callees (what this imports) for a module or symbol. Useful for tracing impact
 of changes and understanding dependency chains.
@@ -169,7 +173,7 @@ of changes and understanding dependency chains.
 | `--direction <dir>` | both    | `callers`, `callees`, or `both` |
 | `--depth <n>`       | 1       | Traversal depth                 |
 
-### `npx indexer-cli uninstall`
+### `idx uninstall`
 
 Remove the `.indexer-cli/` directory from the current working directory. Also removes the generated
 `.claude/skills/` directories created by `indexer-cli` when present. Prompts for confirmation unless `-f` is given.
