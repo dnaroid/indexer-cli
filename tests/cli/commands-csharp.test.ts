@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -117,7 +118,7 @@ describe.sequential("CLI e2e CSharp", () => {
 				TEMP_DIR,
 				".claude",
 				"skills",
-				"semantic-search",
+				"repo-discovery",
 				"SKILL.md",
 			);
 
@@ -130,9 +131,14 @@ describe.sequential("CLI e2e CSharp", () => {
 			const config = JSON.parse(readTextFile(configPath)) as {
 				embeddingModel: string;
 				vectorSize: number;
+				skillsVersion: number;
 			};
 			expect(config.embeddingModel).toBe("jina-8k");
 			expect(config.vectorSize).toBe(768);
+			expect(config.skillsVersion).toBeTypeOf("number");
+			expect(
+				readdirSync(path.join(TEMP_DIR, ".claude", "skills")).sort(),
+			).toEqual(["repo-discovery"]);
 
 			const gitignore = readTextFile(path.join(TEMP_DIR, ".gitignore"));
 			expect(gitignore).toContain(".indexer-cli/");

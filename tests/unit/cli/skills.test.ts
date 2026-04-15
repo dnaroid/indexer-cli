@@ -3,7 +3,7 @@ import { GENERATED_SKILLS } from "../../../src/cli/commands/skills.js";
 
 function expectIntroParagraphStructure(content: string): void {
 	expect(content).toMatch(
-		/# .*\n\nUse this when .*\.\n\n[A-Z].*\.\n\n## Rules/s,
+		/# .*\n\nUse this .*\.\n\n[A-Z].*\.\n\n## Routing rules/s,
 	);
 }
 
@@ -14,30 +14,35 @@ describe("generated skills", () => {
 		).toBe(false);
 	});
 
-	it("keeps the refined semantic-search template structure", () => {
+	it("generates only the consolidated repo-discovery skill", () => {
+		expect(GENERATED_SKILLS).toHaveLength(1);
+		expect(GENERATED_SKILLS[0]?.name).toBe("repo-discovery");
+	});
+
+	it("keeps the consolidated repo-discovery routing structure", () => {
 		const skill = GENERATED_SKILLS.find(
-			(entry) => entry.name === "semantic-search",
+			(entry) => entry.name === "repo-discovery",
 		);
 
 		expect(skill).toBeDefined();
-		expect(skill?.content).toContain("## Mandatory rules");
-		expect(skill?.content).toContain("### 3) Two-phase retrieval — ALWAYS");
+		expect(skill?.content).toContain(
+			"# Use repo-discovery as the single indexed entry point",
+		);
+		expect(skill?.content).toContain("## Routing rules");
+		expect(skill?.content).toContain("## Hard rules");
+		expect(skill?.content).toContain("## Escalation path");
 		expect(skill?.content).toContain("## Skip when");
 		expect(skill?.content).toContain("## CLI reference");
-		expect(skill?.content).toContain("## Anti-patterns");
 		expect(skill?.content).toContain(
-			"Use when semantic search is already the right tool.",
+			"Use this skill first when the task is about understanding an unfamiliar codebase",
 		);
 		expect(skill?.content).toContain(
-			"Keep the query short and centered on one code concept.",
+			"Choose the single cheapest discovery path, run it, and stop as soon as you have enough context.",
 		);
 	});
 
-	it("renders the intro and focus hint structure for every generated skill that uses renderSkill", () => {
-		for (const skill of GENERATED_SKILLS) {
-			if (skill.name === "semantic-search") continue;
-			expectIntroParagraphStructure(skill.content);
-		}
+	it("keeps the intro and next-step structure readable", () => {
+		expectIntroParagraphStructure(GENERATED_SKILLS[0]!.content);
 	});
 
 	it("all skills reference idx, not npx", () => {
@@ -63,21 +68,16 @@ describe("generated skills", () => {
 
 	it("all skill allowed-tools use idx", () => {
 		for (const skill of GENERATED_SKILLS) {
-			// semantic-search uses rawContent, so its allowed-tools line is embedded in the YAML
-			if (skill.name === "semantic-search") {
-				expect(skill.content).toContain("Bash(idx search:*)");
-				expect(skill.content).not.toContain("Bash(npx");
-				continue;
-			}
-			// rendered skills have an explicit allowed-tools line from renderSkill()
-			expect(
-				skill.content,
-				`${skill.name} should have allowed-tools with idx`,
-			).toMatch(/allowed-tools:.*Bash\(idx/);
+			expect(skill.content).toMatch(/allowed-tools:.*Bash\(idx/);
 			expect(
 				skill.content,
 				`${skill.name} should not have allowed-tools with npx`,
 			).not.toMatch(/allowed-tools:.*Bash\(npx/);
+			expect(skill.content).toContain("Bash(idx architecture:*)");
+			expect(skill.content).toContain("Bash(idx structure:*)");
+			expect(skill.content).toContain("Bash(idx search:*)");
+			expect(skill.content).toContain("Bash(idx explain:*)");
+			expect(skill.content).toContain("Bash(idx deps:*)");
 		}
 	});
 });

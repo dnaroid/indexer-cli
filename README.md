@@ -1,14 +1,13 @@
 # indexer-cli
 
-Project indexer that installs focused discovery skills for coding agents and helps them spend fewer tokens finding the
+Project indexer that installs a focused discovery skill for coding agents and helps them spend fewer tokens finding the
 right code.
 
 ## Overview
 
 The main feature of `indexer-cli` is not just search on its own: it turns your repository into something coding agents
-can navigate efficiently. Running `idx init` installs project-local discovery skills with semantic names so
-Claude, OpenCode, and similar tools can pick the right indexed workflow instead of wasting tokens on blind `grep`,
-`find`, and repeated file reads.
+can navigate efficiently. Running `idx init` installs a project-local discovery skill so Claude, OpenCode, and similar
+tools can pick the right indexed workflow instead of wasting tokens on blind `grep`, `find`, and repeated file reads.
 
 Under the hood, `indexer-cli` indexes source code, generates vector embeddings through a local Ollama instance, and
 stores everything in a per-project `.indexer-cli/` directory. That gives both humans and agents fast natural-language
@@ -17,7 +16,7 @@ post-commit hook keeps the index up to date automatically.
 
 ## Features
 
-- **Code-agent repo skills**: `init` installs focused autonomous discovery skills for Claude and OpenCode workflows
+- **Code-agent repo skill**: `init` installs one focused autonomous discovery skill for Claude and OpenCode workflows
 - **`idx` command alias**: `setup` installs or repairs a clean `idx` wrapper — no npm warnings in agent output
 - **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated
   context loading
@@ -42,7 +41,7 @@ post-commit hook keeps the index up to date automatically.
 # 1. Check prerequisites, prepare the embedding model, and install or repair the idx command
 npx indexer-cli@latest setup
 
-# 2. Initialize indexing and install the discovery skills
+# 2. Initialize indexing and install the discovery skill
 cd /path/to/your/project
 idx init
 
@@ -57,18 +56,15 @@ After `idx init`, you can run project commands from subdirectories too: `indexer
 project root automatically. If a project has not been initialized yet, commands such as `idx search` and `idx index`
 stop with a clear message telling you to run `idx init` first instead of creating data in the wrong directory.
 
-After `init`, the repo contains focused skills like `.claude/skills/semantic-search/SKILL.md`,
-`.claude/skills/repo-structure/SKILL.md`, `.claude/skills/repo-architecture/SKILL.md`,
-`.claude/skills/symbol-explain/SKILL.md`, and `.claude/skills/dependency-trace/SKILL.md`, so coding agents can load
-the right indexed discovery workflow for
-`idx search`, `idx structure`, `idx architecture`,
-`idx explain`, and `idx deps` before they start burning tokens on broad filesystem scans.
+After `init`, the repo contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents get one indexed discovery
+entry point that routes them toward `idx search`, `idx structure`, `idx architecture`, `idx explain`, and `idx deps`
+before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
 
 Without repo-local skills, agents often spend tokens on repetitive repository discovery: broad `grep`, repeated file
-reads, and trial-and-error navigation. With `indexer-cli`, agents can load a focused skill that matches the current
-discovery intent and start from indexed search or structure-aware commands immediately.
+reads, and trial-and-error navigation. With `indexer-cli`, agents can load one focused discovery skill and start from
+the right indexed path immediately.
 
 In practice, that means:
 
@@ -79,10 +75,10 @@ In practice, that means:
 
 ## Agent Integration
 
-When you run `idx init`, the CLI creates focused discovery skills for each major read-only discovery
-command under `.claude/skills/` and adds `.claude/` to `.gitignore`.
+When you run `idx init`, the CLI creates a single `repo-discovery` skill under `.claude/skills/` and adds `.claude/`
+to `.gitignore`.
 
-Those skills cover repository discovery flows such as:
+That skill routes repository discovery flows such as:
 
 ```bash
 idx search "<query>"
@@ -109,14 +105,14 @@ After running `setup`, restart your shell to ensure `idx` is on `PATH`.
 ### `idx init`
 
 Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-vec vector store, and add `.indexer-cli/`
-to `.gitignore` in the current working directory. Also writes focused discovery skills under `.claude/skills/`,
+to `.gitignore` in the current working directory. Also writes the `repo-discovery` skill under `.claude/skills/`,
 adds `.claude/` to `.gitignore`, and installs a Git post-commit hook that automatically re-indexes changed files.
 
 When run from a subdirectory of a Git project, `idx init` automatically initializes the Git project root.
 
 | Option              | Description                                                                     |
 |---------------------|---------------------------------------------------------------------------------|
-| `--refresh-skills`  | Remove this CLI's generated skills under `.claude/skills/` and recreate them    |
+| `--refresh-skills`  | Remove this CLI's generated discovery skill under `.claude/skills/` and recreate it |
 
 ### `idx index`
 

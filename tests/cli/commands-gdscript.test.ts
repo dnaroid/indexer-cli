@@ -1,3 +1,4 @@
+import { readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -97,7 +98,7 @@ describe.sequential("CLI e2e GDScript", () => {
 				TEMP_DIR,
 				".claude",
 				"skills",
-				"repo-architecture",
+				"repo-discovery",
 				"SKILL.md",
 			);
 
@@ -106,6 +107,10 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(fileExists(skillPath)).toBe(true);
 			expect(fileExists(hookPath)).toBe(true);
 			expect(readTextFile(configPath)).toContain("jina-8k");
+			expect(readTextFile(configPath)).toContain("skillsVersion");
+			expect(
+				readdirSync(path.join(TEMP_DIR, ".claude", "skills")).sort(),
+			).toEqual(["repo-discovery"]);
 			expect(readTextFile(path.join(TEMP_DIR, ".gitignore"))).toContain(
 				".indexer-cli/",
 			);

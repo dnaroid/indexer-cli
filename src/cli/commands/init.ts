@@ -33,6 +33,15 @@ async function pathExists(targetPath: string): Promise<boolean> {
 	}
 }
 
+const DEFAULT_DEPRECATED_SKILL_DIRECTORIES = [
+	"context-pack",
+	"semantic-search",
+	"repo-structure",
+	"repo-architecture",
+	"symbol-explain",
+	"dependency-trace",
+];
+
 async function writeClaudeSkills(
 	projectRoot: string,
 	skills = GENERATED_SKILLS,
@@ -55,7 +64,7 @@ export async function refreshClaudeSkills(
 	projectRoot: string,
 	skillDirectories = GENERATED_SKILL_DIRECTORIES,
 	skills = GENERATED_SKILLS,
-	deprecatedSkillDirectories = ["context-pack"],
+	deprecatedSkillDirectories = DEFAULT_DEPRECATED_SKILL_DIRECTORIES,
 ): Promise<void> {
 	for (const skillDirectory of [
 		...skillDirectories,
@@ -166,7 +175,7 @@ export async function performInit(
 		if (options?.refreshSkills) {
 			await refreshClaudeSkills(projectRoot);
 		} else {
-			await writeClaudeSkills(projectRoot);
+			await refreshClaudeSkills(projectRoot, [], GENERATED_SKILLS);
 		}
 		console.log(`  SQLite: ${dbPath}`);
 		console.log(`  Config: ${configPath}`);

@@ -1,4 +1,10 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	readdirSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -67,7 +73,7 @@ describe.sequential("CLI e2e", () => {
 				TEMP_DIR,
 				".claude",
 				"skills",
-				"semantic-search",
+				"repo-discovery",
 				"SKILL.md",
 			);
 
@@ -80,9 +86,14 @@ describe.sequential("CLI e2e", () => {
 			const config = JSON.parse(readTextFile(configPath)) as {
 				embeddingModel: string;
 				vectorSize: number;
+				skillsVersion: number;
 			};
 			expect(config.embeddingModel).toBe("jina-8k");
 			expect(config.vectorSize).toBe(768);
+			expect(config.skillsVersion).toBeTypeOf("number");
+			expect(
+				readdirSync(path.join(TEMP_DIR, ".claude", "skills")).sort(),
+			).toEqual(["repo-discovery"]);
 
 			const gitignore = readTextFile(path.join(TEMP_DIR, ".gitignore"));
 			expect(gitignore).toContain(".indexer-cli/");
@@ -97,6 +108,26 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");
+		});
+
+		it("removes legacy generated skill directories during plain init", () => {
+			const legacySkillPath = path.join(
+				TEMP_DIR,
+				".claude",
+				"skills",
+				"semantic-search",
+				"SKILL.md",
+			);
+			mkdirSync(path.dirname(legacySkillPath), { recursive: true });
+			writeFileSync(legacySkillPath, "legacy skill\n", "utf8");
+
+			const result = runCLI(["init"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(0);
+			expect(fileExists(legacySkillPath)).toBe(false);
+			expect(
+				readdirSync(path.join(TEMP_DIR, ".claude", "skills")).sort(),
+			).toEqual(["repo-discovery"]);
 		});
 
 		it("auto-detects the Git project root when run from a subdirectory", () => {
