@@ -18,7 +18,7 @@ post-commit hook keeps the index up to date automatically.
 ## Features
 
 - **Code-agent repo skills**: `init` installs focused autonomous discovery skills for Claude and OpenCode workflows
-- **`idx` command alias**: `setup` installs a clean `idx` wrapper — no npm warnings in agent output
+- **`idx` command alias**: `setup` installs or repairs a clean `idx` wrapper — no npm warnings in agent output
 - **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated
   context loading
 - **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby
@@ -39,7 +39,7 @@ post-commit hook keeps the index up to date automatically.
 ## Quick Start
 
 ```bash
-# 1. Check prerequisites, prepare the embedding model, and install the idx command
+# 1. Check prerequisites, prepare the embedding model, and install or repair the idx command
 npx indexer-cli@latest setup
 
 # 2. Initialize indexing and install the discovery skills
@@ -100,7 +100,7 @@ during repo discovery.
 
 ### `idx setup`
 
-Check system prerequisites, prepare the Ollama embedding model, and install the `idx` command alias in
+Check system prerequisites, prepare the Ollama embedding model, and install or repair the `idx` command alias in
 `~/.local/bin/`. `setup` can install some system tools where appropriate, but Ollama itself must be installed
 manually first. Works on macOS and Linux.
 

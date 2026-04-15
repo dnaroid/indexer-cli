@@ -10,7 +10,12 @@ import os from "node:os";
 import path from "node:path";
 
 const SCRIPT_CONTENT =
-	'#!/bin/sh\nexport npm_config_loglevel=silent\nexec npx -y indexer-cli@latest "$@"\n';
+	'#!/bin/sh\nexport npm_config_loglevel=silent\nexec npx --yes --package=indexer-cli@latest indexer-cli "$@"\n';
+
+export type EnsureIdxBinaryResult = {
+	scriptStatus: "unchanged" | "installed" | "repaired";
+	pathUpdated: boolean;
+};
 
 /**
  * Ensure ~/.local/bin/idx exists and is executable.
@@ -18,28 +23,39 @@ const SCRIPT_CONTENT =
  *
  * Safe to call repeatedly — skips work when already installed.
  */
-export function ensureIdxBinary(): void {
+export function ensureIdxBinary(): EnsureIdxBinaryResult {
 	const homeDir = os.homedir();
 	const localBinDir = path.join(homeDir, ".local", "bin");
 	const scriptPath = path.join(localBinDir, "idx");
+	let scriptStatus: EnsureIdxBinaryResult["scriptStatus"] = "installed";
 
 	try {
 		accessSync(scriptPath, fsConstants.F_OK);
 		const existing = readFileSync(scriptPath, "utf8");
 		if (existing === SCRIPT_CONTENT) {
-			return;
+			try {
+				accessSync(scriptPath, fsConstants.X_OK);
+				scriptStatus = "unchanged";
+			} catch {
+				scriptStatus = "repaired";
+			}
+		} else {
+			scriptStatus = "repaired";
 		}
 	} catch {
 		// not installed
 	}
 
-	mkdirSync(localBinDir, { recursive: true });
-	writeFileSync(scriptPath, SCRIPT_CONTENT, "utf8");
-	chmodSync(scriptPath, 0o755);
+	if (scriptStatus !== "unchanged") {
+		mkdirSync(localBinDir, { recursive: true });
+		writeFileSync(scriptPath, SCRIPT_CONTENT, "utf8");
+		chmodSync(scriptPath, 0o755);
+	}
 
 	const pathEntries = (process.env.PATH ?? "").split(":");
+	let pathUpdated = false;
 	if (pathEntries.includes(localBinDir)) {
-		return;
+		return { scriptStatus, pathUpdated };
 	}
 
 	const candidates =
@@ -70,5 +86,8 @@ export function ensureIdxBinary(): void {
 	if (!existing.includes(exportLine)) {
 		const prefix = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
 		writeFileSync(profile, `${existing}${prefix}${exportLine}\n`, "utf8");
+		pathUpdated = true;
 	}
+
+	return { scriptStatus, pathUpdated };
 }

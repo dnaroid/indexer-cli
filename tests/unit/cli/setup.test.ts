@@ -30,6 +30,53 @@ async function loadSetupInternals<T>(): Promise<T> {
 	return (await import(moduleUrl)) as T;
 }
 
+async function loadInstallIdxBinary(
+	ensureIdxBinary: () => {
+		scriptStatus: "unchanged" | "installed" | "repaired";
+		pathUpdated: boolean;
+	},
+	homedir = "/tmp/home",
+): Promise<() => { name: string; status: string; detail?: string }> {
+	const filePath = path.resolve(
+		import.meta.dirname,
+		"../../../src/cli/commands/setup.ts",
+	);
+	const source = readFileSync(filePath, "utf8");
+	const match = source.match(
+		/function installIdxBinary[\s\S]*?(?=\/\/ ── Ollama)/,
+	);
+	if (!match) {
+		throw new Error(`Unable to extract installIdxBinary from ${filePath}`);
+	}
+
+	(
+		globalThis as typeof globalThis & { __setupTestMocks?: unknown }
+	).__setupTestMocks = {
+		ensureIdxBinary,
+		homedir,
+	};
+
+	const transpiled = ts.transpileModule(
+		`const os = { homedir: () => globalThis.__setupTestMocks.homedir };
+const path = { join: (...parts) => parts.join("/") };
+const ensureIdxBinary = globalThis.__setupTestMocks.ensureIdxBinary;
+${match[0]}
+export { installIdxBinary };`,
+		{
+			compilerOptions: {
+				module: ts.ModuleKind.ES2022,
+				target: ts.ScriptTarget.ES2022,
+			},
+		},
+	).outputText;
+
+	const moduleUrl = `data:text/javascript;base64,${Buffer.from(transpiled).toString("base64")}#${Math.random().toString(36).slice(2)}`;
+	const module = (await import(moduleUrl)) as {
+		installIdxBinary: () => { name: string; status: string; detail?: string };
+	};
+	return module.installIdxBinary;
+}
+
 const setupInternals = await loadSetupInternals<{
 	normalizeCommandOutput: (output: string | Buffer | null) => string;
 	collectOllamaResults: (deps: {
@@ -160,5 +207,65 @@ describe("setup command helpers", () => {
 			{ name: "Model jina-8k", status: "ok", detail: "pulled" },
 		]);
 		expect(checkJinaModel).toHaveBeenCalledTimes(1);
+	});
+
+	it("reports repaired idx wrapper scripts explicitly", async () => {
+		const originalPath = process.env.PATH;
+		process.env.PATH = "/usr/bin:/bin";
+
+		try {
+			const installIdxBinary = await loadInstallIdxBinary(() => ({
+				scriptStatus: "repaired",
+				pathUpdated: false,
+			}));
+
+			expect(installIdxBinary()).toEqual({
+				name: "idx command",
+				status: "repaired",
+				detail: "wrapper repaired; restart your shell",
+			});
+		} finally {
+			process.env.PATH = originalPath;
+		}
+	});
+
+	it("reports a healthy idx wrapper when no repair is needed", async () => {
+		const originalPath = process.env.PATH;
+		process.env.PATH = "/usr/bin:/tmp/home/.local/bin:/bin";
+
+		try {
+			const installIdxBinary = await loadInstallIdxBinary(() => ({
+				scriptStatus: "unchanged",
+				pathUpdated: false,
+			}));
+
+			expect(installIdxBinary()).toEqual({
+				name: "idx command",
+				status: "ok",
+				detail: "healthy",
+			});
+		} finally {
+			process.env.PATH = originalPath;
+		}
+	});
+
+	it("reports a repaired idx wrapper when execute permissions are restored", async () => {
+		const originalPath = process.env.PATH;
+		process.env.PATH = "/usr/bin:/tmp/home/.local/bin:/bin";
+
+		try {
+			const installIdxBinary = await loadInstallIdxBinary(() => ({
+				scriptStatus: "repaired",
+				pathUpdated: false,
+			}));
+
+			expect(installIdxBinary()).toEqual({
+				name: "idx command",
+				status: "repaired",
+				detail: "wrapper repaired",
+			});
+		} finally {
+			process.env.PATH = originalPath;
+		}
 	});
 });

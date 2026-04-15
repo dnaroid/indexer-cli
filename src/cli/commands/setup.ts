@@ -62,7 +62,7 @@ function red(text: string): string {
 
 interface CheckResult {
 	name: string;
-	status: "ok" | "installed" | "failed" | "skipped";
+	status: "ok" | "installed" | "repaired" | "failed" | "skipped";
 	detail?: string;
 }
 
@@ -265,17 +265,39 @@ function installIdxBinary(): CheckResult {
 	const localBinDir = path.join(homeDir, ".local", "bin");
 
 	try {
-		ensureIdxBinary();
+		const result = ensureIdxBinary();
 
 		const pathEntries = (process.env.PATH ?? "").split(":");
+		const restartDetail = pathEntries.includes(localBinDir)
+			? ""
+			: "; restart your shell";
+
+		if (result.scriptStatus === "repaired") {
+			return {
+				name: "idx command",
+				status: "repaired",
+				detail: `wrapper repaired${restartDetail}`,
+			};
+		}
+
+		if (result.scriptStatus === "installed") {
+			return {
+				name: "idx command",
+				status: "installed",
+				detail: `installed${restartDetail}`,
+			};
+		}
+
 		if (pathEntries.includes(localBinDir)) {
-			return { name: "idx command", status: "ok", detail: "installed" };
+			return { name: "idx command", status: "ok", detail: "healthy" };
 		}
 
 		return {
 			name: "idx command",
-			status: "installed",
-			detail: "installed; restart your shell",
+			status: result.pathUpdated ? "installed" : "ok",
+			detail: result.pathUpdated
+				? "shell configured; restart your shell"
+				: "healthy; restart your shell",
 		};
 	} catch (e) {
 		return {
@@ -457,14 +479,19 @@ function printSummary(): void {
 		const icon =
 			r.status === "ok"
 				? green("✓")
-				: r.status === "installed"
+				: r.status === "installed" || r.status === "repaired"
 					? green("✓")
 					: r.status === "skipped"
 						? yellow("○")
 						: red("✗");
 
 		const suffix = r.detail ? `  (${r.detail})` : "";
-		const label = r.status === "installed" ? `${r.name}  — installed` : r.name;
+		const label =
+			r.status === "installed"
+				? `${r.name}  — installed`
+				: r.status === "repaired"
+					? `${r.name}  — repaired`
+					: r.name;
 		console.log(`  ${icon} ${label}${suffix}`);
 
 		if (r.status === "failed") allOk = false;
@@ -507,7 +534,7 @@ export function registerSetupCommand(program: Command): void {
 			results.push(checkBuildTools());
 			results.push(checkPython());
 
-			console.log(bold("\n  Installing idx command..."));
+			console.log(bold("\n  Checking idx command..."));
 			results.push(installIdxBinary());
 
 			console.log(bold("\n  Checking Ollama & embedding model..."));

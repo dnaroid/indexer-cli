@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const SCRIPT_CONTENT =
-	'#!/bin/sh\nexport npm_config_loglevel=silent\nexec npx -y indexer-cli@latest "$@"\n';
+	'#!/bin/sh\nexport npm_config_loglevel=silent\nexec npx --yes --package=indexer-cli@latest indexer-cli "$@"\n';
 const EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
 
 const { homedirMock, platformMock, writeFileSyncMock } = vi.hoisted(() => ({
@@ -58,7 +58,12 @@ function setMockedOs(homeDir: string, platform: "darwin" | "linux"): void {
 	platformMock.mockReturnValue(platform);
 }
 
-async function loadEnsureIdxBinary(): Promise<() => void> {
+async function loadEnsureIdxBinary(): Promise<
+	() => {
+		scriptStatus: "unchanged" | "installed" | "repaired";
+		pathUpdated: boolean;
+	}
+> {
 	vi.resetModules();
 	const module = await import("../../../src/core/idx-binary.js");
 	return module.ensureIdxBinary;
@@ -83,10 +88,14 @@ describe("ensureIdxBinary", () => {
 		process.env.PATH = localBinDir;
 
 		const ensureIdxBinary = await loadEnsureIdxBinary();
-		ensureIdxBinary();
+		const result = ensureIdxBinary();
 
 		expect(readFileSync(scriptPath, "utf8")).toBe(SCRIPT_CONTENT);
 		expect(statSync(scriptPath).mode & 0o111).not.toBe(0);
+		expect(result).toEqual({
+			scriptStatus: "installed",
+			pathUpdated: false,
+		});
 	});
 
 	it("skips when already installed with identical content", async () => {
@@ -102,10 +111,19 @@ describe("ensureIdxBinary", () => {
 		writeFileSyncMock.mockClear();
 
 		const ensureIdxBinary = await loadEnsureIdxBinary();
-		ensureIdxBinary();
+		const result = ensureIdxBinary();
 
-		expect(writeFileSyncMock).not.toHaveBeenCalled();
+		expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
+		expect(writeFileSyncMock).toHaveBeenCalledWith(
+			path.join(homeDir, ".zshrc"),
+			`${EXPORT_LINE}\n`,
+			"utf8",
+		);
 		expect(readFileSync(scriptPath, "utf8")).toBe(SCRIPT_CONTENT);
+		expect(result).toEqual({
+			scriptStatus: "unchanged",
+			pathUpdated: true,
+		});
 	});
 
 	it("overwrites the script when content differs", async () => {
@@ -120,7 +138,7 @@ describe("ensureIdxBinary", () => {
 		writeFileSyncMock.mockClear();
 
 		const ensureIdxBinary = await loadEnsureIdxBinary();
-		ensureIdxBinary();
+		const result = ensureIdxBinary();
 
 		expect(writeFileSyncMock).toHaveBeenCalledWith(
 			scriptPath,
@@ -128,6 +146,33 @@ describe("ensureIdxBinary", () => {
 			"utf8",
 		);
 		expect(readFileSync(scriptPath, "utf8")).toBe(SCRIPT_CONTENT);
+		expect(result).toEqual({
+			scriptStatus: "repaired",
+			pathUpdated: false,
+		});
+	});
+
+	it("repairs the script when execute permissions are missing", async () => {
+		const homeDir = createTempDir();
+		const localBinDir = path.join(homeDir, ".local", "bin");
+		const scriptPath = path.join(localBinDir, "idx");
+		setMockedOs(homeDir, "darwin");
+		process.env.PATH = localBinDir;
+
+		mkdirSync(localBinDir, { recursive: true });
+		writeFileSync(scriptPath, SCRIPT_CONTENT, "utf8");
+		chmodSync(scriptPath, 0o644);
+		writeFileSyncMock.mockClear();
+
+		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const result = ensureIdxBinary();
+
+		expect(readFileSync(scriptPath, "utf8")).toBe(SCRIPT_CONTENT);
+		expect(statSync(scriptPath).mode & 0o111).not.toBe(0);
+		expect(result).toEqual({
+			scriptStatus: "repaired",
+			pathUpdated: false,
+		});
 	});
 
 	it("creates ~/.local/bin when it does not exist", async () => {
@@ -224,8 +269,12 @@ describe("ensureIdxBinary", () => {
 		process.env.PATH = "/usr/bin:/bin";
 
 		const ensureIdxBinary = await loadEnsureIdxBinary();
-		expect(() => ensureIdxBinary()).not.toThrow();
+		const result = ensureIdxBinary();
 
 		expect(readFileSync(zshrcPath, "utf8")).toBe(`${EXPORT_LINE}\n`);
+		expect(result).toEqual({
+			scriptStatus: "installed",
+			pathUpdated: true,
+		});
 	});
 });
