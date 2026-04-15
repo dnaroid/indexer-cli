@@ -61,7 +61,7 @@ const search = await loadInternals<{
 	parseMinScore: (input?: string) => number | undefined;
 }>(
 	"../../../src/cli/commands/search.ts",
-	/type SearchResult[\s\S]*?(?=export function registerSearchCommand)/,
+	/function parseMinScore[\s\S]*?(?=export function registerSearchCommand)/,
 	["parseMinScore"],
 );
 
