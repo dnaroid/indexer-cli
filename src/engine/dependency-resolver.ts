@@ -350,7 +350,7 @@ function resolvePythonRelativeImport(
 
 function resolveCSharpDependency(
 	importSpecifier: string,
-	fromFilePath: string,
+	_fromFilePath: string,
 	knownFiles: Set<string>,
 ): ResolveResult {
 	const parts = importSpecifier.split(".");

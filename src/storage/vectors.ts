@@ -1,4 +1,3 @@
-import path from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import type {

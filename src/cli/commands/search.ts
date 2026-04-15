@@ -11,8 +11,6 @@ import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
-type SearchResult = Awaited<ReturnType<SearchEngine["search"]>>[number];
-
 function parseMinScore(
 	input?: string,
 	fallback: number = 0.55,
