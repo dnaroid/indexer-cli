@@ -46,10 +46,11 @@ export class TypeScriptPlugin implements LanguagePlugin {
 			languageId: this.id,
 			path: file.path,
 			ast: sourceFile,
+			meta: file.projectRoot ? { projectRoot: file.projectRoot } : undefined,
 		};
 	}
 
-	getEntrypoints(filePaths: string[]): string[] {
+	getEntrypoints(filePaths: string[], projectRoot?: string): string[] {
 		const entrypointPatterns: Record<string, number> = {
 			"App.tsx": 8,
 			"app.tsx": 8,
@@ -82,7 +83,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 		const ranked = filePaths
 			.map((filePath) => {
 				const fileName = path.basename(filePath);
-				const fileContent = this.readEntrypointCandidate(filePath);
+				const fileContent = this.readEntrypointCandidate(filePath, projectRoot);
 				const nameScore = entrypointPatterns[fileName] ?? 0;
 				const mainScore = this.hasMainEntrypointPattern(fileContent) ? 6 : 0;
 				const baseScore = Math.max(nameScore, mainScore);
@@ -186,6 +187,10 @@ export class TypeScriptPlugin implements LanguagePlugin {
 	extractImports(parsed: ParsedFile): LanguageImport[] {
 		const sourceFile = parsed.ast as any;
 		const imports: LanguageImport[] = [];
+		const projectRoot =
+			typeof parsed.meta?.projectRoot === "string"
+				? parsed.meta.projectRoot
+				: undefined;
 
 		const toRelative = (p: string) => {
 			const normalized = p.replace(/\\/g, "/");
@@ -207,19 +212,20 @@ export class TypeScriptPlugin implements LanguagePlugin {
 
 			if (!resolvedPath && spec.startsWith(".")) {
 				try {
+					const baseDir = projectRoot ?? process.cwd();
 					const currentFileDir = path.dirname(
-						path.resolve(process.cwd(), parsed.path),
+						path.resolve(baseDir, parsed.path),
 					);
 					const absPath = path.resolve(currentFileDir, spec);
 
 					if (fs.existsSync(absPath) && fs.statSync(absPath).isFile()) {
-						resolvedPath = path.relative(process.cwd(), absPath);
+						resolvedPath = path.relative(baseDir, absPath);
 					} else {
 						const extensions = [".ts", ".tsx", ".js", ".jsx", ".d.ts"];
 						for (const ext of extensions) {
 							const candidate = absPath + ext;
 							if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-								resolvedPath = path.relative(process.cwd(), candidate);
+								resolvedPath = path.relative(baseDir, candidate);
 								break;
 							}
 						}
@@ -230,7 +236,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 						for (const ext of extensions) {
 							const candidate = path.join(absPath, `index${ext}`);
 							if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
-								resolvedPath = path.relative(process.cwd(), candidate);
+								resolvedPath = path.relative(baseDir, candidate);
 								break;
 							}
 						}
@@ -375,9 +381,15 @@ export class TypeScriptPlugin implements LanguagePlugin {
 		return `${filePath}:${range.startLine}-${range.endLine}`;
 	}
 
-	private readEntrypointCandidate(filePath: string): string {
+	private readEntrypointCandidate(
+		filePath: string,
+		projectRoot?: string,
+	): string {
 		try {
-			return fs.readFileSync(path.resolve(process.cwd(), filePath), "utf8");
+			const absolutePath = projectRoot
+				? path.resolve(projectRoot, filePath)
+				: path.resolve(process.cwd(), filePath);
+			return fs.readFileSync(absolutePath, "utf8");
 		} catch {
 			return "";
 		}

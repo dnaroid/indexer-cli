@@ -8,6 +8,7 @@ import { isTestFile } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { resolveInitializedProjectRoot } from "../project-root.js";
 
 type TreeNode = {
 	files: Set<string>;
@@ -330,7 +331,20 @@ export function registerStructureCommand(program: Command): void {
 				includeInternal?: boolean;
 				tests?: boolean;
 			}) => {
-				const resolvedProjectPath = process.cwd();
+				let resolvedProjectPath: string;
+				try {
+					const resolved = resolveInitializedProjectRoot();
+					resolvedProjectPath = resolved.projectRoot;
+					if (resolved.notice) {
+						console.log(resolved.notice);
+					}
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					console.error(`Structure command failed: ${message}`);
+					process.exitCode = 1;
+					return;
+				}
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
 

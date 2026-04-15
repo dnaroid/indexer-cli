@@ -15,6 +15,7 @@ import { scanProjectFiles } from "../../engine/scanner.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
+import { resolveInitializedProjectRoot } from "../project-root.js";
 
 function countChangedFiles(diff: GitDiff): number {
 	return diff.added.length + diff.modified.length + diff.deleted.length;
@@ -80,7 +81,20 @@ export function registerIndexCommand(program: Command): void {
 				tree?: boolean;
 				skipIfLocked?: boolean;
 			}) => {
-				const resolvedProjectPath = process.cwd();
+				let resolvedProjectPath: string;
+				try {
+					const resolved = resolveInitializedProjectRoot();
+					resolvedProjectPath = resolved.projectRoot;
+					if (resolved.notice) {
+						console.log(resolved.notice);
+					}
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					console.error(`Indexing failed: ${message}`);
+					process.exitCode = 1;
+					return;
+				}
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
 

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -11,8 +11,7 @@ import {
 	removeTempProject,
 	runCLI,
 } from "../helpers/cli-runner";
-
-const TEMP_DIR = path.join(os.tmpdir(), "indexer-cli-e2e-test");
+let TEMP_DIR = "";
 
 function parseSearchResults(
 	output: string,
@@ -44,6 +43,7 @@ function firstResultIndex(
 
 describe.sequential("CLI e2e", () => {
 	beforeAll(() => {
+		TEMP_DIR = mkdtempSync(path.join(os.tmpdir(), "indexer-cli-e2e-test-"));
 		removeTempProject(TEMP_DIR);
 		createTempProject(TEMP_DIR);
 		gitInit(TEMP_DIR);
@@ -53,7 +53,7 @@ describe.sequential("CLI e2e", () => {
 		removeTempProject(TEMP_DIR);
 	});
 
-	describe("init", () => {
+	describe.sequential("init", () => {
 		it("creates indexer data, config, skills, and git hook", () => {
 			const result = runCLI(["init"], { cwd: TEMP_DIR });
 
@@ -99,9 +99,34 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");
 		});
+
+		it("auto-detects the Git project root when run from a subdirectory", () => {
+			const tempRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-init-subdir-"),
+			);
+
+			removeTempProject(tempRoot);
+			createTempProject(tempRoot);
+			gitInit(tempRoot);
+
+			try {
+				const result = runCLI(["init"], { cwd: path.join(tempRoot, "src") });
+
+				expect(result.exitCode).toBe(0);
+				expect(result.stdout).toContain("Detected Git project root");
+				expect(
+					fileExists(path.join(tempRoot, ".indexer-cli", "db.sqlite")),
+				).toBe(true);
+				expect(
+					fileExists(path.join(tempRoot, "src", ".indexer-cli", "db.sqlite")),
+				).toBe(false);
+			} finally {
+				removeTempProject(tempRoot);
+			}
+		});
 	});
 
-	describe("index --full", () => {
+	describe.sequential("index --full", () => {
 		it("indexes the TypeScript fixture project", () => {
 			const result = runCLI(["index", "--full"], { cwd: TEMP_DIR });
 
@@ -144,7 +169,42 @@ describe.sequential("CLI e2e", () => {
 		});
 	});
 
-	describe("search", () => {
+	describe.sequential("search", () => {
+		it("fails with a clear message before init when no project data exists", () => {
+			const tempRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-uninitialized-"),
+			);
+
+			removeTempProject(tempRoot);
+			createTempProject(tempRoot);
+			gitInit(tempRoot);
+
+			try {
+				const result = runCLI(["search", "auth session"], { cwd: tempRoot });
+
+				expect(result.exitCode).toBe(1);
+				expect(result.stderr).toContain(
+					"Search failed: No indexer-cli project data found",
+				);
+				expect(result.stderr).toContain("Run `idx init` here first.");
+				expect(
+					fileExists(path.join(tempRoot, ".indexer-cli", "db.sqlite")),
+				).toBe(false);
+			} finally {
+				removeTempProject(tempRoot);
+			}
+		});
+
+		it("auto-detects the initialized project root from nested directories", () => {
+			const result = runCLI(["search", "auth session", "--max-files", "3"], {
+				cwd: path.join(TEMP_DIR, "src", "services"),
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Detected indexer-cli project root at");
+			expect(result.stdout).toContain("src/auth/session.ts");
+		});
+
 		it("matches auth session queries more strongly than game session queries", () => {
 			const result = runCLI(
 				["search", "auth session login token user access", "--max-files", "6"],
@@ -433,7 +493,7 @@ describe.sequential("CLI e2e", () => {
 		});
 	});
 
-	describe("structure", () => {
+	describe.sequential("structure", () => {
 		it("renders a tree with files and symbols", () => {
 			const result = runCLI(["structure"], { cwd: TEMP_DIR });
 
@@ -638,7 +698,7 @@ describe.sequential("CLI e2e", () => {
 		});
 	});
 
-	describe("architecture", () => {
+	describe.sequential("architecture", () => {
 		it("returns file stats, entrypoints, and internal dependencies", () => {
 			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
 
@@ -677,6 +737,17 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("src/workers/email.ts");
 		});
 
+		it("keeps TypeScript entrypoint detection stable from nested directories", () => {
+			const result = runCLI(["architecture"], {
+				cwd: path.join(TEMP_DIR, "src", "services"),
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Detected indexer-cli project root at");
+			expect(result.stdout).toContain("src/index.ts");
+			expect(result.stdout).toContain("src/workers/email.ts");
+		});
+
 		it("falls back to full architecture on nonexistent --path-prefix", () => {
 			const result = runCLI(["architecture", "--path-prefix", "nonexistent"], {
 				cwd: TEMP_DIR,
@@ -704,7 +775,7 @@ describe.sequential("CLI e2e", () => {
 		});
 	});
 
-	describe("explain", () => {
+	describe.sequential("explain", () => {
 		it("explains createSession", () => {
 			const result = runCLI(["explain", "createSession"], { cwd: TEMP_DIR });
 
@@ -786,7 +857,7 @@ describe.sequential("CLI e2e", () => {
 		});
 	});
 
-	describe("deps", () => {
+	describe.sequential("deps", () => {
 		it("returns callers and callees for a module with both", () => {
 			const result = runCLI(["deps", "src/services/user.ts"], {
 				cwd: TEMP_DIR,
@@ -864,7 +935,7 @@ describe.sequential("CLI e2e", () => {
 		});
 	});
 
-	describe("uninstall", () => {
+	describe.sequential("uninstall", () => {
 		it("removes indexer data, skills, gitignore entries, and git hook", () => {
 			const result = runCLI(["uninstall", "--force"], { cwd: TEMP_DIR });
 
@@ -888,6 +959,43 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Nothing to remove");
+		});
+
+		it("cleans stale generated artifacts from a subdirectory even without .indexer-cli", () => {
+			const staleSkillPath = path.join(
+				TEMP_DIR,
+				".claude",
+				"skills",
+				"semantic-search",
+				"SKILL.md",
+			);
+			mkdirSync(path.dirname(staleSkillPath), { recursive: true });
+			writeFileSync(staleSkillPath, "stale skill\n", "utf8");
+			writeFileSync(
+				path.join(TEMP_DIR, ".gitignore"),
+				".indexer-cli/\n.claude/\n",
+				"utf8",
+			);
+			writeFileSync(
+				path.join(TEMP_DIR, ".git", "hooks", "post-commit"),
+				"#!/bin/sh\n# >>> indexer-cli >>>\nidx index --skip-if-locked\n# <<< indexer-cli <<<\n",
+				"utf8",
+			);
+
+			const result = runCLI(["uninstall", "--force"], {
+				cwd: path.join(TEMP_DIR, "src", "services"),
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Detected Git project root");
+			expect(fileExists(path.join(TEMP_DIR, ".claude"))).toBe(false);
+			expect(readTextFile(path.join(TEMP_DIR, ".gitignore"))).not.toContain(
+				".claude/",
+			);
+			const hookPath = path.join(TEMP_DIR, ".git", "hooks", "post-commit");
+			if (fileExists(hookPath)) {
+				expect(readTextFile(hookPath)).not.toContain("indexer-cli");
+			}
 		});
 	});
 });

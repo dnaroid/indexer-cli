@@ -6,6 +6,7 @@ import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { resolveInitializedProjectRoot } from "../project-root.js";
 
 export function registerExplainCommand(program: Command): void {
 	program
@@ -25,7 +26,20 @@ export function registerExplainCommand(program: Command): void {
 					includeFixtures?: boolean;
 				},
 			) => {
-				const resolvedProjectPath = process.cwd();
+				let resolvedProjectPath: string;
+				try {
+					const resolved = resolveInitializedProjectRoot();
+					resolvedProjectPath = resolved.projectRoot;
+					if (resolved.notice) {
+						console.log(resolved.notice);
+					}
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					console.error(`Explain failed: ${message}`);
+					process.exitCode = 1;
+					return;
+				}
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
 

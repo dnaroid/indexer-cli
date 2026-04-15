@@ -224,6 +224,7 @@ export class ArchitectureGenerator {
 	constructor(
 		private metadataStore: MetadataStore,
 		private languagePlugins: LanguagePlugin[] = [],
+		private projectRoot: string,
 	) {}
 
 	async generate(projectId: ProjectId, snapshotId: SnapshotId): Promise<void> {
@@ -354,7 +355,7 @@ export class ArchitectureGenerator {
 				continue;
 			}
 
-			entrypoints.push(...plugin.getEntrypoints(pluginFiles));
+			entrypoints.push(...plugin.getEntrypoints(pluginFiles, this.projectRoot));
 		}
 
 		return this.dedupePreserveOrder(entrypoints);

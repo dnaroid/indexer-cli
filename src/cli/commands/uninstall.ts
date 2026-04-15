@@ -16,6 +16,8 @@ import {
 	DEPRECATED_SKILL_DIRECTORIES,
 	GENERATED_SKILL_DIRECTORIES,
 } from "./skills.js";
+import { resolveInitProjectRoot } from "../project-root.js";
+import { resolveInitializedProjectRoot } from "../project-root.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
 const HOOK_MARKER_END = "# <<< indexer-cli <<<";
@@ -34,7 +36,9 @@ async function isDirEmpty(dirPath: string): Promise<boolean> {
 	return entries.length === 0;
 }
 
-async function removeClaudeSkill(projectRoot: string): Promise<void> {
+async function removeClaudeSkill(projectRoot: string): Promise<boolean> {
+	let removedAny = false;
+
 	for (const skillDirectory of [
 		...GENERATED_SKILL_DIRECTORIES,
 		...DEPRECATED_SKILL_DIRECTORIES,
@@ -48,6 +52,7 @@ async function removeClaudeSkill(projectRoot: string): Promise<void> {
 		if (await pathExists(skillDir)) {
 			await rm(skillDir, { recursive: true, force: true });
 			console.log(`Removed ${skillDir}`);
+			removedAny = true;
 		}
 	}
 
@@ -56,6 +61,7 @@ async function removeClaudeSkill(projectRoot: string): Promise<void> {
 		try {
 			if (await isDirEmpty(skillsDir)) {
 				await rm(skillsDir, { recursive: true, force: true });
+				removedAny = true;
 			}
 		} catch {}
 	}
@@ -66,17 +72,20 @@ async function removeClaudeSkill(projectRoot: string): Promise<void> {
 			if (await isDirEmpty(claudeDir)) {
 				await rm(claudeDir, { recursive: true, force: true });
 				console.log(`Removed empty ${claudeDir}`);
+				removedAny = true;
 			}
 		} catch {}
 	}
+
+	return removedAny;
 }
 
 async function removeFromGitignore(
 	projectRoot: string,
 	entries: string[],
-): Promise<void> {
+): Promise<boolean> {
 	const gitignorePath = path.join(projectRoot, ".gitignore");
-	if (!(await pathExists(gitignorePath))) return;
+	if (!(await pathExists(gitignorePath))) return false;
 
 	const current = await readFile(gitignorePath, "utf8");
 	const lines = current.split(/\r?\n/);
@@ -92,20 +101,23 @@ async function removeFromGitignore(
 	if (nextContent !== current) {
 		await writeFile(gitignorePath, nextContent, "utf8");
 		console.log(`Updated ${gitignorePath}`);
+		return true;
 	}
+
+	return false;
 }
 
-async function removePostCommitHook(projectRoot: string): Promise<void> {
+async function removePostCommitHook(projectRoot: string): Promise<boolean> {
 	const hookPath = path.join(projectRoot, ".git", "hooks", "post-commit");
-	if (!(await pathExists(hookPath))) return;
+	if (!(await pathExists(hookPath))) return false;
 
 	const current = await readFile(hookPath, "utf8");
 
-	if (!current.includes(HOOK_MARKER_START)) return;
+	if (!current.includes(HOOK_MARKER_START)) return false;
 
 	const startIdx = current.indexOf(HOOK_MARKER_START);
 	const endIdx = current.indexOf(HOOK_MARKER_END);
-	if (endIdx === -1) return;
+	if (endIdx === -1) return false;
 
 	const afterBlock = current.slice(endIdx + HOOK_MARKER_END.length);
 	let cleaned = current.slice(0, startIdx) + afterBlock;
@@ -114,26 +126,33 @@ async function removePostCommitHook(projectRoot: string): Promise<void> {
 	if (cleaned.trim() === "" || cleaned.trim() === "#!/bin/sh") {
 		await unlink(hookPath);
 		console.log(`Removed ${hookPath}`);
+		return true;
 	} else {
 		await writeFile(hookPath, cleaned, "utf8");
 		console.log(`Cleaned ${hookPath}`);
+		return true;
 	}
 }
 
 export async function performUninstall(projectRoot: string): Promise<void> {
 	const dataDir = path.join(projectRoot, ".indexer-cli");
+	let removedAny = false;
 
-	if (!(await pathExists(dataDir))) {
-		console.log(`Nothing to remove at ${dataDir}`);
-		return;
+	if (await pathExists(dataDir)) {
+		await rm(dataDir, { recursive: true, force: true });
+		console.log(`Removed ${dataDir}`);
+		removedAny = true;
 	}
 
-	await rm(dataDir, { recursive: true, force: true });
-	console.log(`Removed ${dataDir}`);
+	removedAny = (await removeClaudeSkill(projectRoot)) || removedAny;
+	removedAny =
+		(await removeFromGitignore(projectRoot, [".indexer-cli/", ".claude/"])) ||
+		removedAny;
+	removedAny = (await removePostCommitHook(projectRoot)) || removedAny;
 
-	await removeClaudeSkill(projectRoot);
-	await removeFromGitignore(projectRoot, [".indexer-cli/", ".claude/"]);
-	await removePostCommitHook(projectRoot);
+	if (!removedAny) {
+		console.log(`Nothing to remove at ${dataDir}`);
+	}
 }
 
 export function registerUninstallCommand(program: Command): void {
@@ -143,13 +162,22 @@ export function registerUninstallCommand(program: Command): void {
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("-f, --force", "Skip confirmation prompt")
 		.action(async (options: { force?: boolean }) => {
-			const projectRoot = process.cwd();
-			const dataDir = path.join(projectRoot, ".indexer-cli");
-
-			if (!(await pathExists(dataDir))) {
-				console.log(`Nothing to remove at ${dataDir}`);
-				return;
+			let projectRoot: string;
+			try {
+				const resolved = resolveInitializedProjectRoot();
+				projectRoot = resolved.projectRoot;
+				if (resolved.notice) {
+					console.log(resolved.notice);
+				}
+			} catch {
+				const fallback = resolveInitProjectRoot();
+				projectRoot = fallback.projectRoot;
+				if (fallback.notice) {
+					console.log(fallback.notice);
+				}
 			}
+
+			const dataDir = path.join(projectRoot, ".indexer-cli");
 
 			if (!options.force) {
 				const rl = createInterface({ input, output });

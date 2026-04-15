@@ -1,4 +1,4 @@
-import { program } from "commander";
+import { CommanderError, program } from "commander";
 import { registerInitCommand } from "./commands/init.js";
 import { registerIndexCommand } from "./commands/index.js";
 import { registerSearchCommand } from "./commands/search.js";
@@ -29,7 +29,43 @@ const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.help",
 	"commander.version",
 	"commander.unknownCommand",
+	"indexer.preActionFailed",
 ]);
+
+async function runPreActionChecks(commandName: string): Promise<void> {
+	if (SKIP_MIGRATION_COMMANDS.has(commandName)) {
+		return;
+	}
+
+	try {
+		await checkAndMigrateIfNeeded();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`indexer-cli: migration preflight failed: ${message}`);
+		throw new CommanderError(1, "indexer.preActionFailed", "");
+	}
+
+	if ((process.exitCode ?? 0) !== 0) {
+		const exitCode =
+			typeof process.exitCode === "number" ? process.exitCode : 1;
+		throw new CommanderError(exitCode, "indexer.preActionFailed", "");
+	}
+
+	try {
+		await checkAndRefreshSkills();
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(`indexer-cli: skills refresh failed: ${message}`);
+		process.exitCode = 1;
+		throw new CommanderError(1, "indexer.preActionFailed", "");
+	}
+
+	if ((process.exitCode ?? 0) !== 0) {
+		const exitCode =
+			typeof process.exitCode === "number" ? process.exitCode : 1;
+		throw new CommanderError(exitCode, "indexer.preActionFailed", "");
+	}
+}
 
 function isHandledCommanderExit(error: unknown): boolean {
 	if (typeof error !== "object" || error === null || !("code" in error)) {
@@ -61,11 +97,8 @@ registerUninstallCommand(program);
 registerReinitCommand(program);
 
 program.hook("preAction", async (thisCommand, actionCommand) => {
-	const commandName = actionCommand.name();
-	if (!SKIP_MIGRATION_COMMANDS.has(commandName)) {
-		await checkAndMigrateIfNeeded();
-		await checkAndRefreshSkills();
-	}
+	void thisCommand;
+	await runPreActionChecks(actionCommand.name());
 });
 
 async function main(): Promise<void> {

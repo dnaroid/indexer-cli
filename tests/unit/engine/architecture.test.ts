@@ -179,7 +179,11 @@ describe("ArchitectureGenerator", () => {
 			splitIntoChunks: vi.fn().mockReturnValue([]),
 		};
 
-		const generator = new ArchitectureGenerator(metadata, [entrypointPlugin]);
+		const generator = new ArchitectureGenerator(
+			metadata,
+			[entrypointPlugin],
+			"/repo",
+		);
 
 		await generator.generate("project-1", "snap-1");
 
@@ -188,12 +192,15 @@ describe("ArchitectureGenerator", () => {
 			"project-1",
 			"snap-1",
 		);
-		expect(entrypointPlugin.getEntrypoints).toHaveBeenCalledWith([
-			"apps/web/src/index.ts",
-			"apps/web/src/components/Button.tsx",
-			"packages/shared/src/util.ts",
-			"scripts/build.js",
-		]);
+		expect(entrypointPlugin.getEntrypoints).toHaveBeenCalledWith(
+			[
+				"apps/web/src/index.ts",
+				"apps/web/src/components/Button.tsx",
+				"packages/shared/src/util.ts",
+				"scripts/build.js",
+			],
+			"/repo",
+		);
 
 		expect(metadata.upsertArtifact).toHaveBeenCalledTimes(1);
 		const artifact = vi.mocked(metadata.upsertArtifact).mock.calls[0]?.[1];
@@ -296,7 +303,7 @@ describe("ArchitectureGenerator", () => {
 		];
 
 		const metadata = createMetadataStoreMock(files, dependencies);
-		const generator = new ArchitectureGenerator(metadata, []);
+		const generator = new ArchitectureGenerator(metadata, [], "/repo");
 
 		await generator.generate("project-2", "snap-2");
 
@@ -316,6 +323,7 @@ describe("ArchitectureGenerator", () => {
 		const generator = new ArchitectureGenerator(
 			createMetadataStoreMock([], []),
 			[],
+			"/repo",
 		);
 
 		expect(

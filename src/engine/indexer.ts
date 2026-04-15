@@ -221,6 +221,7 @@ export class IndexerEngine {
 		this.architectureGenerator = new ArchitectureGenerator(
 			this.metadata,
 			this.languagePluginRegistry.list(),
+			this.repoRoot,
 		);
 	}
 

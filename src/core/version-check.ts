@@ -6,6 +6,7 @@ import { performInit } from "../cli/commands/init.js";
 import { SKILLS_VERSION } from "./skills-version.js";
 import { refreshClaudeSkills } from "../cli/commands/init.js";
 import { ensureIdxBinary } from "./idx-binary.js";
+import { resolveInitializedProjectRoot } from "../cli/project-root.js";
 
 /**
  * Parse a version string into [major, minor, patch].
@@ -29,7 +30,12 @@ export function parseSemver(version: string): [number, number, number] | null {
  * @returns true if migration was performed, false otherwise
  */
 export async function checkAndMigrateIfNeeded(): Promise<boolean> {
-	const projectRoot = process.cwd();
+	let projectRoot: string;
+	try {
+		projectRoot = resolveInitializedProjectRoot().projectRoot;
+	} catch {
+		return false;
+	}
 	const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
 
 	if (!existsSync(configPath)) {
@@ -88,7 +94,12 @@ export async function checkAndMigrateIfNeeded(): Promise<boolean> {
 }
 
 export async function checkAndRefreshSkills(): Promise<boolean> {
-	const projectRoot = process.cwd();
+	let projectRoot: string;
+	try {
+		projectRoot = resolveInitializedProjectRoot().projectRoot;
+	} catch {
+		return false;
+	}
 	const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
 
 	if (!existsSync(configPath)) {

@@ -53,6 +53,10 @@ idx index
 idx search "authentication middleware"
 ```
 
+After `idx init`, you can run project commands from subdirectories too: `indexer-cli` will detect the initialized
+project root automatically. If a project has not been initialized yet, commands such as `idx search` and `idx index`
+stop with a clear message telling you to run `idx init` first instead of creating data in the wrong directory.
+
 After `init`, the repo contains focused skills like `.claude/skills/semantic-search/SKILL.md`,
 `.claude/skills/repo-structure/SKILL.md`, `.claude/skills/repo-architecture/SKILL.md`,
 `.claude/skills/symbol-explain/SKILL.md`, and `.claude/skills/dependency-trace/SKILL.md`, so coding agents can load
@@ -108,6 +112,8 @@ Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-
 to `.gitignore` in the current working directory. Also writes focused discovery skills under `.claude/skills/`,
 adds `.claude/` to `.gitignore`, and installs a Git post-commit hook that automatically re-indexes changed files.
 
+When run from a subdirectory of a Git project, `idx init` automatically initializes the Git project root.
+
 | Option              | Description                                                                     |
 |---------------------|---------------------------------------------------------------------------------|
 | `--refresh-skills`  | Remove this CLI's generated skills under `.claude/skills/` and recreate them    |
@@ -115,6 +121,9 @@ adds `.claude/` to `.gitignore`, and installs a Git post-commit hook that automa
 ### `idx index`
 
 Index all supported source files in the current working directory.
+
+If you run `idx index` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
+project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
 
 | Option      | Description                                                |
 |-------------|------------------------------------------------------------|
@@ -126,6 +135,9 @@ Index all supported source files in the current working directory.
 ### `idx search <query>`
 
 Run a semantic search against the indexed codebase. Automatically re-indexes changed files if needed.
+
+If you run `idx search` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
+project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
 
 | Option                   | Default | Description                                                                                                  |
 |--------------------------|---------|--------------------------------------------------------------------------------------------------------------|
@@ -169,10 +181,15 @@ explicitly specified.
 Show context for a symbol: its signature, callers, and containing module. Use this to quickly understand what a
 specific function, class, or type does and how it is used.
 
+When auto-root detection is used, symbol paths such as `src/payments/processor.ts::PaymentProcessor` are still resolved
+relative to the project root, not the subdirectory where you ran the command.
+
 ### `idx deps <path>`
 
 Show callers (who imports this) and callees (what this imports) for a module or symbol. Useful for tracing impact
 of changes and understanding dependency chains.
+
+Path arguments stay project-root-relative even when you invoke the command from a nested subdirectory.
 
 | Option              | Default | Description                     |
 |---------------------|---------|---------------------------------|
@@ -181,8 +198,9 @@ of changes and understanding dependency chains.
 
 ### `idx uninstall`
 
-Remove the `.indexer-cli/` directory from the current working directory. Also removes the generated
-`.claude/skills/` directories created by `indexer-cli` when present. Prompts for confirmation unless `-f` is given.
+Remove the `.indexer-cli/` directory from the initialized project root. Also removes the generated
+`.claude/skills/` directories created by `indexer-cli`, cleans this CLI's Git hook block, and removes its
+`.gitignore` entries when present. Prompts for confirmation unless `-f` is given.
 
 Deprecated generated skill directories such as `context-pack` are cleaned up when present.
 

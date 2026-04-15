@@ -18,6 +18,7 @@ import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { GENERATED_SKILL_DIRECTORIES, GENERATED_SKILLS } from "./skills.js";
 import { SKILLS_VERSION } from "../../core/skills-version.js";
+import { resolveInitProjectRoot } from "../project-root.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
 const HOOK_MARKER_END = "# <<< indexer-cli <<<";
@@ -199,7 +200,12 @@ export function registerInitCommand(program: Command): void {
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.action(async (options?: { refreshSkills?: boolean }) => {
 			try {
-				await performInit(process.cwd(), {
+				const { projectRoot, notice } = resolveInitProjectRoot();
+				if (notice) {
+					console.log(notice);
+				}
+
+				await performInit(projectRoot, {
 					refreshSkills: options?.refreshSkills,
 				});
 			} catch (error) {

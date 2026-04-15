@@ -43,6 +43,7 @@ describe("CLI entry error handling", () => {
 				"commander.help",
 				"commander.version",
 				"commander.unknownCommand",
+				"indexer.preActionFailed",
 			]),
 		);
 		expect(
@@ -59,6 +60,11 @@ describe("CLI entry error handling", () => {
 		expect(
 			entryInternals.isHandledCommanderExit({
 				code: "commander.unknownCommand",
+			}),
+		).toBe(true);
+		expect(
+			entryInternals.isHandledCommanderExit({
+				code: "indexer.preActionFailed",
 			}),
 		).toBe(true);
 	});

@@ -9,6 +9,7 @@ import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { resolveInitializedProjectRoot } from "../project-root.js";
 
 type SearchResult = Awaited<ReturnType<SearchEngine["search"]>>[number];
 
@@ -63,7 +64,20 @@ export function registerSearchCommand(program: Command): void {
 					includeContent?: boolean;
 				},
 			) => {
-				const resolvedProjectPath = process.cwd();
+				let resolvedProjectPath: string;
+				try {
+					const resolved = resolveInitializedProjectRoot();
+					resolvedProjectPath = resolved.projectRoot;
+					if (resolved.notice) {
+						console.log(resolved.notice);
+					}
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					console.error(`Search failed: ${message}`);
+					process.exitCode = 1;
+					return;
+				}
 				const dataDir = path.join(resolvedProjectPath, ".indexer-cli");
 				const dbPath = path.join(dataDir, "db.sqlite");
 
