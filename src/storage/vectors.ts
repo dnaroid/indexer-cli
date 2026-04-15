@@ -1,4 +1,3 @@
-import { existsSync, rmSync } from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
@@ -368,11 +367,6 @@ export class SqliteVecVectorStore implements VectorStore {
 			`).run(projectId);
 			db.prepare("DELETE FROM vector_meta WHERE project_id = ?").run(projectId);
 		})();
-
-		const legacyVectorsPath = path.join(path.dirname(this.dbPath), "vectors");
-		if (existsSync(legacyVectorsPath)) {
-			rmSync(legacyVectorsPath, { recursive: true, force: true });
-		}
 	}
 
 	private openDatabase(): Database.Database {

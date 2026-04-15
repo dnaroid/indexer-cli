@@ -56,7 +56,7 @@ async function writeClaudeSkills(
 		await mkdir(skillDir, { recursive: true });
 		const skillPath = path.join(skillDir, "SKILL.md");
 		await writeFile(skillPath, skill.content, "utf8");
-		console.log(`  Skill: ${skillPath}`);
+		console.log(`  Skill: ${path.relative(projectRoot, skillPath)}`);
 	}
 }
 
@@ -78,7 +78,9 @@ export async function refreshClaudeSkills(
 		);
 		if (await pathExists(skillDir)) {
 			await rm(skillDir, { recursive: true, force: true });
-			console.log(`  Removed stale skill: ${skillDir}`);
+			console.log(
+				`  Removed stale skill: ${path.relative(projectRoot, skillDir)}`,
+			);
 		}
 	}
 
@@ -133,7 +135,7 @@ async function ensurePostCommitHook(projectRoot: string): Promise<void> {
 		await chmod(hookPath, 0o755);
 	}
 
-	console.log(`  Hook: ${hookPath}`);
+	console.log(`  Hook: ${path.relative(projectRoot, hookPath)}`);
 }
 
 export async function performInit(
@@ -142,7 +144,6 @@ export async function performInit(
 ): Promise<void> {
 	const dataDir = path.join(projectRoot, ".indexer-cli");
 	const dbPath = path.join(dataDir, "db.sqlite");
-	const legacyVectorsPath = path.join(dataDir, "vectors");
 	const configPath = path.join(dataDir, "config.json");
 
 	initLogger(dataDir);
@@ -171,22 +172,19 @@ export async function performInit(
 		await ensureGitignoreEntries(projectRoot, [".indexer-cli/", ".claude/"]);
 		await ensurePostCommitHook(projectRoot);
 
-		console.log(`Initialized indexer-cli in ${projectRoot}`);
+		const displayRoot = path.relative(process.cwd(), projectRoot) || ".";
+		console.log(`Initialized indexer-cli in ${displayRoot}`);
 		if (options?.refreshSkills) {
 			await refreshClaudeSkills(projectRoot);
 		} else {
 			await refreshClaudeSkills(projectRoot, [], GENERATED_SKILLS);
 		}
-		console.log(`  SQLite: ${dbPath}`);
-		console.log(`  Config: ${configPath}`);
+		console.log("  Restart OpenCode to pick up skill changes.");
+		console.log(`  SQLite: ${path.relative(projectRoot, dbPath)}`);
+		console.log(`  Config: ${path.relative(projectRoot, configPath)}`);
 
 		if (!options?.skipIndexing) {
 			await ensureIndexed(metadata, projectRoot);
-		}
-
-		if (await pathExists(legacyVectorsPath)) {
-			await rm(legacyVectorsPath, { recursive: true, force: true });
-			console.log(`  Removed legacy vectors directory: ${legacyVectorsPath}`);
 		}
 	} finally {
 		if (metadata) {

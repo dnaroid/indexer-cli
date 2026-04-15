@@ -1,22 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	SqliteVecVectorStore,
 	REQUIRED_COLUMNS,
 } from "../../../src/storage/vectors.js";
-
-const { existsSyncMock, rmSyncMock } = vi.hoisted(() => ({
-	existsSyncMock: vi.fn(() => false),
-	rmSyncMock: vi.fn(),
-}));
-
-vi.mock("node:fs", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("node:fs")>();
-	return {
-		...actual,
-		existsSync: existsSyncMock,
-		rmSync: rmSyncMock,
-	};
-});
 
 function createStore(
 	overrides: Partial<{ vectorSize: number }> = {},
@@ -41,12 +27,6 @@ function createVectorRecord(index: number) {
 		embedding: [index, index + 1, index + 2],
 	};
 }
-
-beforeEach(() => {
-	vi.useRealTimers();
-	existsSyncMock.mockReturnValue(false);
-	rmSyncMock.mockReset();
-});
 
 describe("SqliteVecVectorStore constants", () => {
 	it("exports the required schema columns", () => {
@@ -663,27 +643,6 @@ describe("SqliteVecVectorStore deleteByProject", () => {
 
 		const count = await store.countVectors({ projectId: "project-1" });
 		expect(count).toBe(0);
-		store.close();
-	});
-
-	it("removes legacy vectors directory when present", async () => {
-		const store = new SqliteVecVectorStore({
-			dbPath: ":memory:",
-			vectorSize: 3,
-		});
-		await store.initialize();
-
-		existsSyncMock.mockReturnValue(true);
-		rmSyncMock.mockReset();
-
-		await store.deleteByProject("project-1" as any);
-
-		expect(rmSyncMock).toHaveBeenCalledWith("vectors", {
-			recursive: true,
-			force: true,
-		});
-
-		existsSyncMock.mockReturnValue(false);
 		store.close();
 	});
 });
