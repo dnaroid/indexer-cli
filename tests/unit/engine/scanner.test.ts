@@ -124,6 +124,71 @@ describe("scanProjectFiles", () => {
 		vi.resetModules();
 	});
 
+	it("skips unreadable subdirectories with EINVAL and continues scanning", async () => {
+		vi.resetModules();
+
+		const readdir = vi.fn();
+		readdir.mockResolvedValueOnce([
+			{
+				name: "repositories",
+				isDirectory: () => true,
+				isFile: () => false,
+			},
+			{
+				name: "app.ts",
+				isDirectory: () => false,
+				isFile: () => true,
+			},
+		]);
+		const einvalError = Object.assign(new Error("Invalid argument"), {
+			code: "EINVAL",
+			syscall: "scandir",
+			path: "/repo/repositories/pipeline-dag/dags",
+		});
+		readdir.mockRejectedValueOnce(einvalError);
+
+		vi.doMock("node:fs/promises", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:fs/promises")>();
+			return { ...actual, readdir };
+		});
+
+		const { scanProjectFiles: mockedScanProjectFiles } = await import(
+			"../../../src/engine/scanner.js"
+		);
+
+		const files = await mockedScanProjectFiles("/repo", [".ts"]);
+
+		expect(files).toEqual(["app.ts"]);
+
+		vi.doUnmock("node:fs/promises");
+		vi.resetModules();
+	});
+
+	it("re-throws non-recoverable readdir errors", async () => {
+		vi.resetModules();
+
+		const readdir = vi.fn();
+		readdir.mockRejectedValueOnce(
+			Object.assign(new Error("Out of memory"), { code: "ENOMEM" }),
+		);
+
+		vi.doMock("node:fs/promises", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:fs/promises")>();
+			return { ...actual, readdir };
+		});
+
+		const { scanProjectFiles: mockedScanProjectFiles } = await import(
+			"../../../src/engine/scanner.js"
+		);
+
+		await expect(mockedScanProjectFiles("/repo", [".ts"])).rejects.toThrow(
+			"Out of memory",
+		);
+
+		vi.doUnmock("node:fs/promises");
+		vi.resetModules();
+	});
+
 	it("ignores symlinks and other non-file directory entries", async () => {
 		const rootDir = await createTempProject();
 		await writeProjectFile(
