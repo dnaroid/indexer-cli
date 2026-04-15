@@ -1,4 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1015,6 +1021,51 @@ describe("IndexerEngine internals", () => {
 				2,
 			);
 		});
+
+		it("reports each file as it starts indexing", async () => {
+			mockConfig({ indexBatchSize: 2 });
+			const repoRoot = createTempRepo();
+			mkdirSync(join(repoRoot, "src"), { recursive: true });
+			writeFileSync(
+				join(repoRoot, "src/one.ts"),
+				"export const one = 1;",
+				"utf8",
+			);
+			writeFileSync(
+				join(repoRoot, "src/two.ts"),
+				"export const two = 2;",
+				"utf8",
+			);
+
+			const options = createMockOptions({ repoRoot });
+			options.embedder.embed.mockResolvedValue([
+				[0.1, 0.2, 0.3],
+				[0.4, 0.5, 0.6],
+			]);
+			const engine = new IndexerEngine(options as any);
+			vi.spyOn(engine as any, "prepareFileRecords").mockImplementation(
+				async (...args: any[]) => createPreparedFileData(args[0].filePath),
+			);
+			const onFileStart = vi.fn();
+			const errors: string[] = [];
+
+			await (engine as any).indexPreparedFiles({
+				projectId: "project-id",
+				repoRoot,
+				gitRef: "head-commit",
+				snapshotId: "snapshot-1",
+				filesToIndex: ["src/one.ts", "src/two.ts"],
+				knownFiles: new Set(["src/one.ts", "src/two.ts"]),
+				totalFiles: 2,
+				onFileStart,
+				errors,
+				operation: "batch indexing",
+			});
+
+			expect(onFileStart).toHaveBeenNthCalledWith(1, "src/one.ts", 1, 2);
+			expect(onFileStart).toHaveBeenNthCalledWith(2, "src/two.ts", 2, 2);
+			expect(errors).toEqual([]);
+		});
 	});
 
 	describe("indexProject", () => {
@@ -1059,11 +1110,15 @@ describe("IndexerEngine internals", () => {
 			const indexPreparedFilesSpy = vi
 				.spyOn(engine as any, "indexPreparedFiles")
 				.mockResolvedValue(undefined);
+			const onFileStart = vi.fn();
 			const generateSpy = vi
 				.spyOn((engine as any).architectureGenerator, "generate")
 				.mockResolvedValue(undefined);
 
-			const result = await engine.indexProject({ isFullReindex: true });
+			const result = await engine.indexProject({
+				isFullReindex: true,
+				onFileStart,
+			});
 
 			expect(result).toEqual({
 				snapshotId: "snapshot-1",
@@ -1074,6 +1129,7 @@ describe("IndexerEngine internals", () => {
 				expect.objectContaining({
 					filesToIndex: ["src.ts"],
 					totalFiles: 1,
+					onFileStart,
 					operation: "full reindex batch indexing",
 				}),
 			);

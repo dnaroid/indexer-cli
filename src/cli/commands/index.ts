@@ -258,9 +258,14 @@ export function registerIndexCommand(program: Command): void {
 										await git.getWorkingTreeChanges(resolvedProjectPath),
 									)
 								: undefined;
+						const effectiveFullReindex =
+							Boolean(options?.full) ||
+							!latestSnapshot ||
+							!changedFiles ||
+							countChangedFiles(changedFiles) > 20_000;
 
 						if (options?.dryRun) {
-							if (options.full || !latestSnapshot) {
+							if (effectiveFullReindex) {
 								const plannedFiles = await scanProjectFiles(
 									resolvedProjectPath,
 									[
@@ -299,7 +304,7 @@ export function registerIndexCommand(program: Command): void {
 						}
 
 						await engine.initialize();
-						const mode = options?.full
+						const mode = effectiveFullReindex
 							? "Running full reindex..."
 							: "Running incremental index...";
 						console.log(mode);
@@ -308,8 +313,13 @@ export function registerIndexCommand(program: Command): void {
 							projectId: DEFAULT_PROJECT_ID,
 							repoRoot: resolvedProjectPath,
 							gitRef: headCommit ?? "unknown",
-							isFullReindex: Boolean(options?.full),
+							isFullReindex: effectiveFullReindex,
 							changedFiles,
+							onFileStart: effectiveFullReindex
+								? (filePath, current, total) => {
+										console.log(`  [${current}/${total}] ${filePath}`);
+									}
+								: undefined,
 							onProgress: (processed, total) => {
 								console.log(`  ${processed}/${total} files...`);
 							},

@@ -229,6 +229,12 @@ export async function ensureIndexed(
 				gitRef: headCommit ?? "unknown",
 				isFullReindex: updatedPlan.isFullReindex,
 				changedFiles: updatedPlan.changedFiles,
+				onFileStart:
+					silent || !updatedPlan.isFullReindex
+						? undefined
+						: (filePath, current, total) => {
+								console.error(`  [${current}/${total}] ${filePath}`);
+							},
 				onProgress: silent
 					? undefined
 					: (processed, total) => {

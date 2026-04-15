@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -132,6 +131,7 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Index completed successfully.");
+			expect(result.stdout).toMatch(/\[\d+\/\d+\] src\//);
 			expect(result.stdout).toContain("Snapshot:");
 			expect(result.stdout).toContain("Files indexed:");
 			expect(result.stdout).toContain("Chunks created:");
@@ -166,6 +166,36 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Dry run complete.");
+		});
+
+		it("shows project-root-relative file paths for implicit full reindex from a subdirectory", () => {
+			const tempRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-implicit-full-"),
+			);
+
+			removeTempProject(tempRoot);
+			createTempProject(tempRoot);
+			gitInit(tempRoot);
+			mkdirSync(path.join(tempRoot, ".indexer-cli"), { recursive: true });
+			writeFileSync(
+				path.join(tempRoot, ".indexer-cli", "config.json"),
+				"{}\n",
+				"utf8",
+			);
+
+			try {
+				const result = runCLI(["index"], {
+					cwd: path.join(tempRoot, "src", "services"),
+				});
+
+				expect(result.exitCode).toBe(0);
+				expect(result.stdout).toContain("Detected indexer-cli project root at");
+				expect(result.stdout).toContain("Running full reindex...");
+				expect(result.stdout).toMatch(/\[\d+\/\d+\] src\//);
+				expect(result.stdout).not.toContain(`${tempRoot}/src/`);
+			} finally {
+				removeTempProject(tempRoot);
+			}
 		});
 	});
 

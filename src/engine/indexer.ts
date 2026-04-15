@@ -87,6 +87,7 @@ export interface IndexProjectOptions {
 	isFullReindex: boolean;
 	changedFiles?: GitDiff;
 	onProgress?: (processed: number, total: number) => void;
+	onFileStart?: (filePath: string, current: number, total: number) => void;
 }
 
 export interface IndexResult {
@@ -823,6 +824,7 @@ export class IndexerEngine {
 				gitRef,
 				repoRoot,
 				options.onProgress,
+				options.onFileStart,
 			);
 		}
 
@@ -976,6 +978,7 @@ export class IndexerEngine {
 		knownFiles: Set<string>;
 		totalFiles: number;
 		onProgress?: (processed: number, total: number) => void;
+		onFileStart?: (filePath: string, current: number, total: number) => void;
 		errors: string[];
 		operation: string;
 	}): Promise<void> {
@@ -999,6 +1002,13 @@ export class IndexerEngine {
 			index += batchSize
 		) {
 			const batch = options.filesToIndex.slice(index, index + batchSize);
+			for (const [batchOffset, filePath] of batch.entries()) {
+				options.onFileStart?.(
+					filePath,
+					Math.min(processedCount + batchOffset + 1, options.totalFiles),
+					options.totalFiles,
+				);
+			}
 			const preparedData = await Promise.all(
 				batch.map(async (filePath) => {
 					try {
@@ -1517,6 +1527,7 @@ export class IndexerEngine {
 		gitRef: string,
 		repoRoot: string,
 		onProgress?: (processed: number, total: number) => void,
+		onFileStart?: (filePath: string, current: number, total: number) => void,
 	): Promise<IndexResult> {
 		const snapshot = await this.createSnapshot(projectId, gitRef, "indexing");
 		const snapshotId = snapshot.id;
@@ -1545,6 +1556,7 @@ export class IndexerEngine {
 				),
 				totalFiles: filesToIndex.length,
 				onProgress,
+				onFileStart,
 				errors,
 				operation: "full reindex batch indexing",
 			});
