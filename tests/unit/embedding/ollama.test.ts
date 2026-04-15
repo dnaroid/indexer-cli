@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OllamaEmbeddingProvider } from "../../../src/embedding/ollama.js";
 
+const DIM = 768;
+const mockEmbedding = (seed: number): number[] =>
+	Array.from({ length: DIM }, (_, i) => seed + i * 0.001);
+
 describe("OllamaEmbeddingProvider", () => {
 	beforeEach(() => {
 		vi.useRealTimers();
@@ -40,8 +44,9 @@ describe("OllamaEmbeddingProvider", () => {
 	});
 
 	it("embeds a single text through /api/embed", async () => {
+		const emb = mockEmbedding(0.1);
 		const fetchMock = vi.fn().mockResolvedValue(
-			new Response(JSON.stringify({ embeddings: [[0.1, 0.2, 0.3]] }), {
+			new Response(JSON.stringify({ embeddings: [emb] }), {
 				status: 200,
 				headers: { "Content-Type": "application/json" },
 			}),
@@ -57,7 +62,7 @@ describe("OllamaEmbeddingProvider", () => {
 		);
 		const result = await provider.embed(["hello"]);
 
-		expect(result).toEqual([[0.1, 0.2, 0.3]]);
+		expect(result).toEqual([emb]);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0]?.[0]).toBe(
 			"http://localhost:11434/api/embed",
@@ -74,7 +79,7 @@ describe("OllamaEmbeddingProvider", () => {
 			const body = JSON.parse(String(init?.body)) as { input: string[] };
 			return new Response(
 				JSON.stringify({
-					embeddings: body.input.map((text) => [text.length]),
+					embeddings: body.input.map((_text, i) => mockEmbedding(i)),
 				}),
 				{
 					status: 200,
@@ -92,7 +97,11 @@ describe("OllamaEmbeddingProvider", () => {
 		);
 		const result = await provider.embed(["a", "bbbb", "cc"]);
 
-		expect(result).toEqual([[1], [4], [2]]);
+		expect(result).toEqual([
+			mockEmbedding(0),
+			mockEmbedding(1),
+			mockEmbedding(0),
+		]);
 		expect(fetchMock).toHaveBeenCalledTimes(2);
 		expect(
 			JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).input,
@@ -139,13 +148,13 @@ describe("OllamaEmbeddingProvider", () => {
 			.fn()
 			.mockResolvedValueOnce(new Response(null, { status: 404 }))
 			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ embedding: [1, 2] }), {
+				new Response(JSON.stringify({ embedding: mockEmbedding(1) }), {
 					status: 200,
 					headers: { "Content-Type": "application/json" },
 				}),
 			)
 			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ embedding: [3, 4] }), {
+				new Response(JSON.stringify({ embedding: mockEmbedding(3) }), {
 					status: 200,
 					headers: { "Content-Type": "application/json" },
 				}),
@@ -161,10 +170,7 @@ describe("OllamaEmbeddingProvider", () => {
 		);
 		const result = await provider.embed(["first", "second"]);
 
-		expect(result).toEqual([
-			[1, 2],
-			[3, 4],
-		]);
+		expect(result).toEqual([mockEmbedding(1), mockEmbedding(3)]);
 		expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
 			"http://localhost:11434/api/embed",
 			"http://localhost:11434/api/embeddings",
@@ -209,14 +215,14 @@ describe("OllamaEmbeddingProvider", () => {
 		const performEmbedRequest = vi
 			.spyOn(provider as any, "performEmbedRequest")
 			.mockRejectedValueOnce({ code: "ECONNREFUSED" })
-			.mockResolvedValueOnce([[1, 2, 3]]);
+			.mockResolvedValueOnce([mockEmbedding(1)]);
 		const ensureOllamaAvailable = vi
 			.spyOn(provider as any, "ensureOllamaAvailable")
 			.mockResolvedValue(undefined);
 
 		const result = await (provider as any).embedBatch(["retry me"]);
 
-		expect(result).toEqual([[1, 2, 3]]);
+		expect(result).toEqual([mockEmbedding(1)]);
 		expect(ensureOllamaAvailable).toHaveBeenCalledWith("embedBatch");
 		expect(performEmbedRequest).toHaveBeenCalledTimes(2);
 	});
@@ -226,14 +232,14 @@ describe("OllamaEmbeddingProvider", () => {
 		const performEmbedRequest = vi
 			.spyOn(provider as any, "performEmbedRequest")
 			.mockRejectedValueOnce(new Response(null, { status: 404 }))
-			.mockResolvedValueOnce([[4, 5, 6]]);
+			.mockResolvedValueOnce([mockEmbedding(4)]);
 		const pullModel = vi
 			.spyOn(provider as any, "pullModel")
 			.mockResolvedValue(undefined);
 
 		const result = await (provider as any).embedBatch(["missing model"]);
 
-		expect(result).toEqual([[4, 5, 6]]);
+		expect(result).toEqual([mockEmbedding(4)]);
 		expect(pullModel).toHaveBeenCalledTimes(1);
 		expect(performEmbedRequest).toHaveBeenCalledTimes(2);
 	});
@@ -254,13 +260,13 @@ describe("OllamaEmbeddingProvider", () => {
 			.fn()
 			.mockRejectedValueOnce({ status: 404 })
 			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ embedding: [10] }), {
+				new Response(JSON.stringify({ embedding: mockEmbedding(10) }), {
 					status: 200,
 					headers: { "Content-Type": "application/json" },
 				}),
 			)
 			.mockResolvedValueOnce(
-				new Response(JSON.stringify({ embedding: [20] }), {
+				new Response(JSON.stringify({ embedding: mockEmbedding(20) }), {
 					status: 200,
 					headers: { "Content-Type": "application/json" },
 				}),
@@ -276,7 +282,7 @@ describe("OllamaEmbeddingProvider", () => {
 			"second",
 		]);
 
-		expect(result).toEqual([[10], [20]]);
+		expect(result).toEqual([mockEmbedding(10), mockEmbedding(20)]);
 		expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
 	});
 

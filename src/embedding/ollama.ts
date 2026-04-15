@@ -95,7 +95,13 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 
 			if (this.isNotFoundError(error)) {
 				logger.info(`Model ${this.model} not found. Pulling...`);
-				await this.pullModel();
+				try {
+					await this.pullModel();
+				} catch (pullError) {
+					throw new Error(
+						`Model "${this.model}" is not installed in Ollama. Run \`idx setup\` to create it. (pull failed: ${pullError instanceof Error ? pullError.message : String(pullError)})`,
+					);
+				}
 				return await this.performEmbedRequest(texts);
 			}
 
@@ -175,6 +181,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 
 			const data = await response.json();
 			if (data?.embeddings) {
+				this.validateEmbeddings(data.embeddings, texts.length);
 				return data.embeddings;
 			}
 		} catch (error: unknown) {
@@ -218,6 +225,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 
 			const data = await response.json();
 			if (data?.embedding) {
+				this.validateEmbeddings([data.embedding], 1);
 				embeddings.push(data.embedding);
 			} else {
 				throw new Error("Invalid response from Ollama (fallback)");
@@ -305,6 +313,33 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 			await this.reconnectInFlight;
 		} finally {
 			this.reconnectInFlight = null;
+		}
+	}
+
+	private validateEmbeddings(
+		embeddings: number[][],
+		expectedCount: number,
+	): void {
+		if (!Array.isArray(embeddings) || embeddings.length !== expectedCount) {
+			throw new Error(
+				`Ollama returned ${Array.isArray(embeddings) ? embeddings.length : 0} embeddings, expected ${expectedCount}`,
+			);
+		}
+
+		for (let i = 0; i < embeddings.length; i++) {
+			const emb = embeddings[i];
+			if (!Array.isArray(emb) || emb.length !== this.dimension) {
+				throw new Error(
+					`Ollama returned embedding[${i}] with ${Array.isArray(emb) ? emb.length : 0} dimensions, expected ${this.dimension}`,
+				);
+			}
+			for (let j = 0; j < emb.length; j++) {
+				if (typeof emb[j] !== "number" || !Number.isFinite(emb[j])) {
+					throw new Error(
+						`Ollama returned non-finite value in embedding[${i}][${j}]`,
+					);
+				}
+			}
 		}
 	}
 

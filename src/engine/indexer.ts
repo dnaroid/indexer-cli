@@ -1071,32 +1071,96 @@ export class IndexerEngine {
 				);
 
 				if (vectorChunksWithContext.length > 0) {
-					const embeddings = await this.embedWithContextGuard(
-						vectorChunksWithContext.map(
-							(item: { content: string }) => item.content,
-						),
-						options.operation,
-					);
+					try {
+						const embeddings = await this.embedWithContextGuard(
+							vectorChunksWithContext.map(
+								(item: { content: string }) => item.content,
+							),
+							options.operation,
+						);
 
-					await this.vectors.upsert(
-						vectorChunksWithContext.map(
-							(
-								item: { chunk: ChunkRecord; filePath: string; content: string },
-								index: number,
-							) => ({
-								projectId: this.projectId,
-								chunkId: item.chunk.chunkId,
-								snapshotId: options.snapshotId,
-								filePath: item.filePath,
-								startLine: item.chunk.startLine,
-								endLine: item.chunk.endLine,
-								embedding: embeddings[index],
-								contentHash: item.chunk.contentHash,
-								chunkType: item.chunk.chunkType,
-								primarySymbol: item.chunk.primarySymbol,
-							}),
-						),
-					);
+						if (embeddings.length !== vectorChunksWithContext.length) {
+							throw new Error(
+								`Embedding count mismatch: got ${embeddings.length}, expected ${vectorChunksWithContext.length} chunks`,
+							);
+						}
+
+						const badIndices: number[] = [];
+						for (let i = 0; i < embeddings.length; i++) {
+							const emb = embeddings[i];
+							if (
+								!Array.isArray(emb) ||
+								emb.length === 0 ||
+								emb.some(
+									(v: unknown) =>
+										typeof v !== "number" || !Number.isFinite(v as number),
+								)
+							) {
+								badIndices.push(i);
+							}
+						}
+
+						if (badIndices.length > 0) {
+							const affectedFiles = [
+								...new Set(
+									badIndices.map((i) => vectorChunksWithContext[i].filePath),
+								),
+							];
+							for (const f of affectedFiles) {
+								const msg = `Invalid embedding for ${f} — skipped vector indexing`;
+								options.errors.push(msg);
+								logger.warn(msg);
+							}
+						}
+
+						const goodChunks = vectorChunksWithContext.filter(
+							(_: unknown, i: number) => !badIndices.includes(i),
+						);
+						const goodEmbeddings = embeddings.filter(
+							(_: unknown, i: number) => !badIndices.includes(i),
+						);
+
+						if (goodChunks.length > 0) {
+							await this.vectors.upsert(
+								goodChunks.map(
+									(
+										item: {
+											chunk: ChunkRecord;
+											filePath: string;
+											content: string;
+										},
+										index: number,
+									) => ({
+										projectId: this.projectId,
+										chunkId: item.chunk.chunkId,
+										snapshotId: options.snapshotId,
+										filePath: item.filePath,
+										startLine: item.chunk.startLine,
+										endLine: item.chunk.endLine,
+										embedding: goodEmbeddings[index],
+										contentHash: item.chunk.contentHash,
+										chunkType: item.chunk.chunkType,
+										primarySymbol: item.chunk.primarySymbol,
+									}),
+								),
+							);
+						}
+					} catch (embedError) {
+						const message =
+							embedError instanceof Error
+								? embedError.message
+								: String(embedError);
+						const affectedFiles = [
+							...new Set(
+								validData.map((data: PreparedFileData) => data.filePath),
+							),
+						];
+						for (const f of affectedFiles) {
+							const msg = `Embedding failed for ${f}: ${message} — skipped vector indexing`;
+							options.errors.push(msg);
+							logger.warn(msg);
+						}
+					}
 				}
 			}
 
