@@ -131,7 +131,7 @@ export function registerExplainCommand(program: Command): void {
 				try {
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
-						silent: false,
+						silent: !process.stderr.isTTY,
 					});
 
 					const snapshot =

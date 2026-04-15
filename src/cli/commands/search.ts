@@ -106,7 +106,7 @@ export function registerSearchCommand(program: Command): void {
 				try {
 					await metadata.initialize();
 					await ensureIndexed(metadata, resolvedProjectPath, {
-						silent: false,
+						silent: !process.stderr.isTTY,
 					});
 					await Promise.all([vectors.initialize(), embedder.initialize()]);
 
