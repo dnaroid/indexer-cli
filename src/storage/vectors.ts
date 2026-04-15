@@ -152,7 +152,7 @@ export class SqliteVecVectorStore implements VectorStore {
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 		const insertVectorStatement = db.prepare(
-			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, vec_f32(?))",
+			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",
 		);
 
 		const upsertBatch = db.transaction((batch: VectorRecord[]) => {
@@ -172,7 +172,7 @@ export class SqliteVecVectorStore implements VectorStore {
 				);
 				insertVectorStatement.run(
 					vector.chunkId,
-					this.embeddingToBuffer(vector.embedding),
+					this.embeddingToSqlValue(vector.embedding),
 				);
 			}
 		});
@@ -211,7 +211,7 @@ export class SqliteVecVectorStore implements VectorStore {
 				LIMIT ?
 			`)
 			.all(
-				this.embeddingToBuffer(queryEmbedding),
+				this.embeddingToJson(queryEmbedding),
 				...values,
 				topK,
 			) as VectorSearchRow[];
@@ -324,7 +324,7 @@ export class SqliteVecVectorStore implements VectorStore {
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 		const insertVectorStatement = db.prepare(
-			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, vec_f32(?))",
+			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",
 		);
 
 		const copyBatch = db.transaction((batch: VectorCopyRow[]) => {
@@ -344,7 +344,7 @@ export class SqliteVecVectorStore implements VectorStore {
 				);
 				insertVectorStatement.run(
 					row.chunk_id,
-					this.normalizeEmbeddingValue(row.embedding),
+					this.normalizeStoredEmbedding(row.embedding),
 				);
 			}
 		});
@@ -391,26 +391,56 @@ export class SqliteVecVectorStore implements VectorStore {
 		return this.db;
 	}
 
-	private embeddingToBuffer(embedding: number[]): Buffer {
-		return Buffer.from(new Float32Array(embedding).buffer);
+	private embeddingToSqlValue(embedding: number[]): Float32Array {
+		this.validateEmbeddingArray(embedding);
+		return new Float32Array(embedding);
 	}
 
-	private normalizeEmbeddingValue(embedding: unknown): Buffer {
+	private embeddingToJson(embedding: number[]): string {
+		this.validateEmbeddingArray(embedding);
+		return JSON.stringify(embedding);
+	}
+
+	private normalizeStoredEmbedding(embedding: unknown): Uint8Array {
 		if (Buffer.isBuffer(embedding)) {
-			return embedding;
+			return new Uint8Array(
+				embedding.buffer,
+				embedding.byteOffset,
+				embedding.byteLength,
+			);
 		}
 
 		if (embedding instanceof Uint8Array) {
-			return Buffer.from(embedding);
+			return new Uint8Array(
+				embedding.buffer,
+				embedding.byteOffset,
+				embedding.byteLength,
+			);
 		}
 
 		if (embedding instanceof ArrayBuffer) {
-			return Buffer.from(embedding);
+			return new Uint8Array(embedding);
 		}
 
 		throw new Error(
 			"Unsupported sqlite-vec embedding value returned from database",
 		);
+	}
+
+	private validateEmbeddingArray(embedding: number[]): void {
+		if (embedding.length !== this.vectorSize) {
+			throw new Error(
+				`Expected embedding with ${this.vectorSize} dimensions, received ${embedding.length}`,
+			);
+		}
+
+		for (let index = 0; index < embedding.length; index += 1) {
+			if (!Number.isFinite(embedding[index])) {
+				throw new Error(
+					`Embedding contains non-finite value at index ${index}`,
+				);
+			}
+		}
 	}
 
 	private buildPrefilter(filters: VectorSearchFilters, alias?: string): string {

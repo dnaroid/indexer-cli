@@ -124,14 +124,17 @@ describe("SqliteVecVectorStore internal logic", () => {
 		store.close();
 	});
 
-	it("converts embedding array to Buffer", () => {
+	it("converts embedding array to Float32Array for sqlite-vec binding", () => {
 		const store = createStore();
-		const buffer = (store as any).embeddingToBuffer([1.0, 2.5, 3.0]);
-		expect(buffer).toBeInstanceOf(Buffer);
-		const float32 = new Float32Array(buffer.buffer);
-		expect(float32[0]).toBeCloseTo(1.0);
-		expect(float32[1]).toBeCloseTo(2.5);
-		expect(float32[2]).toBeCloseTo(3.0);
+		const value = (store as any).embeddingToSqlValue([1.0, 2.5, 3.0]);
+		expect(value).toBeInstanceOf(Float32Array);
+		expect(Array.from(value)).toEqual([1, 2.5, 3]);
+		store.close();
+	});
+
+	it("serializes query embeddings as JSON for sqlite-vec scalar functions", () => {
+		const store = createStore();
+		expect((store as any).embeddingToJson([1.0, 2.5, 3.0])).toBe("[1,2.5,3]");
 		store.close();
 	});
 
@@ -139,21 +142,36 @@ describe("SqliteVecVectorStore internal logic", () => {
 		const store = createStore();
 		const buf = Buffer.from(new Float32Array([1, 2, 3]).buffer);
 
-		expect((store as any).normalizeEmbeddingValue(buf)).toBe(buf);
+		const normalizedBuffer = (store as any).normalizeStoredEmbedding(buf);
+		expect(normalizedBuffer).toBeInstanceOf(Uint8Array);
+		expect(Array.from(normalizedBuffer)).toEqual(Array.from(buf));
 
 		const uint8 = new Uint8Array(buf);
-		expect((store as any).normalizeEmbeddingValue(uint8)).toBeInstanceOf(
-			Buffer,
+		expect((store as any).normalizeStoredEmbedding(uint8)).toBeInstanceOf(
+			Uint8Array,
 		);
 
 		const ab = buf.buffer.slice(
 			buf.byteOffset,
 			buf.byteOffset + buf.byteLength,
 		);
-		expect((store as any).normalizeEmbeddingValue(ab)).toBeInstanceOf(Buffer);
+		expect((store as any).normalizeStoredEmbedding(ab)).toBeInstanceOf(
+			Uint8Array,
+		);
 
-		expect(() => (store as any).normalizeEmbeddingValue("bad")).toThrow(
+		expect(() => (store as any).normalizeStoredEmbedding("bad")).toThrow(
 			"Unsupported sqlite-vec embedding value",
+		);
+		store.close();
+	});
+
+	it("rejects embeddings with wrong dimensionality or non-finite values", () => {
+		const store = createStore();
+		expect(() => (store as any).embeddingToSqlValue([1, 2])).toThrow(
+			"Expected embedding with 3 dimensions, received 2",
+		);
+		expect(() => (store as any).embeddingToJson([1, Number.NaN, 3])).toThrow(
+			"Embedding contains non-finite value at index 1",
 		);
 		store.close();
 	});
