@@ -11,8 +11,9 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const SCRIPT_CONTENT =
-	'#!/bin/sh\nexport npm_config_loglevel=silent\nexec npx --yes --package=indexer-cli@latest indexer-cli "$@"\n';
+const SCRIPT_CONTENT = `#!/bin/sh
+exec npm exec --yes --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
+`;
 const EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
 
 const { homedirMock, platformMock, writeFileSyncMock } = vi.hoisted(() => ({

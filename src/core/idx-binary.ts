@@ -9,8 +9,9 @@ import {
 import os from "node:os";
 import path from "node:path";
 
-const SCRIPT_CONTENT =
-	'#!/bin/sh\nexport npm_config_loglevel=silent\nexec npx --yes --package=indexer-cli@latest indexer-cli "$@"\n';
+const SCRIPT_CONTENT = `#!/bin/sh
+exec npm exec --yes --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
+`;
 
 export type EnsureIdxBinaryResult = {
 	scriptStatus: "unchanged" | "installed" | "repaired";
