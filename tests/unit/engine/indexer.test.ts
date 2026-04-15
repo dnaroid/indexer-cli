@@ -15,6 +15,7 @@ import {
 	createDefaultLanguagePlugins,
 } from "../../../src/engine/indexer.js";
 import { config } from "../../../src/core/config.js";
+import { FIXTURES_ROOT, readFixtureFile } from "../../helpers/fixture-loader";
 import type {
 	ChunkRecord,
 	DependencyRecord,
@@ -47,6 +48,9 @@ async function loadInternalFunction<T>(
 	const loaded = (await import(moduleUrl)) as Record<string, T>;
 	return loaded[exportName];
 }
+
+const AIRFLOW_DAG =
+	"e2e-python/repositories/pipeline-dag/dags/export_copy_partition_to_archive_and_warehouse.py";
 
 function createMockOptions(overrides: Record<string, unknown> = {}) {
 	return {
@@ -716,6 +720,78 @@ describe("IndexerEngine internals", () => {
 			expect(result.dependencyRecords).toEqual([]);
 			expect(result.chunkRecords).toHaveLength(1);
 			expect(result.chunkRecords[0]?.chunkType).toBe("impl");
+		});
+
+		it("prepares records for the anonymized Airflow DAG fixture without throwing", async () => {
+			const engine = new IndexerEngine(
+				createMockOptions({
+					repoRoot: FIXTURES_ROOT,
+					languagePlugins: createDefaultLanguagePlugins(["python"]),
+				}),
+			);
+			const prepareFileRecords = Reflect.get(engine, "prepareFileRecords").bind(
+				engine,
+			) as (options: {
+				snapshotId: string;
+				projectId: string;
+				filePath: string;
+				content: string;
+				gitRef: string;
+				knownFiles: Set<string>;
+			}) => Promise<{
+				fileRecord: FileRecord;
+				symbolRecords: SymbolRecord[];
+				dependencyRecords: DependencyRecord[];
+				chunkRecords: ChunkRecord[];
+				metrics: {
+					complexity: number;
+					maintainability: number;
+					churn: number;
+					testCoverage?: number;
+				};
+			}>;
+
+			const result = await prepareFileRecords({
+				snapshotId: "snapshot-1",
+				projectId: "project-id",
+				filePath: AIRFLOW_DAG,
+				content: readFixtureFile(AIRFLOW_DAG),
+				gitRef: "head-commit",
+				knownFiles: new Set([AIRFLOW_DAG]),
+			});
+
+			expect(result.fileRecord.path).toBe(AIRFLOW_DAG);
+			expect(result.fileRecord.languageId).toBe("python");
+			expect(result.symbolRecords.map((symbol) => symbol.name)).toEqual(
+				expect.arrayContaining([
+					"_parse_partition",
+					"export_copy_partition_to_archive_and_warehouse",
+					"pick_next_partition",
+					"copy_partition_to_archive",
+					"maybe_copy_into_warehouse",
+					"update_cursor",
+				]),
+			);
+			expect(
+				result.dependencyRecords.map((dependency) => dependency.toSpecifier),
+			).toEqual(
+				expect.arrayContaining([
+					"airflow.decorators",
+					"airflow.exceptions",
+					"common.alerting",
+					"common.archive",
+					"common.variables",
+					"common.warehouse",
+					"common.workflow_paths",
+					"airflow.providers.amazon.aws.hooks.s3",
+				]),
+			);
+			expect(result.chunkRecords.length).toBeGreaterThan(0);
+			expect(
+				result.chunkRecords.some((chunk) => chunk.chunkType === "imports"),
+			).toBe(true);
+			expect(result.metrics.complexity).toBeGreaterThanOrEqual(0);
+			expect(result.metrics.maintainability).toBeGreaterThan(0);
 		});
 	});
 
@@ -1399,6 +1475,57 @@ describe("IndexerEngine internals", () => {
 				"snapshot-1",
 				"failed",
 				"full reindex failed",
+			);
+		});
+
+		it("includes the current batch range when metadata persistence fails during full reindex", async () => {
+			const repoRoot = createTempRepo();
+			writeFileSync(join(repoRoot, "src.ts"), "export const src = 1;", "utf8");
+			const options = createMockOptions({ repoRoot });
+			options.metadata.getLatestSnapshot.mockResolvedValue(null);
+			options.metadata.transaction.mockRejectedValueOnce(
+				new Error("Invalid argument"),
+			);
+			const engine = new IndexerEngine(options);
+
+			await expect(
+				engine.indexProject({ isFullReindex: true }),
+			).rejects.toThrow(
+				"Failed while persisting batch [1-1] (src.ts .. src.ts): Invalid argument",
+			);
+
+			expect(options.metadata.updateSnapshotStatus).toHaveBeenCalledWith(
+				"snapshot-1",
+				"failed",
+				"Failed while persisting batch [1-1] (src.ts .. src.ts): Invalid argument",
+			);
+		});
+
+		it("includes the post-file stage when architecture generation fails during full reindex", async () => {
+			const repoRoot = createTempRepo();
+			writeFileSync(join(repoRoot, "src.ts"), "export const src = 1;", "utf8");
+			const options = createMockOptions({ repoRoot });
+			options.metadata.getLatestSnapshot.mockResolvedValue(null);
+			const engine = new IndexerEngine(options);
+			setPrivateField(
+				engine,
+				"indexPreparedFiles",
+				vi.fn().mockResolvedValue(undefined),
+			);
+			setPrivateField(engine, "architectureGenerator", {
+				generate: vi.fn().mockRejectedValue(new Error("Invalid argument")),
+			});
+
+			await expect(
+				engine.indexProject({ isFullReindex: true }),
+			).rejects.toThrow(
+				"Failed after indexing 1 files while generating architecture snapshot: Invalid argument",
+			);
+
+			expect(options.metadata.updateSnapshotStatus).toHaveBeenCalledWith(
+				"snapshot-1",
+				"failed",
+				"Failed after indexing 1 files while generating architecture snapshot: Invalid argument",
 			);
 		});
 	});

@@ -13,7 +13,9 @@ import {
 } from "../helpers/cli-runner-python";
 
 const TEMP_DIR = path.join(os.tmpdir(), "indexer-cli-e2e-python");
-const FIXTURE_FILE_COUNT = 33;
+const FIXTURE_FILE_COUNT = 34;
+const DAG_FIXTURE_PATH =
+	"repositories/pipeline-dag/dags/export_copy_partition_to_archive_and_warehouse.py";
 
 type DependencyRecord = {
 	fromPath: string;
@@ -134,6 +136,16 @@ describe.sequential("CLI e2e Python", () => {
 			expect(result.stdout).toContain("Chunks created:");
 		});
 
+		it("indexes the anonymized Airflow DAG regression fixture without failing init-style full indexing", () => {
+			const result = runCLI(["index", "--full"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Index completed successfully.");
+			expect(result.stdout).toContain(DAG_FIXTURE_PATH);
+			expect(result.stdout).not.toContain("Invalid argument");
+			expect(result.stderr).not.toContain("Invalid argument");
+		});
+
 		it("reports status for all fixture files", () => {
 			const result = runCLI(["index", "--status"], { cwd: TEMP_DIR });
 
@@ -156,9 +168,13 @@ describe.sequential("CLI e2e Python", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("manage.py");
 			expect(result.stdout).toContain("src/");
+			expect(result.stdout).toContain("repositories/");
 			expect(result.stdout).toContain("__main__.py");
 			expect(result.stdout).toContain("session.py");
 			expect(result.stdout).toContain("processor.py");
+			expect(result.stdout).toContain(
+				"export_copy_partition_to_archive_and_warehouse.py",
+			);
 		});
 
 		it("supports dry-run mode", () => {

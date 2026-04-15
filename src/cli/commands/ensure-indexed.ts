@@ -41,6 +41,86 @@ type IndexPlan =
 	| { isFullReindex: false; changedFiles: GitDiff }
 	| null;
 
+function getErrorMessage(error: unknown): string {
+	if (error instanceof Error) {
+		return error.message || error.name;
+	}
+
+	if (typeof error === "string") {
+		return error;
+	}
+
+	if (typeof error === "object" && error !== null) {
+		const message = Reflect.get(error, "message");
+		if (typeof message === "string" && message.trim().length > 0) {
+			return message;
+		}
+	}
+
+	return String(error);
+}
+
+function getErrorDetailParts(error: unknown): string[] {
+	if (typeof error !== "object" || error === null) {
+		return [];
+	}
+
+	const details: string[] = [];
+	const code = Reflect.get(error, "code");
+	const syscall = Reflect.get(error, "syscall");
+	const errorPath = Reflect.get(error, "path");
+
+	if (typeof code === "string" && code.length > 0) {
+		details.push(`code: ${code}`);
+	}
+	if (typeof syscall === "string" && syscall.length > 0) {
+		details.push(`syscall: ${syscall}`);
+	}
+	if (typeof errorPath === "string" && errorPath.length > 0) {
+		details.push(`path: ${errorPath}`);
+	}
+
+	return details;
+}
+
+function describeError(error: unknown): string {
+	const parts: string[] = [];
+	const seen = new Set<string>();
+	let current: unknown = error;
+
+	for (let depth = 0; depth < 4 && current != null; depth += 1) {
+		const message = getErrorMessage(current).trim();
+		const details = getErrorDetailParts(current);
+		const formatted =
+			details.length > 0 ? `${message} (${details.join(", ")})` : message;
+
+		if (formatted.length > 0 && !seen.has(formatted)) {
+			parts.push(formatted);
+			seen.add(formatted);
+		}
+
+		if (typeof current !== "object" || current === null) {
+			break;
+		}
+
+		const cause = Reflect.get(current, "cause");
+		if (cause == null || cause === current) {
+			break;
+		}
+
+		current = cause;
+	}
+
+	return parts.join("; cause: ");
+}
+
+function formatAutoIndexError(
+	error: unknown,
+	mode: "full" | "incremental",
+): string {
+	return `Auto-indexing failed during ${mode} reindex: ${describeError(error)}`;
+}
+
 /**
  * Returns true if every workspace-modified/added file in workspaceChanges
  * is already captured in `snapshot` with the same sha256 as on disk.
@@ -262,9 +342,12 @@ export async function ensureIndexed(
 				}
 			}
 		} catch (indexError) {
-			const message =
-				indexError instanceof Error ? indexError.message : String(indexError);
-			throw new Error(`Auto-indexing failed: ${message}`);
+			throw new Error(
+				formatAutoIndexError(
+					indexError,
+					updatedPlan.isFullReindex ? "full" : "incremental",
+				),
+			);
 		} finally {
 			await Promise.allSettled([vectors.close(), embedder.close()]);
 		}

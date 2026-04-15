@@ -7,6 +7,8 @@ const plugin = new PythonPlugin();
 const CALCULATOR = "python-basic/src/services/calculator.py";
 const MAIN = "python-basic/src/__main__.py";
 const MANAGE = "python-basic/manage.py";
+const AIRFLOW_DAG =
+	"e2e-python/repositories/pipeline-dag/dags/export_copy_partition_to_archive_and_warehouse.py";
 
 describe("PythonPlugin", () => {
 	describe("parse()", () => {
@@ -158,6 +160,67 @@ describe("PythonPlugin", () => {
 				expect(chunk.filePath).toBe(MANAGE);
 				expect(chunk.languageId).toBe("python");
 			}
+		});
+	});
+
+	describe("export_copy_partition_to_archive_and_warehouse.py", () => {
+		const source = readFixtureAsSource(AIRFLOW_DAG);
+		const parsed = plugin.parse(source);
+
+		it("parses the anonymized Airflow DAG fixture with a truthy ast", () => {
+			expect(parsed.languageId).toBe("python");
+			expect(parsed.path).toBe(AIRFLOW_DAG);
+			expect(parsed.ast).toBeTruthy();
+		});
+
+		it("extracts key DAG and task symbols", () => {
+			const symbols = plugin.extractSymbols(parsed);
+			const names = symbols.map((symbol) => symbol.name);
+
+			expect(names).toContain("_parse_partition");
+			expect(names).toContain("export_copy_partition_to_archive_and_warehouse");
+			expect(names).toContain("pick_next_partition");
+			expect(names).toContain("copy_partition_to_archive");
+			expect(names).toContain("maybe_copy_into_warehouse");
+			expect(names).toContain("update_cursor");
+		});
+
+		it("extracts airflow and internal module imports without crashing on nested imports", () => {
+			const imports = plugin.extractImports(parsed);
+			const specs = imports.map((item) => item.spec);
+
+			expect(specs).toContain("logging");
+			expect(specs).toContain("datetime");
+			expect(specs).toContain("typing");
+			expect(specs).toContain("airflow.decorators");
+			expect(specs).toContain("airflow.exceptions");
+			expect(specs).toContain("common.alerting");
+			expect(specs).toContain("common.archive");
+			expect(specs).toContain("common.variables");
+			expect(specs).toContain("common.warehouse");
+			expect(specs).toContain("common.workflow_paths");
+			expect(specs).toContain("airflow.providers.amazon.aws.hooks.s3");
+		});
+
+		it("splits the anonymized DAG into non-empty chunks", () => {
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 500 });
+
+			expect(chunks.length).toBeGreaterThan(0);
+			for (const chunk of chunks) {
+				expect(chunk.id).toBeTruthy();
+				expect(chunk.filePath).toBe(AIRFLOW_DAG);
+				expect(chunk.content.length).toBeGreaterThan(0);
+				expect(chunk.languageId).toBe("python");
+			}
+
+			expect(
+				chunks.some((chunk) => chunk.metadata?.chunkType === "imports"),
+			).toBe(true);
+			expect(
+				chunks.some((chunk) =>
+					chunk.content.includes("def pick_next_partition"),
+				),
+			).toBe(true);
 		});
 	});
 

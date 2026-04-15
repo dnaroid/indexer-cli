@@ -1002,6 +1002,11 @@ export class IndexerEngine {
 			index += batchSize
 		) {
 			const batch = options.filesToIndex.slice(index, index + batchSize);
+			const batchStart = processedCount + 1;
+			const batchEnd = Math.min(
+				processedCount + batch.length,
+				options.totalFiles,
+			);
 			for (const [batchOffset, filePath] of batch.entries()) {
 				options.onFileStart?.(
 					filePath,
@@ -1039,34 +1044,45 @@ export class IndexerEngine {
 					value !== null,
 			);
 			if (validData.length > 0) {
-				await this.metadata.transaction(async () => {
-					for (const data of validData) {
-						await this.metadata.upsertFile(options.projectId, data.fileRecord);
-						await this.metadata.replaceChunks(
-							options.projectId,
-							options.snapshotId,
-							data.filePath,
-							data.chunkRecords,
-						);
-						await this.metadata.replaceSymbols(
-							options.projectId,
-							options.snapshotId,
-							data.filePath,
-							data.symbolRecords,
-						);
-						await this.metadata.replaceDependencies(
-							options.projectId,
-							options.snapshotId,
-							data.filePath,
-							data.dependencyRecords,
-						);
-						await this.metadata.upsertFileMetrics(options.projectId, {
-							snapshotId: options.snapshotId,
-							filePath: data.filePath,
-							metrics: data.metrics,
-						});
-					}
-				});
+				try {
+					await this.metadata.transaction(async () => {
+						for (const data of validData) {
+							await this.metadata.upsertFile(
+								options.projectId,
+								data.fileRecord,
+							);
+							await this.metadata.replaceChunks(
+								options.projectId,
+								options.snapshotId,
+								data.filePath,
+								data.chunkRecords,
+							);
+							await this.metadata.replaceSymbols(
+								options.projectId,
+								options.snapshotId,
+								data.filePath,
+								data.symbolRecords,
+							);
+							await this.metadata.replaceDependencies(
+								options.projectId,
+								options.snapshotId,
+								data.filePath,
+								data.dependencyRecords,
+							);
+							await this.metadata.upsertFileMetrics(options.projectId, {
+								snapshotId: options.snapshotId,
+								filePath: data.filePath,
+								metrics: data.metrics,
+							});
+						}
+					});
+				} catch (error) {
+					const message =
+						error instanceof Error ? error.message : String(error);
+					throw new Error(
+						`Failed while persisting batch [${batchStart}-${batchEnd}] (${batch[0]} .. ${batch[batch.length - 1]}): ${message}`,
+					);
+				}
 
 				const vectorChunksWithContext = validData.flatMap(
 					(data: PreparedFileData) =>
@@ -1561,7 +1577,14 @@ export class IndexerEngine {
 				operation: "full reindex batch indexing",
 			});
 
-			await this.architectureGenerator.generate(projectId, snapshotId);
+			try {
+				await this.architectureGenerator.generate(projectId, snapshotId);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				throw new Error(
+					`Failed after indexing ${filesToIndex.length} files while generating architecture snapshot: ${message}`,
+				);
+			}
 			await this.metadata.updateSnapshotStatus(snapshotId, "completed");
 			await this.metadataWithProgress.updateSnapshotProgress(
 				snapshotId,
