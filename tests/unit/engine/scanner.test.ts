@@ -152,13 +152,73 @@ describe("scanProjectFiles", () => {
 			return { ...actual, readdir };
 		});
 
+		const warnings: Array<{ path: string; code: string; message: string }> = [];
 		const { scanProjectFiles: mockedScanProjectFiles } = await import(
 			"../../../src/engine/scanner.js"
 		);
 
-		const files = await mockedScanProjectFiles("/repo", [".ts"]);
+		const files = await mockedScanProjectFiles("/repo", [".ts"], {
+			onWarning: (w) => warnings.push(w),
+		});
 
 		expect(files).toEqual(["app.ts"]);
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0].path).toBe("repositories");
+		expect(warnings[0].code).toBe("EINVAL");
+
+		vi.doUnmock("node:fs/promises");
+		vi.resetModules();
+	});
+
+	it("re-throws errors on the root path even for recoverable codes", async () => {
+		vi.resetModules();
+
+		const readdir = vi.fn().mockRejectedValueOnce(
+			Object.assign(new Error("Invalid argument"), {
+				code: "EINVAL",
+				syscall: "scandir",
+				path: "/repo",
+			}),
+		);
+
+		vi.doMock("node:fs/promises", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:fs/promises")>();
+			return { ...actual, readdir };
+		});
+
+		const { scanProjectFiles: mockedScanProjectFiles } = await import(
+			"../../../src/engine/scanner.js"
+		);
+
+		await expect(mockedScanProjectFiles("/repo", [".ts"])).rejects.toThrow(
+			"Invalid argument",
+		);
+
+		vi.doUnmock("node:fs/promises");
+		vi.resetModules();
+	});
+
+	it("re-throws EMFILE errors instead of skipping", async () => {
+		vi.resetModules();
+
+		const readdir = vi
+			.fn()
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Too many open files"), { code: "EMFILE" }),
+			);
+
+		vi.doMock("node:fs/promises", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:fs/promises")>();
+			return { ...actual, readdir };
+		});
+
+		const { scanProjectFiles: mockedScanProjectFiles } = await import(
+			"../../../src/engine/scanner.js"
+		);
+
+		await expect(mockedScanProjectFiles("/repo", [".ts"])).rejects.toThrow(
+			"Too many open files",
+		);
 
 		vi.doUnmock("node:fs/promises");
 		vi.resetModules();
@@ -184,6 +244,52 @@ describe("scanProjectFiles", () => {
 		await expect(mockedScanProjectFiles("/repo", [".ts"])).rejects.toThrow(
 			"Out of memory",
 		);
+
+		vi.doUnmock("node:fs/promises");
+		vi.resetModules();
+	});
+
+	it("emits warnings immediately even if a later directory throws fatally", async () => {
+		vi.resetModules();
+
+		const readdir = vi.fn();
+		readdir.mockResolvedValueOnce([
+			{
+				name: "broken",
+				isDirectory: () => true,
+				isFile: () => false,
+			},
+			{
+				name: "also-broken",
+				isDirectory: () => true,
+				isFile: () => false,
+			},
+		]);
+		readdir.mockRejectedValueOnce(
+			Object.assign(new Error("Invalid argument"), { code: "EINVAL" }),
+		);
+		readdir.mockRejectedValueOnce(
+			Object.assign(new Error("Out of memory"), { code: "ENOMEM" }),
+		);
+
+		vi.doMock("node:fs/promises", async (importOriginal) => {
+			const actual = await importOriginal<typeof import("node:fs/promises")>();
+			return { ...actual, readdir };
+		});
+
+		const warnings: Array<{ path: string; code: string; message: string }> = [];
+		const { scanProjectFiles: mockedScanProjectFiles } = await import(
+			"../../../src/engine/scanner.js"
+		);
+
+		await expect(
+			mockedScanProjectFiles("/repo", [".ts"], {
+				onWarning: (w) => warnings.push(w),
+			}),
+		).rejects.toThrow("Out of memory");
+
+		expect(warnings).toHaveLength(1);
+		expect(warnings[0].code).toBe("EINVAL");
 
 		vi.doUnmock("node:fs/promises");
 		vi.resetModules();

@@ -73,8 +73,7 @@ const SKILL_DEFINITIONS: SkillDefinition[] = [
 		directory: "semantic-search",
 		rawContent: `---
 name: semantic-search
-description:
-  FIRST choice for CONCEPT and BEHAVIOR questions — "how is scoring calculated", "what happens on order cancel", "what if a user stops paying", "how does the system handle expired subscriptions", "lifecycle of a payment", "flow when X fails". Use BEFORE spawning explore agents for these questions — it traces cross-module behavior that grep misses. Do NOT use for keyword/identifier lookups (use grep/ast-grep instead). If the search term is a code identifier (class name, variable name, function name), this is the WRONG tool — use symbol-explain or grep instead.
+description: Use this FIRST for questions about system behavior, business logic, and cross-module flows - how scoring works, what happens on order cancel, expired subscriptions, payment lifecycle, failure handling, and similar "what happens when X" questions. Prefer this before explore agents because it finds behavior spread across multiple modules that keyword search often misses. Do NOT use for exact identifiers, symbols, filenames, or keyword lookup; use grep, ast-grep, or symbol-explain instead.
 allowed-tools: Bash(idx search:*)
 ---
 

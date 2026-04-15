@@ -1,40 +1,47 @@
 import { readdir } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
-import { SystemLogger } from "../core/logger.js";
 import { parseGitignore } from "../utils/gitignore.js";
 
-const logger = new SystemLogger("scanner");
-
-const SKIP_REaddir_CODES = new Set([
+const SKIP_READDIR_CODES: ReadonlySet<string> = new Set([
 	"EINVAL",
 	"EIO",
 	"ENOENT",
 	"EACCES",
 	"EPERM",
 	"EBUSY",
-	"EMFILE",
-	"ENFILE",
 	"ENOTDIR",
 ]);
+
+function getErrorCode(error: unknown): string | undefined {
+	if (typeof error === "object" && error !== null) {
+		const code = Reflect.get(error, "code");
+		return typeof code === "string" ? code : undefined;
+	}
+	return undefined;
+}
+
+type ScanWarning = {
+	path: string;
+	code: string;
+	message: string;
+};
 
 async function safeReaddir(
 	dir: string,
 	rootPath: string,
+	onWarning?: (warning: ScanWarning) => void,
 ): Promise<
 	Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>
 > {
 	try {
 		return await readdir(dir, { withFileTypes: true });
 	} catch (error: unknown) {
-		if (
-			typeof error === "object" &&
-			error !== null &&
-			SKIP_REaddir_CODES.has(Reflect.get(error, "code") as string)
-		) {
+		const code = getErrorCode(error);
+		if (code && SKIP_READDIR_CODES.has(code) && dir !== rootPath) {
 			const relativeDir = relative(rootPath, dir).replace(/\\/g, "/");
-			logger.warn("Skipping unreadable directory", {
+			onWarning?.({
 				path: relativeDir || dir,
-				code: Reflect.get(error, "code"),
+				code,
 				message: error instanceof Error ? error.message : String(error),
 			});
 			return [];
@@ -43,9 +50,14 @@ async function safeReaddir(
 	}
 }
 
+export type { ScanWarning };
+
 export async function scanProjectFiles(
 	rootPath: string,
 	codeExtensions: string[],
+	options?: {
+		onWarning?: (warning: ScanWarning) => void;
+	},
 ): Promise<string[]> {
 	const gitignore = parseGitignore(rootPath);
 	const allowed = new Set(codeExtensions.map((ext) => ext.toLowerCase()));
@@ -58,7 +70,7 @@ export async function scanProjectFiles(
 			continue;
 		}
 
-		const entries = await safeReaddir(currentDir, rootPath);
+		const entries = await safeReaddir(currentDir, rootPath, options?.onWarning);
 		for (const entry of entries) {
 			const fullPath = join(currentDir, entry.name);
 			const relativePath = relative(rootPath, fullPath).replace(/\\/g, "/");

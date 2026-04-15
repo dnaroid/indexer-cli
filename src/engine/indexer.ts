@@ -1260,8 +1260,17 @@ export class IndexerEngine {
 		}
 	}
 
-	private async scanFiles(rootPath: string): Promise<string[]> {
-		return scanProjectFiles(rootPath, this.indexingOptions.codeExtensions);
+	private async scanFiles(
+		rootPath: string,
+		onWarning?: (warning: {
+			path: string;
+			code: string;
+			message: string;
+		}) => void,
+	): Promise<string[]> {
+		return scanProjectFiles(rootPath, this.indexingOptions.codeExtensions, {
+			onWarning,
+		});
 	}
 
 	private async prepareFileRecords(
@@ -1552,13 +1561,17 @@ export class IndexerEngine {
 		try {
 			await this.metadata.clearProjectMetadata(projectId, snapshotId);
 			await this.deleteProjectVectorsWithRetry(projectId);
-			const filesToIndex = await this.scanFiles(repoRoot);
+			const filesToIndex = await this.scanFiles(repoRoot, (w) =>
+				errors.push(
+					`Warning: skipped unreadable directory ${w.path} (${w.code}: ${w.message})`,
+				),
+			);
 
 			if (filesToIndex.length === 0) {
 				await this.metadata.updateSnapshotProgress(snapshotId, 0, 0);
 				await this.architectureGenerator.generate(projectId, snapshotId);
 				await this.metadata.updateSnapshotStatus(snapshotId, "completed");
-				return { snapshotId, filesIndexed: 0, errors: [] };
+				return { snapshotId, filesIndexed: 0, errors };
 			}
 
 			await this.indexPreparedFiles({
