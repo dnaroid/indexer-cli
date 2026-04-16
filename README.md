@@ -219,8 +219,9 @@ Deprecated generated skill directories such as `context-pack` are cleaned up whe
 
 ### `idx doctor [dir]`
 
-Health-check and repair registered indexer projects. Without arguments, operates on all projects in the global
-registry (`~/.indexer-cli/registry.json`) and cleans stale entries. With a directory argument, scans its
+Health-check and repair registered indexer projects. Runs system prerequisite checks (same as `idx setup`), then
+operates on registered projects. Without arguments, operates on all projects in the global registry
+(`~/.indexer-cli/registry.json`) and cleans stale entries. With a directory argument, scans its
 subdirectories for `.indexer-cli/`, auto-registers found projects, and operates on them.
 
 | Option              | Description                                      |

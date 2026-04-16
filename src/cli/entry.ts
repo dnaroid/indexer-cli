@@ -85,7 +85,7 @@ function isHandledCommanderExit(error: unknown): boolean {
 }
 
 program
-	.name("indexer-cli")
+	.name("idx")
 	.description("Lightweight project indexer with semantic search.")
 	.version(`${PACKAGE_VERSION} (skills: ${SKILLS_VERSION})`)
 	.addHelpText(

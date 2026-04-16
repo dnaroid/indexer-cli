@@ -542,6 +542,36 @@ function printSummary(): void {
 
 // ── Main ────────────────────────────────────────────────────────────────
 
+export function performSetup(): void {
+	console.log(bold("\n  indexer-cli dependency setup\n"));
+	console.log(`  Platform: ${os.type()} ${os.release()} (${os.arch()})\n`);
+
+	console.log(bold("  Checking system prerequisites..."));
+
+	results.push(checkNode());
+	results.push(checkGit());
+	results.push(checkBuildTools());
+	results.push(checkPython());
+
+	console.log(bold("\n  Installing indexer-cli..."));
+	results.push(installGlobalPackage());
+
+	console.log(bold("\n  Checking idx command..."));
+	results.push(installIdxBinary());
+
+	console.log(bold("\n  Checking Ollama & embedding model..."));
+
+	results.push(
+		...collectOllamaResults({
+			checkOllama,
+			ensureOllamaRunning,
+			checkJinaModel,
+		}),
+	);
+
+	printSummary();
+}
+
 export function registerSetupCommand(program: Command): void {
 	program
 		.command("setup")
@@ -549,32 +579,6 @@ export function registerSetupCommand(program: Command): void {
 			"Check system prerequisites and prepare Ollama for indexer-cli",
 		)
 		.action(() => {
-			console.log(bold("\n  indexer-cli dependency setup\n"));
-			console.log(`  Platform: ${os.type()} ${os.release()} (${os.arch()})\n`);
-
-			console.log(bold("  Checking system prerequisites..."));
-
-			results.push(checkNode());
-			results.push(checkGit());
-			results.push(checkBuildTools());
-			results.push(checkPython());
-
-			console.log(bold("\n  Installing indexer-cli..."));
-			results.push(installGlobalPackage());
-
-			console.log(bold("\n  Checking idx command..."));
-			results.push(installIdxBinary());
-
-			console.log(bold("\n  Checking Ollama & embedding model..."));
-
-			results.push(
-				...collectOllamaResults({
-					checkOllama,
-					ensureOllamaRunning,
-					checkJinaModel,
-				}),
-			);
-
-			printSummary();
+			performSetup();
 		});
 }

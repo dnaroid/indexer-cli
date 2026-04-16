@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import path from "node:path";
+import os from "node:os";
 import {
 	cpSync,
 	readFileSync,
@@ -41,7 +42,12 @@ export function runCLI(
 		const stdout = execSync(command, {
 			cwd: options?.cwd,
 			encoding: "utf-8",
-			env: { ...process.env, ...options?.env, FORCE_COLOR: "0" },
+			env: {
+				...process.env,
+				...options?.env,
+				FORCE_COLOR: "0",
+				INDEXER_CLI_HOME: path.join(os.tmpdir(), "indexer-cli-test-home"),
+			},
 			stdio: ["pipe", "pipe", "pipe"],
 			timeout: 120_000,
 		});

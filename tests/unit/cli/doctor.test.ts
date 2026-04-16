@@ -46,9 +46,9 @@ describe("doctor source contract", () => {
 		expect(source).toContain(
 			'import { performUninstall } from "./uninstall.js";',
 		);
-		expect(source).toContain("addProject");
 		expect(source).toContain("getRegisteredProjects");
 		expect(source).toContain("cleanStaleEntries");
+		expect(source).toContain("performSetup");
 	});
 });
 

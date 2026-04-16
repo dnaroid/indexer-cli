@@ -8,6 +8,7 @@ import { PACKAGE_VERSION } from "../../core/version.js";
 import { SKILLS_VERSION } from "../../core/skills-version.js";
 import { performInit, refreshClaudeSkills } from "./init.js";
 import { performUninstall } from "./uninstall.js";
+import { performSetup } from "./setup.js";
 import {
 	addProject,
 	getRegisteredProjects,
@@ -59,6 +60,19 @@ export function registerDoctorCommand(program: Command): void {
 				dir: string | undefined,
 				options: { skillsOnly?: boolean; force?: boolean },
 			) => {
+				console.log("\nRegistered projects:");
+				const allRegistered = getRegisteredProjects();
+				if (allRegistered.length === 0) {
+					console.log("  (none)");
+				} else {
+					for (const entry of allRegistered) {
+						console.log(`  - ${entry.projectPath}`);
+					}
+				}
+				console.log("");
+
+				performSetup();
+
 				let projectPaths: string[] = [];
 
 				if (dir === undefined) {
