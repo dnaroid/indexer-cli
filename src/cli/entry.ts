@@ -15,7 +15,7 @@ import {
 	checkAndMigrateIfNeeded,
 	checkAndRefreshSkills,
 } from "../core/version-check.js";
-import { checkForUpdates } from "../core/update-check.js";
+import { checkForUpdates, performAutoUpdate } from "../core/update-check.js";
 import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
 
 const SKIP_MIGRATION_COMMANDS = new Set([
@@ -38,6 +38,8 @@ async function runPreActionChecks(commandName: string): Promise<void> {
 	if (SKIP_MIGRATION_COMMANDS.has(commandName)) {
 		return;
 	}
+
+	await performAutoUpdate();
 
 	try {
 		await checkAndMigrateIfNeeded();
@@ -90,7 +92,8 @@ program
 		"after",
 		`\nVersion: ${PACKAGE_VERSION} (skills: ${SKILLS_VERSION})\n\n${PROJECT_ROOT_PROGRAM_HELP}\n`,
 	)
-	.exitOverride();
+	.exitOverride()
+	.option("--no-auto-update", "skip automatic update check");
 
 registerSetupCommand(program);
 registerInitCommand(program);

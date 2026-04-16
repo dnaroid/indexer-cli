@@ -3,6 +3,8 @@ const { spawnSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { dirname, resolve } = require("node:path");
 
+const AUTO_UPDATE_RESTART_CODE = 42;
+
 function resolveTsxCliPath({ existsSyncFn = existsSync } = {}) {
 	const fallbackPath = resolve(
 		__dirname,
@@ -69,18 +71,32 @@ function main() {
 		process.exit(1);
 	}
 
-	const { command, args } = buildLaunchSpec();
-	const result = spawnSync(command, args, {
-		stdio: "inherit",
-		env: process.env,
-	});
+	let env = process.env;
 
-	if (result.error) {
-		throw result.error;
-	}
+	for (let attempt = 0; attempt < 2; attempt += 1) {
+		const { command, args } = buildLaunchSpec();
+		const result = spawnSync(command, args, {
+			stdio: "inherit",
+			env,
+		});
 
-	if (result.status !== null) {
-		process.exit(result.status);
+		if (result.error) {
+			throw result.error;
+		}
+
+		if (result.status === AUTO_UPDATE_RESTART_CODE && attempt === 0) {
+			env = {
+				...process.env,
+				INDEXER_CLI_AUTO_UPDATE_ATTEMPTED: "1",
+			};
+			continue;
+		}
+
+		if (result.status !== null) {
+			process.exit(result.status);
+		}
+
+		process.exit(1);
 	}
 
 	process.exit(1);
