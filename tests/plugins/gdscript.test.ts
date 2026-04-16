@@ -67,7 +67,7 @@ describe("GDScriptPlugin", () => {
 			);
 
 			expect(importChunks.length).toBeGreaterThanOrEqual(1);
-			expect(typeChunks.length).toBeGreaterThanOrEqual(1);
+			expect(typeChunks.length).toBe(0);
 			expect(implChunks.length).toBeGreaterThanOrEqual(1);
 
 			for (const importChunk of importChunks) {

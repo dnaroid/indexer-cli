@@ -217,15 +217,19 @@ Remove the `.indexer-cli/` directory from the initialized project root. Also rem
 
 Deprecated generated skill directories such as `context-pack` are cleaned up when present.
 
-### `idx reinit <dir>`
+### `idx doctor [dir]`
 
-Reinitialize indexer in all projects within a directory. Scans immediate subdirectories for `.indexer-cli/`
-and performs a full uninstall + init for each. Useful for batch-updating projects after a CLI upgrade.
+Health-check and repair registered indexer projects. Without arguments, operates on all projects in the global
+registry (`~/.indexer-cli/registry.json`) and cleans stale entries. With a directory argument, scans its
+subdirectories for `.indexer-cli/`, auto-registers found projects, and operates on them.
 
 | Option              | Description                                      |
 |---------------------|--------------------------------------------------|
 | `--skills-only`     | Only refresh skills without full reinstall       |
 | `-f, --force`       | Skip confirmation prompt                         |
+
+The global registry is maintained automatically: `idx init` registers a project, `idx uninstall` unregisters it.
+`idx doctor <dir>` also registers discovered projects.
 
 ## License
 

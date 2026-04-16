@@ -17,6 +17,7 @@ import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { GENERATED_SKILL_DIRECTORIES, GENERATED_SKILLS } from "./skills.js";
 import { SKILLS_VERSION } from "../../core/skills-version.js";
+import { addProject } from "../../core/registry.js";
 import { resolveInitProjectRoot } from "../project-root.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
@@ -212,6 +213,11 @@ export function registerInitCommand(program: Command): void {
 
 				await performInit(projectRoot, {
 					refreshSkills: options?.refreshSkills,
+				});
+				addProject({
+					projectPath: projectRoot,
+					cliVersion: PACKAGE_VERSION,
+					skillsVersion: SKILLS_VERSION,
 				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

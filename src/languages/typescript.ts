@@ -316,6 +316,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 					segment.statementKinds ?? [],
 					index === 0,
 				),
+				primarySymbol: this.extractPrimarySymbol(segment.text),
 			},
 		}));
 	}
@@ -379,6 +380,31 @@ export class TypeScriptPlugin implements LanguagePlugin {
 
 	private buildChunkId(filePath: string, range: CodeRange): string {
 		return `${filePath}:${range.startLine}-${range.endLine}`;
+	}
+
+	private extractPrimarySymbol(text: string): string | undefined {
+		const trimmed = text.trim();
+		if (!trimmed) {
+			return undefined;
+		}
+
+		const declarationPatterns = [
+			/\b(?:export\s+)?(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?class\s+([A-Za-z_$][\w$]*)\b/m,
+			/\b(?:export\s+)?(?:declare\s+)?interface\s+([A-Za-z_$][\w$]*)\b/m,
+			/\b(?:export\s+)?(?:declare\s+)?type\s+([A-Za-z_$][\w$]*)\s*=/m,
+			/\b(?:export\s+)?(?:declare\s+)?enum\s+([A-Za-z_$][\w$]*)\b/m,
+			/\b(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/m,
+			/^\s*(?:public\s+|protected\s+|private\s+|static\s+|readonly\s+|override\s+|abstract\s+|async\s+|declare\s+|get\s+|set\s+)*([A-Za-z_$][\w$]*)\s*\([^\n{}]*\)\s*(?::[^\n{=]+)?\s*\{/m,
+		];
+
+		for (const pattern of declarationPatterns) {
+			const match = trimmed.match(pattern);
+			if (match?.[1]) {
+				return match[1];
+			}
+		}
+
+		return undefined;
 	}
 
 	private readEntrypointCandidate(
@@ -520,6 +546,20 @@ export class TypeScriptPlugin implements LanguagePlugin {
 			);
 		};
 
+		const wouldCollapseLeadingPreamble = (
+			previous: ChunkSegment,
+			current: ChunkSegment,
+		) => {
+			const previousKinds = previous.statementKinds ?? [];
+			const currentKinds = current.statementKinds ?? [];
+			return (
+				previous.range.startLine === 1 &&
+				!previousKinds.includes("impl") &&
+				(previousKinds.includes("import") || previousKinds.includes("type")) &&
+				currentKinds.includes("impl")
+			);
+		};
+
 		const flush = () => {
 			if (buffer.length === 0) {
 				return;
@@ -582,7 +622,10 @@ export class TypeScriptPlugin implements LanguagePlugin {
 			if (last.estimatedTokens < minTokens) {
 				const previous = merged[merged.length - 2];
 				const combinedTokens = previous.estimatedTokens + last.estimatedTokens;
-				if (combinedTokens <= maxTokens) {
+				if (
+					combinedTokens <= maxTokens &&
+					!wouldCollapseLeadingPreamble(previous, last)
+				) {
 					merged.splice(merged.length - 2, 2, {
 						text: `${previous.text}${last.text}`,
 						range: {

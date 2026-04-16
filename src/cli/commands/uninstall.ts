@@ -15,6 +15,7 @@ import {
 	DEPRECATED_SKILL_DIRECTORIES,
 	GENERATED_SKILL_DIRECTORIES,
 } from "./skills.js";
+import { removeProject } from "../../core/registry.js";
 import { resolveInitProjectRoot } from "../project-root.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -193,6 +194,7 @@ export function registerUninstallCommand(program: Command): void {
 
 			try {
 				await performUninstall(projectRoot);
+				removeProject(projectRoot);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Uninstall failed: ${message}`);

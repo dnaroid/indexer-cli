@@ -5,7 +5,7 @@ import { registerSearchCommand } from "./commands/search.js";
 import { registerStructureCommand } from "./commands/structure.js";
 import { registerArchitectureCommand } from "./commands/architecture.js";
 import { registerUninstallCommand } from "./commands/uninstall.js";
-import { registerReinitCommand } from "./commands/reinit.js";
+import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerSetupCommand } from "./commands/setup.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
@@ -24,7 +24,7 @@ const SKIP_MIGRATION_COMMANDS = new Set([
 	"setup",
 	"init",
 	"uninstall",
-	"reinit",
+	"doctor",
 ]);
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
@@ -104,7 +104,7 @@ registerArchitectureCommand(program);
 registerExplainCommand(program);
 registerDepsCommand(program);
 registerUninstallCommand(program);
-registerReinitCommand(program);
+registerDoctorCommand(program);
 
 program.hook("preAction", async (thisCommand, actionCommand) => {
 	void thisCommand;
