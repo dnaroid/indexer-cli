@@ -165,6 +165,9 @@ export function registerSearchCommand(program: Command): void {
 						const symbolPart = result.primarySymbol
 							? `, function: ${result.primarySymbol}`
 							: "";
+						if (i > 0) {
+							console.log("");
+						}
 						console.log(
 							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart})`,
 						);
