@@ -35,11 +35,28 @@ post-commit hook keeps the index up to date automatically.
   and prepare the `jina-8k` model.
 - Node.js 18+ and build tools (python3, make, C++ compiler) for native dependencies.
 
+The `setup` command handles global installation automatically: it installs indexer-cli via npm and ensures the
+`idx` wrapper is on your PATH.
+
 ## Quick Start
 
+### Installation
+
 ```bash
-# 1. Check prerequisites, prepare the embedding model, and install or repair the idx command
+# Recommended: global install
+npm install -g indexer-cli@latest
+idx setup
+
+# Alternative: run via npx (no install needed)
 npx indexer-cli@latest setup
+```
+
+### Usage
+
+```bash
+# 1. Install globally and set up
+npm install -g indexer-cli@latest
+idx setup
 
 # 2. Initialize indexing and install the discovery skill
 cd /path/to/your/project
@@ -96,9 +113,9 @@ during repo discovery.
 
 ### `idx setup`
 
-Check system prerequisites, prepare the Ollama embedding model, and install or repair the `idx` command alias in
-`~/.local/bin/`. `setup` can install some system tools where appropriate, but Ollama itself must be installed
-manually first. Works on macOS and Linux.
+Install indexer-cli globally via npm, check system prerequisites, prepare the Ollama embedding model, and install
+or repair the `idx` command alias in `~/.local/bin/`. `setup` can install some system tools where appropriate, but
+Ollama itself must be installed manually first. Works on macOS and Linux.
 
 After running `setup`, restart your shell to ensure `idx` is on `PATH`.
 

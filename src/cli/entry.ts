@@ -15,6 +15,7 @@ import {
 	checkAndMigrateIfNeeded,
 	checkAndRefreshSkills,
 } from "../core/version-check.js";
+import { checkForUpdates } from "../core/update-check.js";
 import { PROJECT_ROOT_PROGRAM_HELP } from "./help-text.js";
 
 const SKIP_MIGRATION_COMMANDS = new Set([
@@ -66,6 +67,8 @@ async function runPreActionChecks(commandName: string): Promise<void> {
 			typeof process.exitCode === "number" ? process.exitCode : 1;
 		throw new CommanderError(exitCode, "indexer.preActionFailed", "");
 	}
+
+	await checkForUpdates();
 }
 
 function isHandledCommanderExit(error: unknown): boolean {
@@ -83,7 +86,10 @@ program
 		"Lightweight project indexer with semantic search. Run project commands from the root of the target project; `setup` can run anywhere.",
 	)
 	.version(`${PACKAGE_VERSION} (skills: ${SKILLS_VERSION})`)
-	.addHelpText("after", `\n${PROJECT_ROOT_PROGRAM_HELP}\n`)
+	.addHelpText(
+		"after",
+		`\nVersion: ${PACKAGE_VERSION} (skills: ${SKILLS_VERSION})\n\n${PROJECT_ROOT_PROGRAM_HELP}\n`,
+	)
 	.exitOverride();
 
 registerSetupCommand(program);

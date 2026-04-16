@@ -2,6 +2,7 @@ import {
 	chmodSync,
 	mkdtempSync,
 	mkdirSync,
+	realpathSync,
 	readFileSync,
 	statSync,
 	writeFileSync,
@@ -11,15 +12,25 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const SCRIPT_CONTENT = `#!/bin/sh
+const NPX_SCRIPT_CONTENT = `#!/bin/sh
 exec npm exec --yes --loglevel=silent --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
 `;
 const EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
 
-const { homedirMock, platformMock, writeFileSyncMock } = vi.hoisted(() => ({
-	homedirMock: vi.fn(),
-	platformMock: vi.fn(),
-	writeFileSyncMock: vi.fn(),
+function thinWrapperContent(binaryPath: string): string {
+	return `#!/bin/sh\nexec ${binaryPath} "$@"\n`;
+}
+
+const { execSyncMock, homedirMock, platformMock, writeFileSyncMock } =
+	vi.hoisted(() => ({
+		execSyncMock: vi.fn(),
+		homedirMock: vi.fn(),
+		platformMock: vi.fn(),
+		writeFileSyncMock: vi.fn(),
+	}));
+
+vi.mock("node:child_process", () => ({
+	execSync: execSyncMock,
 }));
 
 vi.mock("node:os", async () => {
@@ -59,15 +70,22 @@ function setMockedOs(homeDir: string, platform: "darwin" | "linux"): void {
 	platformMock.mockReturnValue(platform);
 }
 
-async function loadEnsureIdxBinary(): Promise<
-	() => {
-		scriptStatus: "unchanged" | "installed" | "repaired";
-		pathUpdated: boolean;
-	}
+async function loadIdxBinaryModule(): Promise<
+	typeof import("../../../src/core/idx-binary.js")
 > {
 	vi.resetModules();
-	const module = await import("../../../src/core/idx-binary.js");
-	return module.ensureIdxBinary;
+	return import("../../../src/core/idx-binary.js");
+}
+
+function createGlobalInstall(prefix: string): string {
+	const binDir = path.join(prefix, "bin");
+	const binaryPath = path.join(binDir, "indexer-cli");
+
+	mkdirSync(binDir, { recursive: true });
+	writeFileSync(binaryPath, "#!/bin/sh\nexit 0\n", "utf8");
+	chmodSync(binaryPath, 0o755);
+
+	return binaryPath;
 }
 
 afterEach(async () => {
@@ -88,10 +106,10 @@ describe("ensureIdxBinary", () => {
 		setMockedOs(homeDir, "darwin");
 		process.env.PATH = localBinDir;
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
-		expect(readFileSync(scriptPath, "utf8")).toBe(SCRIPT_CONTENT);
+		expect(readFileSync(scriptPath, "utf8")).toBe(NPX_SCRIPT_CONTENT);
 		expect(statSync(scriptPath).mode & 0o111).not.toBe(0);
 		expect(result).toEqual({
 			scriptStatus: "installed",
@@ -107,11 +125,11 @@ describe("ensureIdxBinary", () => {
 		process.env.PATH = "";
 
 		mkdirSync(localBinDir, { recursive: true });
-		writeFileSync(scriptPath, SCRIPT_CONTENT, "utf8");
+		writeFileSync(scriptPath, NPX_SCRIPT_CONTENT, "utf8");
 		chmodSync(scriptPath, 0o755);
 		writeFileSyncMock.mockClear();
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
 		expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
@@ -120,7 +138,7 @@ describe("ensureIdxBinary", () => {
 			`${EXPORT_LINE}\n`,
 			"utf8",
 		);
-		expect(readFileSync(scriptPath, "utf8")).toBe(SCRIPT_CONTENT);
+		expect(readFileSync(scriptPath, "utf8")).toBe(NPX_SCRIPT_CONTENT);
 		expect(result).toEqual({
 			scriptStatus: "unchanged",
 			pathUpdated: true,
@@ -138,15 +156,15 @@ describe("ensureIdxBinary", () => {
 		writeFileSync(scriptPath, "#!/bin/sh\necho stale\n", "utf8");
 		writeFileSyncMock.mockClear();
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
 		expect(writeFileSyncMock).toHaveBeenCalledWith(
 			scriptPath,
-			SCRIPT_CONTENT,
+			NPX_SCRIPT_CONTENT,
 			"utf8",
 		);
-		expect(readFileSync(scriptPath, "utf8")).toBe(SCRIPT_CONTENT);
+		expect(readFileSync(scriptPath, "utf8")).toBe(NPX_SCRIPT_CONTENT);
 		expect(result).toEqual({
 			scriptStatus: "repaired",
 			pathUpdated: false,
@@ -161,14 +179,14 @@ describe("ensureIdxBinary", () => {
 		process.env.PATH = localBinDir;
 
 		mkdirSync(localBinDir, { recursive: true });
-		writeFileSync(scriptPath, SCRIPT_CONTENT, "utf8");
+		writeFileSync(scriptPath, NPX_SCRIPT_CONTENT, "utf8");
 		chmodSync(scriptPath, 0o644);
 		writeFileSyncMock.mockClear();
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
-		expect(readFileSync(scriptPath, "utf8")).toBe(SCRIPT_CONTENT);
+		expect(readFileSync(scriptPath, "utf8")).toBe(NPX_SCRIPT_CONTENT);
 		expect(statSync(scriptPath).mode & 0o111).not.toBe(0);
 		expect(result).toEqual({
 			scriptStatus: "repaired",
@@ -182,7 +200,7 @@ describe("ensureIdxBinary", () => {
 		setMockedOs(homeDir, "darwin");
 		process.env.PATH = localBinDir;
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		ensureIdxBinary();
 
 		expect(statSync(localBinDir).isDirectory()).toBe(true);
@@ -197,7 +215,7 @@ describe("ensureIdxBinary", () => {
 		writeFileSync(zshrcPath, "export FOO=bar\n", "utf8");
 		writeFileSyncMock.mockClear();
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		ensureIdxBinary();
 
 		expect(readFileSync(zshrcPath, "utf8")).toBe(
@@ -214,7 +232,7 @@ describe("ensureIdxBinary", () => {
 		writeFileSync(bashrcPath, "export FOO=bar\n", "utf8");
 		writeFileSyncMock.mockClear();
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		ensureIdxBinary();
 
 		expect(readFileSync(bashrcPath, "utf8")).toBe(
@@ -232,14 +250,14 @@ describe("ensureIdxBinary", () => {
 		writeFileSync(zshrcPath, "export FOO=bar\n", "utf8");
 		writeFileSyncMock.mockClear();
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		ensureIdxBinary();
 
 		expect(readFileSync(zshrcPath, "utf8")).toBe("export FOO=bar\n");
 		expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
 		expect(writeFileSyncMock).toHaveBeenCalledWith(
 			path.join(localBinDir, "idx"),
-			SCRIPT_CONTENT,
+			NPX_SCRIPT_CONTENT,
 			"utf8",
 		);
 	});
@@ -253,7 +271,7 @@ describe("ensureIdxBinary", () => {
 		writeFileSync(zshrcPath, `export FOO=bar\n${EXPORT_LINE}\n`, "utf8");
 		writeFileSyncMock.mockClear();
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		ensureIdxBinary();
 
 		const profileContent = readFileSync(zshrcPath, "utf8");
@@ -269,7 +287,7 @@ describe("ensureIdxBinary", () => {
 		setMockedOs(homeDir, "darwin");
 		process.env.PATH = "/usr/bin:/bin";
 
-		const ensureIdxBinary = await loadEnsureIdxBinary();
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
 		expect(readFileSync(zshrcPath, "utf8")).toBe(`${EXPORT_LINE}\n`);
@@ -277,5 +295,125 @@ describe("ensureIdxBinary", () => {
 			scriptStatus: "installed",
 			pathUpdated: true,
 		});
+	});
+
+	it("prefers a thin wrapper when a global binary exists", async () => {
+		const homeDir = createTempDir();
+		const prefix = createTempDir();
+		const localBinDir = path.join(homeDir, ".local", "bin");
+		const scriptPath = path.join(localBinDir, "idx");
+		const realBinaryPath = createGlobalInstall(prefix);
+		setMockedOs(homeDir, "darwin");
+		process.env.PATH = localBinDir;
+		execSyncMock.mockImplementation((command: string) => {
+			if (command === "npm config get prefix") {
+				return `${prefix}\n`;
+			}
+			throw new Error(`Unexpected command: ${command}`);
+		});
+
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
+		const result = ensureIdxBinary();
+
+		expect(readFileSync(scriptPath, "utf8")).toBe(
+			thinWrapperContent(realpathSync(realBinaryPath)),
+		);
+		expect(result).toEqual({
+			scriptStatus: "installed",
+			pathUpdated: false,
+		});
+	});
+
+	it("repairs an npx wrapper when a global binary is available", async () => {
+		const homeDir = createTempDir();
+		const prefix = createTempDir();
+		const localBinDir = path.join(homeDir, ".local", "bin");
+		const scriptPath = path.join(localBinDir, "idx");
+		const realBinaryPath = createGlobalInstall(prefix);
+		setMockedOs(homeDir, "darwin");
+		process.env.PATH = localBinDir;
+		execSyncMock.mockImplementation((command: string) => {
+			if (command === "npm config get prefix") {
+				return `${prefix}\n`;
+			}
+			throw new Error(`Unexpected command: ${command}`);
+		});
+
+		mkdirSync(localBinDir, { recursive: true });
+		writeFileSync(scriptPath, NPX_SCRIPT_CONTENT, "utf8");
+		chmodSync(scriptPath, 0o755);
+
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
+		const result = ensureIdxBinary();
+
+		expect(readFileSync(scriptPath, "utf8")).toBe(
+			thinWrapperContent(realpathSync(realBinaryPath)),
+		);
+		expect(result).toEqual({
+			scriptStatus: "repaired",
+			pathUpdated: false,
+		});
+	});
+});
+
+describe("getNpmGlobalBinPath", () => {
+	it("returns the resolved global binary path when present and executable", async () => {
+		const prefix = createTempDir();
+		const realBinaryPath = createGlobalInstall(prefix);
+		execSyncMock.mockImplementation((command: string) => {
+			if (command === "npm config get prefix") {
+				return `${prefix}\n`;
+			}
+			throw new Error(`Unexpected command: ${command}`);
+		});
+
+		const { getNpmGlobalBinPath } = await loadIdxBinaryModule();
+
+		expect(getNpmGlobalBinPath()).toBe(realpathSync(realBinaryPath));
+	});
+
+	it("returns null when the global binary cannot be resolved", async () => {
+		execSyncMock.mockImplementation(() => {
+			throw new Error("npm unavailable");
+		});
+
+		const { getNpmGlobalBinPath } = await loadIdxBinaryModule();
+
+		expect(getNpmGlobalBinPath()).toBeNull();
+	});
+});
+
+describe("installGlobal", () => {
+	it("returns true when npm global install succeeds", async () => {
+		execSyncMock.mockImplementation((command: string) => {
+			if (command === "npm install -g indexer-cli@latest") {
+				return "installed";
+			}
+			throw new Error(`Unexpected command: ${command}`);
+		});
+
+		const { installGlobal } = await loadIdxBinaryModule();
+
+		expect(installGlobal()).toBe(true);
+		expect(execSyncMock).toHaveBeenCalledWith(
+			"npm install -g indexer-cli@latest",
+			{
+				stdio: "pipe",
+				encoding: "utf8",
+			},
+		);
+	});
+
+	it("returns false when npm global install fails", async () => {
+		execSyncMock.mockImplementation((command: string) => {
+			if (command === "npm install -g indexer-cli@latest") {
+				throw new Error("install failed");
+			}
+			throw new Error(`Unexpected command: ${command}`);
+		});
+
+		const { installGlobal } = await loadIdxBinaryModule();
+
+		expect(installGlobal()).toBe(false);
 	});
 });

@@ -2,7 +2,7 @@ import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import type { Command } from "commander";
-import { ensureIdxBinary } from "../../core/idx-binary.js";
+import { ensureIdxBinary, installGlobal } from "../../core/idx-binary.js";
 
 const PLATFORM = os.platform();
 const IS_MAC = PLATFORM === "darwin";
@@ -254,6 +254,31 @@ function checkPython(): CheckResult {
 	} catch (e) {
 		return {
 			name: "Python (for node-gyp)",
+			status: "failed",
+			detail: `Install failed: ${e instanceof Error ? e.message : String(e)}`,
+		};
+	}
+}
+
+function installGlobalPackage(): CheckResult {
+	console.log(`  Installing indexer-cli globally...`);
+	try {
+		const success = installGlobal();
+		if (success) {
+			return {
+				name: "Global install",
+				status: "installed",
+				detail: "indexer-cli installed globally",
+			};
+		}
+		return {
+			name: "Global install",
+			status: "failed",
+			detail: "npm install -g failed, will use npx fallback",
+		};
+	} catch (e) {
+		return {
+			name: "Global install",
 			status: "failed",
 			detail: `Install failed: ${e instanceof Error ? e.message : String(e)}`,
 		};
@@ -533,6 +558,9 @@ export function registerSetupCommand(program: Command): void {
 			results.push(checkGit());
 			results.push(checkBuildTools());
 			results.push(checkPython());
+
+			console.log(bold("\n  Installing indexer-cli..."));
+			results.push(installGlobalPackage());
 
 			console.log(bold("\n  Checking idx command..."));
 			results.push(installIdxBinary());

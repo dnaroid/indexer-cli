@@ -3,20 +3,40 @@ import {
 	chmodSync,
 	constants as fsConstants,
 	mkdirSync,
+	realpathSync,
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
+import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
-const SCRIPT_CONTENT = `#!/bin/sh
+const NPX_SCRIPT_CONTENT = `#!/bin/sh
 exec npm exec --yes --loglevel=silent --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
 `;
+
+function thinWrapperContent(binaryPath: string): string {
+	return `#!/bin/sh\nexec ${binaryPath} "$@"\n`;
+}
 
 export type EnsureIdxBinaryResult = {
 	scriptStatus: "unchanged" | "installed" | "repaired";
 	pathUpdated: boolean;
 };
+
+export function getNpmGlobalBinPath(): string | null {
+	try {
+		const prefix = execSync("npm config get prefix", {
+			encoding: "utf8",
+		}).trim();
+		const binPath = path.join(prefix, "bin", "indexer-cli");
+		const resolved = realpathSync(binPath);
+		accessSync(resolved, fsConstants.F_OK | fsConstants.X_OK);
+		return resolved;
+	} catch {
+		return null;
+	}
+}
 
 /**
  * Ensure ~/.local/bin/idx exists and is executable.
@@ -28,12 +48,16 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 	const homeDir = os.homedir();
 	const localBinDir = path.join(homeDir, ".local", "bin");
 	const scriptPath = path.join(localBinDir, "idx");
+	const globalPath = getNpmGlobalBinPath();
+	const expectedContent = globalPath
+		? thinWrapperContent(globalPath)
+		: NPX_SCRIPT_CONTENT;
 	let scriptStatus: EnsureIdxBinaryResult["scriptStatus"] = "installed";
 
 	try {
 		accessSync(scriptPath, fsConstants.F_OK);
 		const existing = readFileSync(scriptPath, "utf8");
-		if (existing === SCRIPT_CONTENT) {
+		if (existing === expectedContent) {
 			try {
 				accessSync(scriptPath, fsConstants.X_OK);
 				scriptStatus = "unchanged";
@@ -49,7 +73,7 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 
 	if (scriptStatus !== "unchanged") {
 		mkdirSync(localBinDir, { recursive: true });
-		writeFileSync(scriptPath, SCRIPT_CONTENT, "utf8");
+		writeFileSync(scriptPath, expectedContent, "utf8");
 		chmodSync(scriptPath, 0o755);
 	}
 
@@ -91,4 +115,17 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 	}
 
 	return { scriptStatus, pathUpdated };
+}
+
+/** Install indexer-cli globally via npm. Returns true on success. */
+export function installGlobal(): boolean {
+	try {
+		execSync("npm install -g indexer-cli@latest", {
+			stdio: "pipe",
+			encoding: "utf8",
+		});
+		return true;
+	} catch {
+		return false;
+	}
 }
