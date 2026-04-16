@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const SCRIPT_CONTENT = `#!/bin/sh
-exec npm exec --yes --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
+exec npm exec --yes --loglevel=silent --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
 `;
 const EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
 

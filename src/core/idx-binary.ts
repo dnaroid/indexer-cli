@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 
 const SCRIPT_CONTENT = `#!/bin/sh
-exec npm exec --yes --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
+exec npm exec --yes --loglevel=silent --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
 `;
 
 export type EnsureIdxBinaryResult = {
