@@ -10,33 +10,30 @@
 #      - IP ranges: empty
 #   2. Token stored in GitHub repo secret: NPM_TOKEN
 #      gh secret set NPM_TOKEN
-#   3. All changes committed and pushed to master
+#   3. All changes committed
 #
 # Usage:
-#   bash scripts/publish.sh          # patch bump (0.9.7 → 0.9.8)
-#   bash scripts/publish.sh minor    # minor bump (0.9.7 → 1.0.0)
-#   bash scripts/publish.sh major    # major bump (1.0.0 → 2.0.0)
+#   bash scripts/publish.sh
 #
 # What happens:
-#   1. Runs tests locally
-#   2. Bumps version in package.json and creates git tag (v*)
-#   3. Pushes commit + tag to master
-#   4. GitHub Actions detects the tag → builds, tests, publishes to npm
+#   1. Pushes current commit to master
+#   2. GitHub Actions detects the push → builds, tests, bumps version, publishes to npm
 #
 set -euo pipefail
 
-BUMP="${1:-patch}"
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-if [[ "$BUMP" != "patch" && "$BUMP" != "minor" && "$BUMP" != "major" ]]; then
-  echo "Usage: $0 [patch|minor|major]"
+if [[ "$BRANCH" != "master" ]]; then
+  echo "Error: must be on master branch (currently on $BRANCH)"
   exit 1
 fi
 
-echo "→ Bumping ${BUMP} version..."
-npm version "$BUMP" -m "chore(release): %s"
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "Error: working tree is dirty. Commit or stash changes first."
+  exit 1
+fi
 
-echo "→ Pushing commit and tag..."
-git push origin master --follow-tags
+echo "→ Pushing to master..."
+git push origin master
 
-VERSION=$(node -p "require('./package.json').version")
-echo "✓ Tagged v${VERSION} — CI will publish to npm"
+echo "✓ Pushed — CI will bump version and publish to npm"
