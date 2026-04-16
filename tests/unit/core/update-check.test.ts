@@ -191,6 +191,8 @@ describe("shouldSkipAutoUpdate", () => {
 	});
 
 	it("returns false when install method is npm-global", () => {
+		delete process.env.CI;
+		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 
@@ -238,6 +240,8 @@ describe("performAutoUpdate", () => {
 	});
 
 	it("returns immediately when cache shows no newer version", async () => {
+		delete process.env.CI;
+		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockCacheExists("1.0.0", Date.now() - 60_000);
@@ -249,6 +253,8 @@ describe("performAutoUpdate", () => {
 	});
 
 	it("returns immediately when cache is fresh and version is current", async () => {
+		delete process.env.CI;
+		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockCacheExists("1.0.0", Date.now());
@@ -261,6 +267,8 @@ describe("performAutoUpdate", () => {
 	});
 
 	it("calls process.exit(42) on successful update flow", async () => {
+		delete process.env.CI;
+		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.1.0");
@@ -286,6 +294,8 @@ describe("performAutoUpdate", () => {
 	});
 
 	it("returns with warning when update command fails", async () => {
+		delete process.env.CI;
+		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.1.0");
@@ -309,6 +319,8 @@ describe("performAutoUpdate", () => {
 	});
 
 	it("returns with warning when version verification fails", async () => {
+		delete process.env.CI;
+		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.0.0");
