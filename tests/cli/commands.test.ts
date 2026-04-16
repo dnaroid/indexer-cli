@@ -610,9 +610,9 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("src/");
-			expect(result.stdout).toContain("payments/");
 			expect(result.stdout).toContain("processor.ts —");
+			expect(result.stdout).toContain("paypal.ts");
+			expect(result.stdout).toContain("stripe.ts");
 			expect(result.stdout).not.toContain("src/auth/session.ts");
 			expect(result.stdout).not.toContain("services/");
 		});
@@ -642,7 +642,7 @@ describe.sequential("CLI e2e", () => {
 					"No indexed files found for the requested filters.",
 				);
 				expect(includedResult.exitCode).toBe(0);
-				expect(includedResult.stdout).toContain("fixtures/");
+				expect(includedResult.stdout).toContain("support/");
 				expect(includedResult.stdout).toContain(
 					"structure-fixture.ts — function: createFixtureValue",
 				);
@@ -729,7 +729,7 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).not.toContain("not found in indexed files");
-			expect(result.stdout).toContain("payments/");
+			expect(result.stdout).toContain("processor.ts");
 			expect(result.stdout).not.toContain("src/auth/");
 		});
 
@@ -756,6 +756,27 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).not.toContain("not found in indexed files");
 			expect(result.stdout).toContain("auth/");
+		});
+
+		it("counts --max-depth from --path-prefix root, not project root", () => {
+			const depth0 = runCLI(
+				["structure", "--path-prefix", "src/api", "--max-depth", "0"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(depth0.exitCode).toBe(0);
+			expect(depth0.stdout).toContain("v1/");
+			expect(depth0.stdout).toContain("v2/");
+			expect(depth0.stdout).not.toContain("handler.ts");
+
+			const depth1 = runCLI(
+				["structure", "--path-prefix", "src/api", "--max-depth", "1"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(depth1.exitCode).toBe(0);
+			expect(depth1.stdout).toContain("v1/");
+			expect(depth1.stdout).toContain("handler.ts");
 		});
 	});
 

@@ -444,14 +444,20 @@ export function registerStructureCommand(program: Command): void {
 					}
 
 					const root = createNode();
+					const stripPrefix = effectivePathPrefix
+						? effectivePathPrefix.replace(/\/+$/, "") + "/"
+						: "";
 					for (const file of filteredFiles) {
-						insertPath(root, file.path);
+						const relativePath = stripPrefix
+							? file.path.slice(stripPrefix.length)
+							: file.path;
+						insertPath(root, relativePath);
 					}
 
 					printTree(
 						root,
 						"",
-						"",
+						stripPrefix.replace(/\/$/, ""),
 						symbolsByFile,
 						0,
 						maxDepth,
