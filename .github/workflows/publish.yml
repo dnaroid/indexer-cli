@@ -4,9 +4,12 @@ on:
   push:
     branches: [master]
     tags:
-      - 'v*'
+      - 'npm'
   pull_request:
     branches: [master]
+
+permissions:
+  contents: write
 
 jobs:
   build-and-test:
@@ -23,10 +26,13 @@ jobs:
 
   publish:
     needs: build-and-test
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/tags/npm'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: master
+          token: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -34,6 +40,17 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm ci
       - run: npm run build
-      - run: npm publish --access public
+      - run: npm test
+      - name: Bump version and publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          NEW_VERSION=$(npm version patch --no-git-tag-version)
+          git add package.json package-lock.json
+          git commit -m "chore(release): ${NEW_VERSION}"
+          git tag -f "${NEW_VERSION}"
+          git push origin master
+          git push origin "${NEW_VERSION}"
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
