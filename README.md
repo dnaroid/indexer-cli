@@ -207,7 +207,7 @@ and performs a full uninstall + init for each. Useful for batch-updating project
 
 | Option              | Description                                      |
 |---------------------|--------------------------------------------------|
-| `--refresh-skills`  | Recreate `.claude/skills/` during reinit         |
+| `--skills-only`     | Only refresh skills without full reinstall       |
 | `-f, --force`       | Skip confirmation prompt                         |
 
 ## License

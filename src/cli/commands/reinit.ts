@@ -5,7 +5,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Command } from "commander";
 import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
-import { performInit } from "./init.js";
+import { performInit, refreshClaudeSkills } from "./init.js";
 import { performUninstall } from "./uninstall.js";
 
 async function pathExists(targetPath: string): Promise<boolean> {
@@ -24,13 +24,16 @@ export function registerReinitCommand(program: Command): void {
 			"Reinitialize indexer in all projects within a directory (uninstall + init)",
 		)
 		.argument("<dir>", "path to workspace directory containing projects")
-		.option("--refresh-skills", "recreate .claude/skills during reinit")
+		.option("--skills-only", "only refresh skills without full reinstall")
 		.option("-f, --force", "skip confirmation prompt")
 		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.action(
 			async (
 				dir: string,
-				options: { refreshSkills?: boolean; force?: boolean },
+				options: {
+					skillsOnly?: boolean;
+					force?: boolean;
+				},
 			) => {
 				const workspaceDir = path.resolve(dir);
 
@@ -82,7 +85,10 @@ export function registerReinitCommand(program: Command): void {
 				}
 
 				if (!options.force) {
-					console.error("The following projects will be reinitialized:");
+					const action = options.skillsOnly
+						? "have skills refreshed"
+						: "be reinitialized";
+					console.error(`The following projects will ${action}:`);
 					for (const projectPath of projectPaths) {
 						console.error(`- ${projectPath}`);
 					}
@@ -90,9 +96,9 @@ export function registerReinitCommand(program: Command): void {
 					const rl = createInterface({ input, output });
 
 					try {
-						const answer = await rl.question("Proceed with reinit? [y/N] ");
+						const answer = await rl.question("Proceed? [y/N] ");
 						if (!/^y(es)?$/i.test(answer.trim())) {
-							console.log("Reinit cancelled.");
+							console.log("Cancelled.");
 							return;
 						}
 					} finally {
@@ -104,25 +110,33 @@ export function registerReinitCommand(program: Command): void {
 
 				for (const projectPath of projectPaths) {
 					const projectName = path.basename(projectPath);
-					console.log(`Reinitializing: ${projectName}`);
+					console.log(
+						`${options.skillsOnly ? "Refreshing skills" : "Reinitializing"}: ${projectName}`,
+					);
 
 					try {
-						await performUninstall(projectPath);
-						await performInit(projectPath, {
-							refreshSkills: options?.refreshSkills,
-						});
+						if (options.skillsOnly) {
+							await refreshClaudeSkills(projectPath);
+						} else {
+							await performUninstall(projectPath);
+							await performInit(projectPath);
+						}
 						console.log(`Done: ${projectName}`);
 						reinitializedCount += 1;
 					} catch (error) {
 						const message =
 							error instanceof Error ? error.message : String(error);
-						console.error(`Failed to reinitialize ${projectName}: ${message}`);
+						console.error(
+							`Failed to ${options.skillsOnly ? "refresh skills in" : "reinitialize"} ${projectName}: ${message}`,
+						);
 						process.exitCode = 1;
 					}
 				}
 
 				console.log(
-					`Reinitialized ${reinitializedCount} of ${projectPaths.length} projects`,
+					options.skillsOnly
+						? `Refreshed skills in ${reinitializedCount} of ${projectPaths.length} projects`
+						: `Reinitialized ${reinitializedCount} of ${projectPaths.length} projects`,
 				);
 			},
 		);

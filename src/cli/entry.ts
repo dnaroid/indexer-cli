@@ -29,6 +29,7 @@ const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.help",
 	"commander.version",
 	"commander.unknownCommand",
+	"commander.missingArgument",
 	"indexer.preActionFailed",
 ]);
 

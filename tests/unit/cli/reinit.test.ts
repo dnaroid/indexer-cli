@@ -155,13 +155,15 @@ describe("reinit source contract", () => {
 		expect(source).toContain("const SKIP_MIGRATION_COMMANDS = new Set([");
 	});
 
-	it("reinit command imports performInit and performUninstall", () => {
+	it("reinit command imports performInit, performUninstall and refreshClaudeSkills", () => {
 		const source = readFileSync(
 			path.resolve(import.meta.dirname, "../../../src/cli/commands/reinit.ts"),
 			"utf8",
 		);
 
-		expect(source).toContain('import { performInit } from "./init.js";');
+		expect(source).toContain(
+			'import { performInit, refreshClaudeSkills } from "./init.js";',
+		);
 		expect(source).toContain(
 			'import { performUninstall } from "./uninstall.js";',
 		);
@@ -179,7 +181,7 @@ describe("reinit command registration", () => {
 			'.argument("<dir>", "path to workspace directory containing projects")',
 		);
 		expect(source).toContain(
-			'.option("--refresh-skills", "recreate .claude/skills during reinit")',
+			'.option("--skills-only", "only refresh skills without full reinstall")',
 		);
 		expect(source).toContain(
 			'.option("-f, --force", "skip confirmation prompt")',

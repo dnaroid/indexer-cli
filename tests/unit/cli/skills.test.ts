@@ -3,7 +3,7 @@ import { GENERATED_SKILLS } from "../../../src/cli/commands/skills.js";
 
 function expectIntroParagraphStructure(content: string): void {
 	expect(content).toMatch(
-		/# .*\n\nUse this .*\.\n\n[A-Z].*\.\n\n## Routing rules/s,
+		/# .*\n\nUse this .*\.\n\n[A-Z].*\.\n\n## Route to one command/s,
 	);
 }
 
@@ -26,18 +26,17 @@ describe("generated skills", () => {
 
 		expect(skill).toBeDefined();
 		expect(skill?.content).toContain(
-			"# Use repo-discovery as the single indexed entry point",
+			"# Use repo-discovery as the indexed entry point",
 		);
-		expect(skill?.content).toContain("## Routing rules");
-		expect(skill?.content).toContain("## Hard rules");
-		expect(skill?.content).toContain("## Escalation path");
-		expect(skill?.content).toContain("## Skip when");
+		expect(skill?.content).toContain("## Route to one command");
+		expect(skill?.content).toContain("## Operating rules");
+		expect(skill?.content).toContain("## Skip idx when");
 		expect(skill?.content).toContain("## CLI reference");
 		expect(skill?.content).toContain(
-			"Use this skill first when the task is about understanding an unfamiliar codebase",
+			"Use this skill first for unfamiliar codebases",
 		);
 		expect(skill?.content).toContain(
-			"Choose the single cheapest discovery path, run it, and stop as soon as you have enough context.",
+			"Pick the single cheapest command that answers the question, run it, and stop when you have enough context.",
 		);
 	});
 
