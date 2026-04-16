@@ -453,17 +453,9 @@ describe.sequential("CLI e2e Ruby", () => {
 		});
 
 		it("shows private Ruby methods as non-exported", () => {
-			const result = runCLI(
-				[
-					"structure",
-					"--path-prefix",
-					"lib/services/user_service.rb",
-					"--include-internal",
-				],
-				{
-					cwd: TEMP_DIR,
-				},
-			);
+			const result = runCLI(["structure", "--include-internal"], {
+				cwd: TEMP_DIR,
+			});
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(

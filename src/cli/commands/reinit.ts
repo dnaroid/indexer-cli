@@ -4,7 +4,6 @@ import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
 import type { Command } from "commander";
-import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { performInit, refreshClaudeSkills } from "./init.js";
 import { performUninstall } from "./uninstall.js";
 
@@ -26,7 +25,6 @@ export function registerReinitCommand(program: Command): void {
 		.argument("<dir>", "path to workspace directory containing projects")
 		.option("--skills-only", "only refresh skills without full reinstall")
 		.option("-f, --force", "skip confirmation prompt")
-		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.action(
 			async (
 				dir: string,

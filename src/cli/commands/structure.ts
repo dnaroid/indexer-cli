@@ -6,7 +6,6 @@ import { DEFAULT_PROJECT_ID, type SymbolRecord } from "../../core/types.js";
 import { matchesPathPatterns } from "../../engine/architecture.js";
 import { isTestFile } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
-import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -307,7 +306,6 @@ export function registerStructureCommand(program: Command): void {
 	program
 		.command("structure")
 		.description("Print indexed file and symbol structure")
-		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("--path-prefix <string>", "limit output to a path prefix")
 		.option("--kind <string>", "filter symbols by kind")
 		.option(

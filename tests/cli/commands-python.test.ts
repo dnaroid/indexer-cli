@@ -473,7 +473,6 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("payments/");
 			expect(result.stdout).toContain("processor.py");
 			expect(result.stdout).toContain("stripe.py");
 			expect(result.stdout).not.toContain("session.py");

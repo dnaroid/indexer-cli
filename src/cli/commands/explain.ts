@@ -4,7 +4,6 @@ import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
-import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -17,7 +16,6 @@ export function registerExplainCommand(program: Command): void {
 			"limit results to symbols in files under this path",
 		)
 		.option("--include-fixtures", "include fixture/test files in results")
-		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.action(
 			async (
 				symbolArg: string,

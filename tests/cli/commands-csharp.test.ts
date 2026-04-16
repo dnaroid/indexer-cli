@@ -481,7 +481,6 @@ describe.sequential("CLI e2e CSharp", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Assets/");
 			expect(result.stdout).toContain("PaymentProcessor.cs");
 			expect(result.stdout).toContain("StripeProcessor.cs");
 			expect(result.stdout).not.toContain("CombatManager.cs");

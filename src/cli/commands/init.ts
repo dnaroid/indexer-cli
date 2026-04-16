@@ -14,7 +14,6 @@ import { initLogger } from "../../core/logger.js";
 import { PACKAGE_VERSION } from "../../core/version.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
-import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { GENERATED_SKILL_DIRECTORIES, GENERATED_SKILLS } from "./skills.js";
 import { SKILLS_VERSION } from "../../core/skills-version.js";
@@ -204,7 +203,6 @@ export function registerInitCommand(program: Command): void {
 			"--refresh-skills",
 			"remove this CLI's generated skills and recreate them under .claude/skills",
 		)
-		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.action(async (options?: { refreshSkills?: boolean }) => {
 			try {
 				const { projectRoot, notice } = resolveInitProjectRoot();

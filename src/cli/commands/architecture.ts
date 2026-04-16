@@ -8,7 +8,6 @@ import {
 	type ArchitectureSnapshot,
 } from "../../engine/architecture.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
-import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -306,7 +305,6 @@ export function registerArchitectureCommand(program: Command): void {
 	program
 		.command("architecture")
 		.description("Print the latest architecture snapshot")
-		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option(
 			"--path-prefix <string>",
 			"limit output to files under a path prefix",

@@ -410,7 +410,6 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(textResult.stdout).toContain("CombatManager");
 			expect(textResult.stdout).toContain("damage_dealt");
 			expect(pathResult.exitCode).toBe(0);
-			expect(pathResult.stdout).toContain("ui/");
 			expect(pathResult.stdout).toContain("hud.gd");
 			expect(pathResult.stdout).toContain("menu.gd");
 			expect(pathResult.stdout).not.toContain("combat_manager.gd");

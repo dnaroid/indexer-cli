@@ -14,7 +14,6 @@ import {
 import { scanProjectFiles } from "../../engine/scanner.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
-import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
 function countChangedFiles(diff: GitDiff): number {
@@ -64,7 +63,6 @@ export function registerIndexCommand(program: Command): void {
 	program
 		.command("index")
 		.description("Index project files for semantic search")
-		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option("--full", "force a full reindex")
 		.option("--dry-run", "show what would change without indexing")
 		.option("--status", "show indexing status for the current project")

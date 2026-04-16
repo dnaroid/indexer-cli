@@ -49,7 +49,11 @@ function writeCache(cache: UpdateCache): void {
 function isNewerVersion(current: string, latest: string): boolean {
 	const c = current.split(".").map(Number);
 	const l = latest.split(".").map(Number);
-	return l[0] > c[0] || l[1] > c[1] || l[2] > c[2];
+	for (let i = 0; i < 3; i++) {
+		if (l[i] > c[i]) return true;
+		if (l[i] < c[i]) return false;
+	}
+	return false;
 }
 
 export type InstallMethod =

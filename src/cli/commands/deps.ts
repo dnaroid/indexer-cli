@@ -4,7 +4,6 @@ import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
-import { PROJECT_ROOT_COMMAND_HELP } from "../help-text.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -12,7 +11,6 @@ export function registerDepsCommand(program: Command): void {
 	program
 		.command("deps <path>")
 		.description("Show callers and callees for a module or symbol")
-		.addHelpText("after", `\n${PROJECT_ROOT_COMMAND_HELP}\n`)
 		.option(
 			"--direction <dir>",
 			"callers (who imports this), callees (what this imports), or both",
