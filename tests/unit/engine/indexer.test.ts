@@ -1488,11 +1488,18 @@ describe("IndexerEngine internals", () => {
 			);
 			const engine = new IndexerEngine(options);
 
-			await expect(
-				engine.indexProject({ isFullReindex: true }),
-			).rejects.toThrow(
+			let caught: unknown;
+			try {
+				await engine.indexProject({ isFullReindex: true });
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			expect((caught as Error).message).toBe(
 				"Failed while persisting batch [1-1] (src.ts .. src.ts): Invalid argument",
 			);
+			expect((caught as any).cause).toBeInstanceOf(Error);
+			expect((caught as any).cause.message).toBe("Invalid argument");
 
 			expect(options.metadata.updateSnapshotStatus).toHaveBeenCalledWith(
 				"snapshot-1",
@@ -1516,11 +1523,18 @@ describe("IndexerEngine internals", () => {
 				generate: vi.fn().mockRejectedValue(new Error("Invalid argument")),
 			});
 
-			await expect(
-				engine.indexProject({ isFullReindex: true }),
-			).rejects.toThrow(
+			let caught: unknown;
+			try {
+				await engine.indexProject({ isFullReindex: true });
+			} catch (e) {
+				caught = e;
+			}
+			expect(caught).toBeInstanceOf(Error);
+			expect((caught as Error).message).toBe(
 				"Failed after indexing 1 files while generating architecture snapshot: Invalid argument",
 			);
+			expect((caught as any).cause).toBeInstanceOf(Error);
+			expect((caught as any).cause.message).toBe("Invalid argument");
 
 			expect(options.metadata.updateSnapshotStatus).toHaveBeenCalledWith(
 				"snapshot-1",

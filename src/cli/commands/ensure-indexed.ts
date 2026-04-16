@@ -347,6 +347,7 @@ export async function ensureIndexed(
 					indexError,
 					updatedPlan.isFullReindex ? "full" : "incremental",
 				),
+				{ cause: indexError },
 			);
 		} finally {
 			await Promise.allSettled([vectors.close(), embedder.close()]);

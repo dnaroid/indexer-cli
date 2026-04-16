@@ -1081,6 +1081,7 @@ export class IndexerEngine {
 						error instanceof Error ? error.message : String(error);
 					throw new Error(
 						`Failed while persisting batch [${batchStart}-${batchEnd}] (${batch[0]} .. ${batch[batch.length - 1]}): ${message}`,
+						{ cause: error },
 					);
 				}
 
@@ -1596,6 +1597,7 @@ export class IndexerEngine {
 				const message = error instanceof Error ? error.message : String(error);
 				throw new Error(
 					`Failed after indexing ${filesToIndex.length} files while generating architecture snapshot: ${message}`,
+					{ cause: error },
 				);
 			}
 			await this.metadata.updateSnapshotStatus(snapshotId, "completed");
