@@ -44,6 +44,8 @@ describe("CLI entry error handling", () => {
 				"commander.version",
 				"commander.unknownCommand",
 				"commander.missingArgument",
+				"commander.unknownOption",
+				"commander.invalidArgument",
 				"indexer.preActionFailed",
 			]),
 		);
@@ -66,6 +68,16 @@ describe("CLI entry error handling", () => {
 		expect(
 			entryInternals.isHandledCommanderExit({
 				code: "commander.missingArgument",
+			}),
+		).toBe(true);
+		expect(
+			entryInternals.isHandledCommanderExit({
+				code: "commander.unknownOption",
+			}),
+		).toBe(true);
+		expect(
+			entryInternals.isHandledCommanderExit({
+				code: "commander.invalidArgument",
 			}),
 		).toBe(true);
 		expect(

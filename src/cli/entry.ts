@@ -30,6 +30,8 @@ const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.version",
 	"commander.unknownCommand",
 	"commander.missingArgument",
+	"commander.unknownOption",
+	"commander.invalidArgument",
 	"indexer.preActionFailed",
 ]);
 
@@ -122,6 +124,12 @@ async function main(): Promise<void> {
 	} catch (error: unknown) {
 		if (!isHandledCommanderExit(error)) {
 			throw error;
+		}
+		if (typeof error === "object" && error !== null && "exitCode" in error) {
+			const exitCode = Reflect.get(error, "exitCode");
+			if (typeof exitCode === "number" && exitCode !== 0) {
+				process.exitCode = exitCode;
+			}
 		}
 	}
 }
