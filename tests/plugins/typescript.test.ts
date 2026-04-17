@@ -585,6 +585,47 @@ describe("TypeScriptPlugin", () => {
 			expect(extractPrimarySymbol("return 42;")).toBeUndefined();
 		});
 
+		it("extractPrimarySymbol() never returns language keywords as symbols", () => {
+			const extractPrimarySymbol = (
+				plugin as unknown as {
+					extractPrimarySymbol: (text: string) => string | undefined;
+				}
+			).extractPrimarySymbol.bind(plugin);
+
+			expect(extractPrimarySymbol("if (condition) {")).toBeUndefined();
+			expect(
+				extractPrimarySymbol("for (let i = 0; i < n; i++) {"),
+			).toBeUndefined();
+			expect(extractPrimarySymbol("while (running) {")).toBeUndefined();
+			expect(extractPrimarySymbol("switch (value) {")).toBeUndefined();
+			expect(extractPrimarySymbol("return (x);")).toBeUndefined();
+			expect(extractPrimarySymbol("catch (err) {")).toBeUndefined();
+			expect(extractPrimarySymbol("else {")).toBeUndefined();
+		});
+
+		it("extractPrimarySymbol() returns real function inside code with keywords", () => {
+			const extractPrimarySymbol = (
+				plugin as unknown as {
+					extractPrimarySymbol: (text: string) => string | undefined;
+				}
+			).extractPrimarySymbol.bind(plugin);
+
+			expect(
+				extractPrimarySymbol("function saveProgress(email: string) {"),
+			).toBe("saveProgress");
+			expect(
+				extractPrimarySymbol(
+					[
+						"async function handleQuiz(data: Quiz) {",
+						"  if (data.complete) {",
+						"    return data;",
+						"  }",
+						"}",
+					].join("\n"),
+				),
+			).toBe("handleQuiz");
+		});
+
 		it("mergeSegments() flushes overflowing buffers and merges a short final segment when possible", () => {
 			const mergeSegments = (
 				plugin as unknown as {

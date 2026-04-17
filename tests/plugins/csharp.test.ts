@@ -278,5 +278,47 @@ describe("CSharpPlugin", () => {
 				}),
 			]);
 		});
+
+		it("never returns C# keywords as primarySymbol", () => {
+			const parsed = plugin.parse({
+				path: "inline/keywords.cs",
+				content: [
+					"if (condition) {",
+					"  for (int i = 0; i < 10; i++) { }",
+					"}",
+				].join("\n"),
+			});
+
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 200 });
+			for (const chunk of chunks) {
+				expect(chunk.metadata?.primarySymbol).not.toBe("if");
+				expect(chunk.metadata?.primarySymbol).not.toBe("for");
+				expect(chunk.metadata?.primarySymbol).not.toBe("while");
+				expect(chunk.metadata?.primarySymbol).not.toBe("return");
+				expect(chunk.metadata?.primarySymbol).not.toBe("switch");
+			}
+		});
+
+		it("returns real method name when code contains keywords inside", () => {
+			const parsed = plugin.parse({
+				path: "inline/method-with-keywords.cs",
+				content: [
+					"public void SaveProgress(string email) {",
+					"  if (email != null) {",
+					"    SendEmail(email);",
+					"  }",
+					"}",
+				].join("\n"),
+			});
+
+			const chunks = plugin.splitIntoChunks(parsed, { targetTokens: 200 });
+			expect(chunks.length).toBeGreaterThanOrEqual(1);
+			const implChunks = chunks.filter((c) => c.metadata?.chunkType === "impl");
+			for (const chunk of implChunks) {
+				if (chunk.metadata?.primarySymbol) {
+					expect(chunk.metadata.primarySymbol).toBe("SaveProgress");
+				}
+			}
+		});
 	});
 });

@@ -12,6 +12,68 @@ import { Project, Node, SyntaxKind } from "ts-morph";
 import * as path from "node:path";
 import * as fs from "node:fs";
 
+const JS_TS_KEYWORDS = new Set([
+	"if",
+	"else",
+	"for",
+	"while",
+	"do",
+	"switch",
+	"case",
+	"break",
+	"continue",
+	"return",
+	"throw",
+	"try",
+	"catch",
+	"finally",
+	"new",
+	"delete",
+	"typeof",
+	"instanceof",
+	"in",
+	"of",
+	"void",
+	"class",
+	"extends",
+	"super",
+	"import",
+	"export",
+	"default",
+	"const",
+	"let",
+	"var",
+	"function",
+	"async",
+	"await",
+	"yield",
+	"with",
+	"debugger",
+	"enum",
+	"implements",
+	"interface",
+	"package",
+	"private",
+	"protected",
+	"public",
+	"static",
+	"abstract",
+	"readonly",
+	"declare",
+	"type",
+	"namespace",
+	"module",
+	"from",
+	"as",
+	"get",
+	"set",
+	"true",
+	"false",
+	"null",
+	"undefined",
+	"this",
+]);
+
 type ChunkSegment = {
 	text: string;
 	range: CodeRange;
@@ -399,7 +461,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 
 		for (const pattern of declarationPatterns) {
 			const match = trimmed.match(pattern);
-			if (match?.[1]) {
+			if (match?.[1] && !JS_TS_KEYWORDS.has(match[1])) {
 				return match[1];
 			}
 		}

@@ -38,6 +38,107 @@ const STOP_WORDS = new Set([
 	"to",
 ]);
 
+const LANGUAGE_KEYWORDS = new Set([
+	"if",
+	"else",
+	"for",
+	"while",
+	"do",
+	"switch",
+	"case",
+	"break",
+	"continue",
+	"return",
+	"throw",
+	"try",
+	"catch",
+	"finally",
+	"new",
+	"delete",
+	"typeof",
+	"instanceof",
+	"in",
+	"of",
+	"void",
+	"class",
+	"extends",
+	"super",
+	"import",
+	"export",
+	"default",
+	"const",
+	"let",
+	"var",
+	"function",
+	"async",
+	"await",
+	"yield",
+	"with",
+	"debugger",
+	"enum",
+	"implements",
+	"interface",
+	"package",
+	"private",
+	"protected",
+	"public",
+	"static",
+	"abstract",
+	"readonly",
+	"declare",
+	"type",
+	"namespace",
+	"module",
+	"from",
+	"as",
+	"get",
+	"set",
+	"true",
+	"false",
+	"null",
+	"undefined",
+	"this",
+	"def",
+	"elif",
+	"except",
+	"finally",
+	"lambda",
+	"pass",
+	"raise",
+	"with",
+	"assert",
+	"global",
+	"nonlocal",
+	"and",
+	"or",
+	"not",
+	"is",
+	"end",
+	"then",
+	"begin",
+	"fn",
+	"let",
+	"mut",
+	"pub",
+	"use",
+	"mod",
+	"crate",
+	"impl",
+	"trait",
+	"where",
+	"loop",
+	"match",
+	"move",
+	"ref",
+	"struct",
+	"Self",
+	"self",
+	"super",
+	"type",
+	"unsafe",
+	"extern",
+]);
+
 interface RankedSymbolCandidate {
 	symbol: ChunkOverlapSymbol;
 	score: number;
@@ -315,6 +416,11 @@ export class SearchEngine {
 				)
 				.sort((a, b) => b.score - a.score)[0];
 
+			const rawSymbol =
+				bestSymbol && bestSymbol.score >= SYMBOL_MATCH_THRESHOLD
+					? bestSymbol.symbol.name
+					: vr.primarySymbol;
+
 			results.push({
 				filePath: vr.filePath,
 				startLine: vr.startLine,
@@ -322,9 +428,9 @@ export class SearchEngine {
 				score: vr.score,
 				chunkType: vr.chunkType,
 				primarySymbol:
-					bestSymbol && bestSymbol.score >= SYMBOL_MATCH_THRESHOLD
-						? bestSymbol.symbol.name
-						: vr.primarySymbol,
+					rawSymbol && !LANGUAGE_KEYWORDS.has(rawSymbol)
+						? rawSymbol
+						: undefined,
 				content,
 			});
 		}

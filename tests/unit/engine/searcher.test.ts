@@ -376,4 +376,86 @@ describe("SearchEngine", () => {
 		).rejects.toThrow("Failed to generate query embedding");
 		expect(vectors.search).not.toHaveBeenCalled();
 	});
+
+	it("filters out language keywords from vector-result primarySymbol fallback", async () => {
+		const metadata = createMetadataStoreMock();
+		const vectors = createVectorStoreMock([
+			{
+				chunkId: "chunk-keyword",
+				snapshotId: "snap-1",
+				filePath: "src/quiz-helper.ts",
+				startLine: 443,
+				endLine: 524,
+				contentHash: "hash-kw",
+				score: 0.9,
+				chunkType: "impl",
+				primarySymbol: "if",
+			},
+		]);
+		const embedder = createEmbedderMock([[1, 2, 3]]);
+		const engine = new SearchEngine(metadata, vectors, embedder, "/repo");
+
+		const results = await engine.search(
+			"project-1",
+			"snap-1",
+			"save progress",
+			{
+				includeContent: false,
+			},
+		);
+
+		expect(results).toHaveLength(1);
+		expect(results[0]?.primarySymbol).toBeUndefined();
+	});
+
+	it("returns enclosing named function when keyword exists inside it", async () => {
+		readFileMock.mockResolvedValue(
+			[
+				"function saveProgress(email: string) {",
+				"  if (email) {",
+				"    sendEmail(email);",
+				"  }",
+				"}",
+			].join("\n"),
+		);
+		const metadata = createMetadataStoreMock();
+		vi.mocked(metadata.listSymbols).mockResolvedValue([
+			{
+				snapshotId: "snap-1",
+				id: "sym-save",
+				filePath: "src/quiz-helper.ts",
+				kind: "function",
+				name: "saveProgress",
+				exported: false,
+				range: {
+					start: { line: 1, character: 0 },
+					end: { line: 5, character: 1 },
+				},
+			},
+		]);
+		const vectors = createVectorStoreMock([
+			{
+				chunkId: "chunk-enclosing",
+				snapshotId: "snap-1",
+				filePath: "src/quiz-helper.ts",
+				startLine: 1,
+				endLine: 5,
+				contentHash: "hash-enc",
+				score: 0.92,
+				chunkType: "impl",
+				primarySymbol: "if",
+			},
+		]);
+		const embedder = createEmbedderMock([[0.5, 0.6, 0.7]]);
+		const engine = new SearchEngine(metadata, vectors, embedder, "/repo");
+
+		const results = await engine.search(
+			"project-1",
+			"snap-1",
+			"save progress email send",
+		);
+
+		expect(results).toHaveLength(1);
+		expect(results[0]?.primarySymbol).toBe("saveProgress");
+	});
 });
