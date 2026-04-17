@@ -16,9 +16,6 @@ import {
 	checkAndRefreshSkills,
 } from "../core/version-check.js";
 import { checkForUpdates, performAutoUpdate } from "../core/update-check.js";
-import { existsSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 
 const SKIP_MIGRATION_COMMANDS = new Set([
 	"setup",
@@ -111,53 +108,16 @@ program.hook("preAction", async (thisCommand, actionCommand) => {
 	await runPreActionChecks(actionCommand.name());
 });
 
-function isIdxSetupDone(): boolean {
-	const scriptPath = path.join(os.homedir(), ".local", "bin", "idx");
-	return existsSync(scriptPath);
-}
-
-function hasInitializedProject(cwd: string): boolean {
-	let current = path.resolve(cwd);
-	while (true) {
-		if (existsSync(path.join(current, ".indexer-cli", "config.json"))) {
-			return true;
-		}
-		const parent = path.dirname(current);
-		if (parent === current) break;
-		current = parent;
-	}
-	return false;
-}
-
-function showGuidance(): void {
-	if (!isIdxSetupDone()) {
-		console.log("indexer-cli is not set up yet. Run:  idx setup");
-		return;
-	}
-
-	if (!hasInitializedProject(process.cwd())) {
-		console.log(
-			"No indexer-cli project here. Run:  cd /path/to/project && idx init",
-		);
-		return;
-	}
-
-	console.log("Project ready. Next steps:");
-	console.log("  idx index       — index your codebase");
-	console.log("  idx search <q>  — semantic search");
-}
-
 async function main(): Promise<void> {
 	const hasNoArgs =
 		process.argv.length === 2 ||
 		(process.argv.length === 3 && process.argv[1].endsWith("indexer-cli.js"));
 
-	if (hasNoArgs) {
-		showGuidance();
-		return;
-	}
-
 	try {
+		if (hasNoArgs) {
+			program.outputHelp();
+			return;
+		}
 		await program.parseAsync();
 	} catch (error: unknown) {
 		if (!isHandledCommanderExit(error)) {

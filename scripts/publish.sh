@@ -16,8 +16,10 @@
 #   bash scripts/publish.sh
 #
 # What happens:
-#   1. Pushes current commit to master
-#   2. GitHub Actions detects the push → builds, tests, bumps version, publishes to npm
+#   1. Bumps patch version locally (package.json + package-lock.json)
+#   2. Commits and tags the new version
+#   3. Pushes commit + tag to master
+#   4. GitHub Actions detects the push → builds, tests, publishes to npm
 #
 set -euo pipefail
 
@@ -33,7 +35,18 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
+# Pull latest to avoid push rejection
+echo "→ Pulling latest from origin..."
+git pull --rebase origin master
+
+# Bump version (commits + tags automatically)
+echo "→ Bumping patch version..."
+NEW_VERSION=$(npm version patch -m "chore(release): %s")
+echo "  Version: ${NEW_VERSION}"
+
+# Push commit + tag
 echo "→ Pushing to master..."
 git push origin master
+git push origin "${NEW_VERSION}"
 
-echo "✓ Pushed — CI will bump version and publish to npm"
+echo "✓ Pushed ${NEW_VERSION} — CI will build, test, and publish to npm"
