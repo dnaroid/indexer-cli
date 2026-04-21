@@ -24,8 +24,17 @@ interface UpdateCache {
 	latestVersion: string;
 }
 
+export type SkipAutoUpdateReason =
+	| "already-attempted"
+	| "unsupported-install-method"
+	| "non-tty"
+	| "ci"
+	| "flag-disabled"
+	| "update-lock-held"
+	| null;
+
 export type AutoUpdateResult =
-	| { kind: "skipped"; reason: string }
+	| { kind: "skipped"; reason: Exclude<SkipAutoUpdateReason, null> }
 	| { kind: "no-update" }
 	| {
 			kind: "updated";
@@ -34,14 +43,6 @@ export type AutoUpdateResult =
 			restartRequired: true;
 	  }
 	| { kind: "failed"; message: string };
-
-export type SkipAutoUpdateReason =
-	| "already-attempted"
-	| "unsupported-install-method"
-	| "non-tty"
-	| "ci"
-	| "flag-disabled"
-	| null;
 
 async function fetchLatestVersion(): Promise<string> {
 	const response = await fetch("https://registry.npmjs.org/indexer-cli/latest");
@@ -122,7 +123,7 @@ export function detectInstallMethod(): InstallMethod {
 			return "unknown";
 		}
 
-		return "npm-global";
+		return "unknown";
 	} catch {
 		return "unknown";
 	}
