@@ -15,7 +15,11 @@ import {
 	checkAndMigrateIfNeeded,
 	checkAndRefreshSkills,
 } from "../core/version-check.js";
-import { checkForUpdates, performAutoUpdate } from "../core/update-check.js";
+import {
+	AUTO_UPDATE_RESTART_CODE,
+	checkForUpdates,
+	performAutoUpdate,
+} from "../core/update-check.js";
 
 const SKIP_MIGRATION_COMMANDS = new Set([
 	"setup",
@@ -40,7 +44,10 @@ async function runPreActionChecks(commandName: string): Promise<void> {
 		return;
 	}
 
-	await performAutoUpdate();
+	const updateResult = await performAutoUpdate();
+	if (updateResult.kind === "updated" && updateResult.restartRequired) {
+		process.exit(AUTO_UPDATE_RESTART_CODE);
+	}
 
 	try {
 		await checkAndMigrateIfNeeded();

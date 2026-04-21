@@ -34,6 +34,8 @@ async function loadInstallIdxBinary(
 	ensureIdxBinary: () => {
 		scriptStatus: "unchanged" | "installed" | "repaired";
 		pathUpdated: boolean;
+		launchMode: "global-wrapper" | "repair-wrapper";
+		targetPath: string | null;
 	},
 	homedir = "/tmp/home",
 ): Promise<() => { name: string; status: string; detail?: string }> {
@@ -217,6 +219,8 @@ describe("setup command helpers", () => {
 			const installIdxBinary = await loadInstallIdxBinary(() => ({
 				scriptStatus: "repaired",
 				pathUpdated: false,
+				launchMode: "global-wrapper",
+				targetPath: "/usr/local/bin/indexer-cli",
 			}));
 
 			expect(installIdxBinary()).toEqual({
@@ -237,6 +241,8 @@ describe("setup command helpers", () => {
 			const installIdxBinary = await loadInstallIdxBinary(() => ({
 				scriptStatus: "unchanged",
 				pathUpdated: false,
+				launchMode: "global-wrapper",
+				targetPath: "/usr/local/bin/indexer-cli",
 			}));
 
 			expect(installIdxBinary()).toEqual({
@@ -257,6 +263,8 @@ describe("setup command helpers", () => {
 			const installIdxBinary = await loadInstallIdxBinary(() => ({
 				scriptStatus: "repaired",
 				pathUpdated: false,
+				launchMode: "global-wrapper",
+				targetPath: "/usr/local/bin/indexer-cli",
 			}));
 
 			expect(installIdxBinary()).toEqual({

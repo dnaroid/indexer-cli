@@ -297,7 +297,16 @@ function installIdxBinary(): CheckResult {
 			? ""
 			: "; restart your shell";
 
+		const isRepairOnly = result.launchMode === "repair-wrapper";
+
 		if (result.scriptStatus === "repaired") {
+			if (isRepairOnly) {
+				return {
+					name: "idx command",
+					status: "repaired",
+					detail: `repair wrapper installed; run: npm install -g indexer-cli${restartDetail}`,
+				};
+			}
 			return {
 				name: "idx command",
 				status: "repaired",
@@ -306,10 +315,26 @@ function installIdxBinary(): CheckResult {
 		}
 
 		if (result.scriptStatus === "installed") {
+			if (isRepairOnly) {
+				return {
+					name: "idx command",
+					status: "installed",
+					detail: `repair wrapper installed; run: npm install -g indexer-cli${restartDetail}`,
+				};
+			}
 			return {
 				name: "idx command",
 				status: "installed",
 				detail: `installed${restartDetail}`,
+			};
+		}
+
+		if (isRepairOnly) {
+			return {
+				name: "idx command",
+				status: "ok",
+				detail:
+					"repair wrapper — global install not found; run: npm install -g indexer-cli",
 			};
 		}
 
