@@ -1,9 +1,11 @@
 import {
 	chmodSync,
+	lstatSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { rm } from "node:fs/promises";
@@ -397,6 +399,39 @@ describe("ensureIdxBinary", () => {
 		});
 	});
 
+	it("replaces a symlinked idx launcher with a real wrapper file", async () => {
+		const homeDir = createTempDir();
+		const prefix = createTempDir();
+		const localBinDir = path.join(homeDir, ".local", "bin");
+		const scriptPath = path.join(localBinDir, "idx");
+		const realBinaryPath = createGlobalInstall(prefix);
+		setMockedOs(homeDir, "darwin");
+		process.env.PATH = localBinDir;
+		execSyncMock.mockImplementation((command: string) => {
+			if (command === "npm config get prefix") {
+				return `${prefix}\n`;
+			}
+			throw new Error(`Unexpected command: ${command}`);
+		});
+
+		mkdirSync(localBinDir, { recursive: true });
+		symlinkSync(realBinaryPath, scriptPath);
+
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
+		const result = ensureIdxBinary();
+
+		expect(lstatSync(scriptPath).isSymbolicLink()).toBe(false);
+		expect(readFileSync(scriptPath, "utf8")).toBe(
+			thinWrapperContent(realBinaryPath),
+		);
+		expect(result).toEqual({
+			scriptStatus: "repaired",
+			pathUpdated: false,
+			launchMode: "global-wrapper",
+			targetPath: realBinaryPath,
+		});
+	});
+
 	it("handles binary paths with spaces using shell quoting", async () => {
 		const homeDir = createTempDir();
 		const prefix = createTempDir();
@@ -441,6 +476,63 @@ describe("getNpmGlobalBinPath", () => {
 		const { getNpmGlobalBinPath } = await loadIdxBinaryModule();
 
 		expect(getNpmGlobalBinPath()).toBe(realBinaryPath);
+	});
+
+	it("returns null when global launcher is self-recursive", async () => {
+		const prefix = createTempDir();
+		const realBinaryPath = createGlobalInstall(prefix);
+		writeFileSync(
+			realBinaryPath,
+			`#!/bin/sh\nexec "${realBinaryPath}" "$@"\n`,
+			"utf8",
+		);
+		chmodSync(realBinaryPath, 0o755);
+
+		execSyncMock.mockImplementation((command: string) => {
+			if (command === "npm config get prefix") {
+				return `${prefix}\n`;
+			}
+			throw new Error(`Unexpected command: ${command}`);
+		});
+
+		const { getNpmGlobalBinPath } = await loadIdxBinaryModule();
+
+		expect(getNpmGlobalBinPath()).toBeNull();
+	});
+
+	it("returns null when symlink target launcher is self-recursive", async () => {
+		const prefix = createTempDir();
+		const binDir = path.join(prefix, "bin");
+		const realDir = path.join(
+			prefix,
+			"lib",
+			"node_modules",
+			"indexer-cli",
+			"bin",
+		);
+		const symlinkPath = path.join(binDir, "indexer-cli");
+		const realBinaryPath = path.join(realDir, "indexer-cli.js");
+
+		mkdirSync(binDir, { recursive: true });
+		mkdirSync(realDir, { recursive: true });
+		writeFileSync(
+			realBinaryPath,
+			`#!/bin/sh\nexec ${realBinaryPath} "$@"\n`,
+			"utf8",
+		);
+		chmodSync(realBinaryPath, 0o755);
+		symlinkSync(realBinaryPath, symlinkPath);
+
+		execSyncMock.mockImplementation((command: string) => {
+			if (command === "npm config get prefix") {
+				return `${prefix}\n`;
+			}
+			throw new Error(`Unexpected command: ${command}`);
+		});
+
+		const { getNpmGlobalBinPath } = await loadIdxBinaryModule();
+
+		expect(getNpmGlobalBinPath()).toBeNull();
 	});
 
 	it("returns null when the global binary cannot be resolved", async () => {

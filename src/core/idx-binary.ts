@@ -2,8 +2,11 @@ import {
 	accessSync,
 	chmodSync,
 	constants as fsConstants,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
+	realpathSync,
+	rmSync,
 	writeFileSync,
 } from "node:fs";
 import { execSync } from "node:child_process";
@@ -12,6 +15,36 @@ import path from "node:path";
 
 function shellQuote(value: string): string {
 	return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function withMacPathAliases(value: string): string[] {
+	if (value.startsWith("/private/")) {
+		return [value, value.slice("/private".length)];
+	}
+	if (value.startsWith("/var/")) {
+		return [value, `/private${value}`];
+	}
+	return [value];
+}
+
+function isSelfRecursiveShellLauncher(
+	content: string,
+	binaryPaths: string[],
+): boolean {
+	const candidates = [...new Set(binaryPaths.flatMap(withMacPathAliases))];
+
+	return candidates.some((candidate) => {
+		const escapedPath = escapeRegExp(candidate);
+		const recursiveExec = new RegExp(
+			`^\\s*exec\\s+(?:${escapedPath}|'${escapedPath}'|"${escapedPath}")(?:\\s+"\\$@")?\\s*$`,
+			"m",
+		);
+		return recursiveExec.test(content);
+	});
 }
 
 function thinWrapperContent(binaryPath: string): string {
@@ -41,6 +74,11 @@ export function getNpmGlobalBinPath(): string | null {
 		}).trim();
 		const binPath = path.join(prefix, "bin", "indexer-cli");
 		accessSync(binPath, fsConstants.F_OK | fsConstants.X_OK);
+		const realBinPath = realpathSync(binPath);
+		const launcherContent = readFileSync(binPath, "utf8");
+		if (isSelfRecursiveShellLauncher(launcherContent, [binPath, realBinPath])) {
+			return null;
+		}
 		// Return the symlink, not its realpath — realpath may point into an
 		// ephemeral temp dir (/var/folders/…/T/) that macOS periodically cleans.
 		return binPath;
@@ -100,8 +138,12 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 
 	try {
 		accessSync(scriptPath, fsConstants.F_OK);
+		const scriptMeta = lstatSync(scriptPath);
+		if (scriptMeta.isSymbolicLink()) {
+			scriptStatus = "repaired";
+		}
 		const existing = readFileSync(scriptPath, "utf8");
-		if (existing === expectedContent) {
+		if (scriptStatus !== "repaired" && existing === expectedContent) {
 			try {
 				accessSync(scriptPath, fsConstants.X_OK);
 				scriptStatus = "unchanged";
@@ -117,6 +159,11 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 
 	if (scriptStatus !== "unchanged") {
 		mkdirSync(localBinDir, { recursive: true });
+		try {
+			if (lstatSync(scriptPath).isSymbolicLink()) {
+				rmSync(scriptPath, { force: true });
+			}
+		} catch {}
 		writeFileSync(scriptPath, expectedContent, "utf8");
 		chmodSync(scriptPath, 0o755);
 	}
