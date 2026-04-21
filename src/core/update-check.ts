@@ -24,6 +24,25 @@ interface UpdateCache {
 	latestVersion: string;
 }
 
+export type AutoUpdateResult =
+	| { kind: "skipped"; reason: string }
+	| { kind: "no-update" }
+	| {
+			kind: "updated";
+			previousVersion: string;
+			installedVersion: string;
+			restartRequired: true;
+	  }
+	| { kind: "failed"; message: string };
+
+export type SkipAutoUpdateReason =
+	| "already-attempted"
+	| "unsupported-install-method"
+	| "non-tty"
+	| "ci"
+	| "flag-disabled"
+	| null;
+
 async function fetchLatestVersion(): Promise<string> {
 	const response = await fetch("https://registry.npmjs.org/indexer-cli/latest");
 	const data = (await response.json()) as { version: string };
@@ -63,6 +82,30 @@ export type InstallMethod =
 	| "yarn-global"
 	| "unknown";
 
+function tryGetNpmGlobalPrefix(): string | null {
+	try {
+		const prefix = execFileSync("npm", ["config", "get", "prefix"], {
+			encoding: "utf8",
+		}).trim();
+		if (prefix) return prefix;
+		return null;
+	} catch {
+		return null;
+	}
+}
+
+function tryGetNpmGlobalRoot(): string | null {
+	try {
+		const root = execFileSync("npm", ["root", "-g"], {
+			encoding: "utf8",
+		}).trim();
+		if (root) return root;
+		return null;
+	} catch {
+		return null;
+	}
+}
+
 export function detectInstallMethod(): InstallMethod {
 	try {
 		const execPath = process.argv[1];
@@ -71,48 +114,67 @@ export function detectInstallMethod(): InstallMethod {
 		if (resolved.includes("/.npm/_npx")) return "npx";
 		if (resolved.includes("/.pnpm/global")) return "pnpm-global";
 		if (resolved.includes("/.yarn/global")) return "yarn-global";
+
+		const npmPrefix = tryGetNpmGlobalPrefix();
+		if (npmPrefix) {
+			const expectedBinPath = join(npmPrefix, "bin");
+			if (resolved.startsWith(expectedBinPath)) return "npm-global";
+			return "unknown";
+		}
+
 		return "npm-global";
 	} catch {
 		return "unknown";
 	}
 }
 
+export function getAutoUpdateSkipReason(): SkipAutoUpdateReason {
+	if (process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED === "1")
+		return "already-attempted";
+	if (detectInstallMethod() !== "npm-global")
+		return "unsupported-install-method";
+	if (!process.stdout.isTTY) return "non-tty";
+	if (process.env.CI === "true" || process.env.CI === "1") return "ci";
+	if (process.argv.includes("--no-auto-update")) return "flag-disabled";
+	return null;
+}
+
 export function shouldSkipAutoUpdate(): boolean {
-	if (process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED === "1") return true;
-	if (detectInstallMethod() !== "npm-global") return true;
-	if (!process.stdout.isTTY) return true;
-	if (process.env.CI === "true" || process.env.CI === "1") return true;
-	if (process.argv.includes("--no-auto-update")) return true;
-	return false;
+	return getAutoUpdateSkipReason() !== null;
 }
 
 function readInstalledPackageVersion(): string {
-	// After `npm install -g`, the files on disk are replaced but require.resolve
-	// may still point at the cached (old) module location. Use process.argv[1]
-	// (the bin path) to locate the newly installed package.json instead.
+	const npmRoot = tryGetNpmGlobalRoot();
+	if (npmRoot) {
+		const candidate = join(npmRoot, "indexer-cli", "package.json");
+		if (existsSync(candidate)) {
+			const data = JSON.parse(readFileSync(candidate, "utf-8")) as {
+				version?: string;
+			};
+			if (data.version) return data.version;
+		}
+	}
+
 	const execPath = process.argv[1];
-	if (!execPath) {
-		throw new Error("Cannot determine install location");
+	if (execPath) {
+		const binDir = dirname(execPath);
+		const legacyCandidate = join(
+			binDir,
+			"..",
+			"lib",
+			"node_modules",
+			"indexer-cli",
+			"package.json",
+		);
+		if (existsSync(legacyCandidate)) {
+			const data = JSON.parse(readFileSync(legacyCandidate, "utf-8")) as {
+				version?: string;
+			};
+			if (data.version) return data.version;
+		}
 	}
-	const binDir = dirname(execPath);
-	const packageJsonPath = join(
-		binDir,
-		"..",
-		"lib",
-		"node_modules",
-		"indexer-cli",
-		"package.json",
-	);
-	if (!existsSync(packageJsonPath)) {
-		throw new Error("Cannot locate installed package.json");
-	}
-	const data = JSON.parse(readFileSync(packageJsonPath, "utf-8")) as {
-		version?: string;
-	};
-	if (!data.version) {
-		throw new Error("Installed package version could not be determined");
-	}
-	return data.version;
+
+	throw new Error("Cannot locate installed package.json");
 }
 
 function releaseUpdateLock(lockHeld: boolean): void {
@@ -120,8 +182,11 @@ function releaseUpdateLock(lockHeld: boolean): void {
 	rmSync(UPDATE_LOCK_DIR, { recursive: true, force: true });
 }
 
-export async function performAutoUpdate(): Promise<void> {
-	if (shouldSkipAutoUpdate()) return;
+export async function performAutoUpdate(): Promise<AutoUpdateResult> {
+	const skipReason = getAutoUpdateSkipReason();
+	if (skipReason !== null) {
+		return { kind: "skipped", reason: skipReason };
+	}
 
 	let lockHeld = false;
 
@@ -130,7 +195,7 @@ export async function performAutoUpdate(): Promise<void> {
 		const cache = readCache();
 
 		if (cache && !isNewerVersion(PACKAGE_VERSION, cache.latestVersion)) {
-			return;
+			return { kind: "no-update" };
 		}
 
 		let latest = cache?.latestVersion;
@@ -140,7 +205,7 @@ export async function performAutoUpdate(): Promise<void> {
 		}
 
 		if (!latest || !isNewerVersion(PACKAGE_VERSION, latest)) {
-			return;
+			return { kind: "no-update" };
 		}
 
 		if (!existsSync(CACHE_DIR)) {
@@ -158,7 +223,7 @@ export async function performAutoUpdate(): Promise<void> {
 			mkdirSync(UPDATE_LOCK_DIR, { recursive: false });
 			lockHeld = true;
 		} catch {
-			return;
+			return { kind: "skipped", reason: "update-lock-held" };
 		}
 
 		writeFileSync(
@@ -173,23 +238,30 @@ export async function performAutoUpdate(): Promise<void> {
 
 		const installedVersion = readInstalledPackageVersion();
 		if (installedVersion === PACKAGE_VERSION) {
-			console.error(
-				"Auto-update warning: indexer-cli version did not change after install.",
-			);
+			const message =
+				"Auto-update warning: indexer-cli version did not change after install.";
+			console.error(message);
 			releaseUpdateLock(lockHeld);
 			lockHeld = false;
-			return;
+			return { kind: "failed", message };
 		}
 
 		releaseUpdateLock(lockHeld);
 		lockHeld = false;
 		console.log("Restarting with updated version...");
-		process.exit(AUTO_UPDATE_RESTART_CODE);
-	} catch {
+		return {
+			kind: "updated",
+			previousVersion: PACKAGE_VERSION,
+			installedVersion,
+			restartRequired: true,
+		};
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
 		console.error(
-			"Auto-update warning: failed to update indexer-cli automatically.",
+			`Auto-update warning: failed to update indexer-cli automatically: ${message}`,
 		);
 		releaseUpdateLock(lockHeld);
+		return { kind: "failed", message };
 	}
 }
 
