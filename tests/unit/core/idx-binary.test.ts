@@ -132,6 +132,7 @@ describe("ensureIdxBinary", () => {
 		const scriptPath = path.join(localBinDir, "idx");
 		setMockedOs(homeDir, "darwin");
 		process.env.PATH = "";
+		process.env.SHELL = "/bin/zsh";
 
 		mkdirSync(localBinDir, { recursive: true });
 		writeFileSync(scriptPath, REPAIR_WRAPPER_CONTENT, "utf8");
@@ -226,6 +227,7 @@ describe("ensureIdxBinary", () => {
 		const zshrcPath = path.join(homeDir, ".zshrc");
 		setMockedOs(homeDir, "darwin");
 		process.env.PATH = "/usr/bin:/bin";
+		process.env.SHELL = "/bin/zsh";
 
 		writeFileSync(zshrcPath, "export FOO=bar\n", "utf8");
 		writeFileSyncMock.mockClear();

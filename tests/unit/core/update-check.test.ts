@@ -237,6 +237,7 @@ describe("getAutoUpdateSkipReason", () => {
 	});
 
 	it("returns 'flag-disabled' when --no-auto-update is passed", () => {
+		delete process.env.CI;
 		process.argv = [
 			process.argv[0],
 			"/usr/local/bin/indexer-cli",
