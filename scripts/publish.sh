@@ -44,6 +44,10 @@ echo "→ Bumping patch version..."
 NEW_VERSION=$(npm version patch -m "chore(release): %s")
 echo "  Version: ${NEW_VERSION}"
 
+# Smoke-test the packed artifact before pushing
+echo "→ Running smoke-test on packed artifact..."
+bash scripts/smoke-test-package.sh
+
 # Push commit + tag
 echo "→ Pushing to master..."
 git push origin master

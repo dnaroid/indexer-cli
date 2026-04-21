@@ -34,6 +34,7 @@
 		"test:cli:gdscript": "vitest run tests/cli/commands-gdscript.test.ts --testTimeout=180000 --no-file-parallelism",
 		"test:cli:csharp": "vitest run tests/cli/commands-csharp.test.ts --testTimeout=180000 --no-file-parallelism",
 		"test:cli:ruby": "vitest run tests/cli/commands-ruby.test.ts --testTimeout=180000 --no-file-parallelism",
+		"smoke-test": "bash scripts/smoke-test-package.sh",
 		"publish-npm": "bash scripts/publish.sh"
 	},
 	"dependencies": {

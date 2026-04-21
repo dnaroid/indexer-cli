@@ -232,6 +232,15 @@ subdirectories for `.indexer-cli/`, auto-registers found projects, and operates 
 The global registry is maintained automatically: `idx init` registers a project, `idx uninstall` unregisters it.
 `idx doctor <dir>` also registers discovered projects.
 
+## Release process
+
+Publishing is handled by `scripts/publish.sh`: it bumps the version, runs a smoke-test on the packed tarball,
+then pushes a tag to master. CI builds, tests, and runs the same tarball smoke-test before publishing to npm.
+
+The smoke-test (`npm run smoke-test`) verifies the packed artifact by installing it in an isolated temp directory
+and running: `--help`, bare invocation, `setup --help`, `search --help`, `init --help`, and `--version`.
+Publish is blocked if any check fails.
+
 ## License
 
 MIT
