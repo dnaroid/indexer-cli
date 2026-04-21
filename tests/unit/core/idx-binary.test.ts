@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 const REPAIR_WRAPPER_CONTENT = `#!/bin/sh
 echo "idx: global indexer-cli installation was not found or is not executable." >&2
 echo "Run: idx setup" >&2
-echo "Or:  npm install -g indexer-cli" >&2
+echo "Or: npm install -g indexer-cli" >&2
 exit 1
 `;
 
@@ -315,6 +315,21 @@ describe("ensureIdxBinary", () => {
 			launchMode: "repair-wrapper",
 			targetPath: null,
 		});
+	});
+
+	it("falls back to ~/.profile for unknown shell when rc files are missing", async () => {
+		const homeDir = createTempDir();
+		const profilePath = path.join(homeDir, ".profile");
+		setMockedOs(homeDir, "darwin");
+		process.env.PATH = "/usr/bin:/bin";
+		process.env.SHELL = "/bin/fish";
+
+		const { ensureIdxBinary } = await loadIdxBinaryModule();
+		const result = ensureIdxBinary();
+
+		expect(statSync(profilePath).isFile()).toBe(true);
+		expect(readFileSync(profilePath, "utf8")).toBe(`${EXPORT_LINE}\n`);
+		expect(result.pathUpdated).toBe(true);
 	});
 
 	it("prefers a thin wrapper with quoted path when a global binary exists", async () => {

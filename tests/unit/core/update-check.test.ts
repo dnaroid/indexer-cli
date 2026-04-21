@@ -178,12 +178,12 @@ describe("detectInstallMethod", () => {
 		expect(detectInstallMethod()).toBe("unknown");
 	});
 
-	it("falls back to npm-global when npm prefix command fails", () => {
+	it("returns unknown when npm prefix command fails", () => {
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		execFileSyncMock.mockImplementation(() => {
 			throw new Error("npm unavailable");
 		});
-		expect(detectInstallMethod()).toBe("npm-global");
+		expect(detectInstallMethod()).toBe("unknown");
 	});
 
 	it("returns unknown when argv[1] is undefined", () => {
@@ -364,6 +364,7 @@ describe("performAutoUpdate", () => {
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockCacheExists("1.0.0", Date.now());
+		execFileSyncMock.mockImplementation(() => "/usr/local\n");
 		const fetchSpy = vi.spyOn(globalThis, "fetch");
 
 		const result = await performAutoUpdate();
@@ -378,6 +379,7 @@ describe("performAutoUpdate", () => {
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.1.0");
+		execFileSyncMock.mockImplementation(() => "/usr/local\n");
 
 		const result = await performAutoUpdate();
 
@@ -407,12 +409,11 @@ describe("performAutoUpdate", () => {
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.1.0");
-		execFileSyncMock.mockImplementation(() => {
-			throw new Error("npm install failed");
-		});
-		execFileSyncMock.mockImplementation(() => {
-			throw new Error("npm install failed");
-		});
+		execFileSyncMock
+			.mockImplementationOnce(() => "/usr/local\n")
+			.mockImplementation(() => {
+				throw new Error("npm install failed");
+			});
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		const result = await performAutoUpdate();
@@ -436,6 +437,7 @@ describe("performAutoUpdate", () => {
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.0.0");
+		execFileSyncMock.mockImplementation(() => "/usr/local\n");
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
 		const result = await performAutoUpdate();
@@ -490,6 +492,7 @@ describe("performAutoUpdate", () => {
 		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
+		execFileSyncMock.mockImplementation(() => "/usr/local\n");
 
 		const staleTime = Date.now() - 10 * 60 * 1000;
 		let lockCreated = false;

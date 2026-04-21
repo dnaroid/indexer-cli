@@ -22,7 +22,7 @@ function repairWrapperContent(): string {
 	return `#!/bin/sh
 echo "idx: global indexer-cli installation was not found or is not executable." >&2
 echo "Run: idx setup" >&2
-echo "Or:  npm install -g indexer-cli" >&2
+echo "Or: npm install -g indexer-cli" >&2
 exit 1
 `;
 }
@@ -76,7 +76,7 @@ function resolveProfileForPathExport(homeDir: string): string {
 		}
 	}
 
-	return candidates[0];
+	return path.join(homeDir, ".profile");
 }
 
 /**
