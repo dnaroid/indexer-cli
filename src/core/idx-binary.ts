@@ -10,17 +10,28 @@ import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
-const NPX_SCRIPT_CONTENT = `#!/bin/sh
-exec npm exec --yes --loglevel=silent --prefix "\${TMPDIR:-/tmp}" --package=indexer-cli@latest -- indexer-cli "$@"
-`;
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, `'\"'\"'`)}'`;
+}
 
 function thinWrapperContent(binaryPath: string): string {
-	return `#!/bin/sh\nexec ${binaryPath} "$@"\n`;
+	return `#!/bin/sh\nexec ${shellQuote(binaryPath)} "$@"\n`;
+}
+
+function repairWrapperContent(): string {
+	return `#!/bin/sh
+echo "idx: global indexer-cli installation was not found or is not executable." >&2
+echo "Run: idx setup" >&2
+echo "Or:  npm install -g indexer-cli" >&2
+exit 1
+`;
 }
 
 export type EnsureIdxBinaryResult = {
 	scriptStatus: "unchanged" | "installed" | "repaired";
 	pathUpdated: boolean;
+	launchMode: "global-wrapper" | "repair-wrapper";
+	targetPath: string | null;
 };
 
 export function getNpmGlobalBinPath(): string | null {
@@ -39,6 +50,36 @@ export function getNpmGlobalBinPath(): string | null {
 }
 
 /**
+ * Resolve the shell profile file to write PATH exports into.
+ * Prefers the profile matching $SHELL, falls back to platform defaults.
+ */
+function resolveProfileForPathExport(homeDir: string): string {
+	const shell = process.env.SHELL ?? "";
+	if (shell.includes("zsh")) {
+		return path.join(homeDir, ".zshrc");
+	}
+	if (shell.includes("bash")) {
+		return path.join(homeDir, ".bashrc");
+	}
+
+	const candidates =
+		os.platform() === "darwin"
+			? [path.join(homeDir, ".zshrc"), path.join(homeDir, ".bashrc")]
+			: [path.join(homeDir, ".bashrc"), path.join(homeDir, ".zshrc")];
+
+	for (const candidate of candidates) {
+		try {
+			accessSync(candidate, fsConstants.F_OK);
+			return candidate;
+		} catch {
+			// skip missing profile
+		}
+	}
+
+	return candidates[0];
+}
+
+/**
  * Ensure ~/.local/bin/idx exists and is executable.
  * Adds ~/.local/bin to PATH via shell profile if missing.
  *
@@ -49,9 +90,12 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 	const localBinDir = path.join(homeDir, ".local", "bin");
 	const scriptPath = path.join(localBinDir, "idx");
 	const globalPath = getNpmGlobalBinPath();
+
+	const launchMode = globalPath ? "global-wrapper" : "repair-wrapper";
 	const expectedContent = globalPath
 		? thinWrapperContent(globalPath)
-		: NPX_SCRIPT_CONTENT;
+		: repairWrapperContent();
+
 	let scriptStatus: EnsureIdxBinaryResult["scriptStatus"] = "installed";
 
 	try {
@@ -80,24 +124,10 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 	const pathEntries = (process.env.PATH ?? "").split(":");
 	let pathUpdated = false;
 	if (pathEntries.includes(localBinDir)) {
-		return { scriptStatus, pathUpdated };
+		return { scriptStatus, pathUpdated, launchMode, targetPath: globalPath };
 	}
 
-	const candidates =
-		os.platform() === "darwin"
-			? [path.join(homeDir, ".zshrc"), path.join(homeDir, ".bashrc")]
-			: [path.join(homeDir, ".bashrc"), path.join(homeDir, ".zshrc")];
-
-	let profile = candidates[0];
-	for (const candidate of candidates) {
-		try {
-			accessSync(candidate, fsConstants.F_OK);
-			profile = candidate;
-			break;
-		} catch {
-			// skip missing profile
-		}
-	}
+	const profile = resolveProfileForPathExport(homeDir);
 
 	const exportLine = 'export PATH="$HOME/.local/bin:$PATH"';
 	const existing = (() => {
@@ -114,7 +144,7 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 		pathUpdated = true;
 	}
 
-	return { scriptStatus, pathUpdated };
+	return { scriptStatus, pathUpdated, launchMode, targetPath: globalPath };
 }
 
 /** Install indexer-cli globally via npm. Returns true on success. */
