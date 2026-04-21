@@ -2,7 +2,6 @@ import {
 	chmodSync,
 	mkdtempSync,
 	mkdirSync,
-	realpathSync,
 	readFileSync,
 	statSync,
 	writeFileSync,
@@ -316,7 +315,7 @@ describe("ensureIdxBinary", () => {
 		const result = ensureIdxBinary();
 
 		expect(readFileSync(scriptPath, "utf8")).toBe(
-			thinWrapperContent(realpathSync(realBinaryPath)),
+			thinWrapperContent(realBinaryPath),
 		);
 		expect(result).toEqual({
 			scriptStatus: "installed",
@@ -347,7 +346,7 @@ describe("ensureIdxBinary", () => {
 		const result = ensureIdxBinary();
 
 		expect(readFileSync(scriptPath, "utf8")).toBe(
-			thinWrapperContent(realpathSync(realBinaryPath)),
+			thinWrapperContent(realBinaryPath),
 		);
 		expect(result).toEqual({
 			scriptStatus: "repaired",
@@ -357,7 +356,7 @@ describe("ensureIdxBinary", () => {
 });
 
 describe("getNpmGlobalBinPath", () => {
-	it("returns the resolved global binary path when present and executable", async () => {
+	it("returns the global binary symlink path when present and executable", async () => {
 		const prefix = createTempDir();
 		const realBinaryPath = createGlobalInstall(prefix);
 		execSyncMock.mockImplementation((command: string) => {
@@ -369,7 +368,7 @@ describe("getNpmGlobalBinPath", () => {
 
 		const { getNpmGlobalBinPath } = await loadIdxBinaryModule();
 
-		expect(getNpmGlobalBinPath()).toBe(realpathSync(realBinaryPath));
+		expect(getNpmGlobalBinPath()).toBe(realBinaryPath);
 	});
 
 	it("returns null when the global binary cannot be resolved", async () => {

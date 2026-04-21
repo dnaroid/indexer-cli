@@ -3,7 +3,6 @@ import {
 	chmodSync,
 	constants as fsConstants,
 	mkdirSync,
-	realpathSync,
 	readFileSync,
 	writeFileSync,
 } from "node:fs";
@@ -30,9 +29,10 @@ export function getNpmGlobalBinPath(): string | null {
 			encoding: "utf8",
 		}).trim();
 		const binPath = path.join(prefix, "bin", "indexer-cli");
-		const resolved = realpathSync(binPath);
-		accessSync(resolved, fsConstants.F_OK | fsConstants.X_OK);
-		return resolved;
+		accessSync(binPath, fsConstants.F_OK | fsConstants.X_OK);
+		// Return the symlink, not its realpath — realpath may point into an
+		// ephemeral temp dir (/var/folders/…/T/) that macOS periodically cleans.
+		return binPath;
 	} catch {
 		return null;
 	}
