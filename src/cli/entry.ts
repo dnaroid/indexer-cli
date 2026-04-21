@@ -15,11 +15,7 @@ import {
 	checkAndMigrateIfNeeded,
 	checkAndRefreshSkills,
 } from "../core/version-check.js";
-import {
-	AUTO_UPDATE_RESTART_CODE,
-	checkForUpdates,
-	performAutoUpdate,
-} from "../core/update-check.js";
+import { performAutoUpdateAfterCommand } from "../core/update-check.js";
 
 const SKIP_MIGRATION_COMMANDS = new Set([
 	"setup",
@@ -42,11 +38,6 @@ const HANDLED_COMMANDER_EXIT_CODES = new Set([
 async function runPreActionChecks(commandName: string): Promise<void> {
 	if (SKIP_MIGRATION_COMMANDS.has(commandName)) {
 		return;
-	}
-
-	const updateResult = await performAutoUpdate();
-	if (updateResult.kind === "updated" && updateResult.restartRequired) {
-		process.exit(AUTO_UPDATE_RESTART_CODE);
 	}
 
 	try {
@@ -77,8 +68,6 @@ async function runPreActionChecks(commandName: string): Promise<void> {
 			typeof process.exitCode === "number" ? process.exitCode : 1;
 		throw new CommanderError(exitCode, "indexer.preActionFailed", "");
 	}
-
-	await checkForUpdates();
 }
 
 function isHandledCommanderExit(error: unknown): boolean {
@@ -99,7 +88,7 @@ program
 		`\nVersion: ${PACKAGE_VERSION} (skills: ${SKILLS_VERSION})\n`,
 	)
 	.exitOverride()
-	.option("--no-auto-update", "skip automatic update check");
+	.option("--no-auto-update", "skip automatic update attempt after command");
 
 registerSetupCommand(program);
 registerInitCommand(program);
@@ -121,6 +110,7 @@ async function main(): Promise<void> {
 	const hasNoArgs =
 		process.argv.length === 2 ||
 		(process.argv.length === 3 && process.argv[1].endsWith("indexer-cli.js"));
+	let commandExecutedSuccessfully = false;
 
 	try {
 		if (hasNoArgs) {
@@ -128,6 +118,7 @@ async function main(): Promise<void> {
 			return;
 		}
 		await program.parseAsync();
+		commandExecutedSuccessfully = (process.exitCode ?? 0) === 0;
 	} catch (error: unknown) {
 		if (!isHandledCommanderExit(error)) {
 			throw error;
@@ -138,6 +129,10 @@ async function main(): Promise<void> {
 				process.exitCode = exitCode;
 			}
 		}
+	}
+
+	if (commandExecutedSuccessfully) {
+		await performAutoUpdateAfterCommand();
 	}
 }
 

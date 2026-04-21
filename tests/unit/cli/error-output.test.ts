@@ -108,4 +108,16 @@ describe("CLI error output", () => {
 		expect(versionResult.exitCode).toBe(0);
 		expect(versionResult.stdout).toMatch(/\d+\.\d+\.\d+/);
 	});
+
+	it("prints help on bare invocation without triggering auto-update", () => {
+		const result = runCLI([]);
+
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout).toContain("Usage: idx");
+		expect(result.stdout).not.toContain(
+			"The new version will be used on the next run.",
+		);
+		expect(result.stdout).not.toContain("Updated indexer-cli");
+		expect(result.stderr).toBe("");
+	});
 });

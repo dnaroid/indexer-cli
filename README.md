@@ -232,6 +232,17 @@ subdirectories for `.indexer-cli/`, auto-registers found projects, and operates 
 The global registry is maintained automatically: `idx init` registers a project, `idx uninstall` unregisters it.
 `idx doctor <dir>` also registers discovered projects.
 
+## Auto-update behavior
+
+`indexer-cli` auto-update runs **after** a successful command execution, not before command execution.
+
+- The current run always completes on the currently installed CLI version.
+- If a newer version is available and auto-update is allowed, it is installed at process exit.
+- The newly installed version is used on the **next** command run.
+- Help/version and invalid-command paths do not trigger post-command auto-update.
+
+Pass `--no-auto-update` with any command to skip the auto-update attempt for that run.
+
 ## Release process
 
 Publishing is handled by `scripts/publish.sh`: it bumps the version, runs a smoke-test on the packed tarball,

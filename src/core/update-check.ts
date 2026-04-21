@@ -17,15 +17,12 @@ const UPDATE_LOCK_DIR = join(CACHE_DIR, ".update-lock");
 const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 const STALE_LOCK_MS = 5 * 60 * 1000;
 
-export const AUTO_UPDATE_RESTART_CODE = 42 as const;
-
 interface UpdateCache {
 	lastChecked: number;
 	latestVersion: string;
 }
 
 export type SkipAutoUpdateReason =
-	| "already-attempted"
 	| "unsupported-install-method"
 	| "non-tty"
 	| "ci"
@@ -40,7 +37,6 @@ export type AutoUpdateResult =
 			kind: "updated";
 			previousVersion: string;
 			installedVersion: string;
-			restartRequired: true;
 	  }
 	| { kind: "failed"; message: string };
 
@@ -130,8 +126,6 @@ export function detectInstallMethod(): InstallMethod {
 }
 
 export function getAutoUpdateSkipReason(): SkipAutoUpdateReason {
-	if (process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED === "1")
-		return "already-attempted";
 	if (detectInstallMethod() !== "npm-global")
 		return "unsupported-install-method";
 	if (!process.stdout.isTTY) return "non-tty";
@@ -183,7 +177,7 @@ function releaseUpdateLock(lockHeld: boolean): void {
 	rmSync(UPDATE_LOCK_DIR, { recursive: true, force: true });
 }
 
-export async function performAutoUpdate(): Promise<AutoUpdateResult> {
+export async function performAutoUpdateAfterCommand(): Promise<AutoUpdateResult> {
 	const skipReason = getAutoUpdateSkipReason();
 	if (skipReason !== null) {
 		return { kind: "skipped", reason: skipReason };
@@ -249,12 +243,14 @@ export async function performAutoUpdate(): Promise<AutoUpdateResult> {
 
 		releaseUpdateLock(lockHeld);
 		lockHeld = false;
-		console.log("Restarting with updated version...");
+		console.log(
+			`Updated indexer-cli ${PACKAGE_VERSION} → ${installedVersion}.`,
+		);
+		console.log("The new version will be used on the next run.");
 		return {
 			kind: "updated",
 			previousVersion: PACKAGE_VERSION,
 			installedVersion,
-			restartRequired: true,
 		};
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);

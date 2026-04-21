@@ -42,7 +42,7 @@ vi.mock("../../../src/core/version.js", () => ({
 import {
 	detectInstallMethod,
 	getAutoUpdateSkipReason,
-	performAutoUpdate,
+	performAutoUpdateAfterCommand,
 	shouldSkipAutoUpdate,
 } from "../../../src/core/update-check.js";
 
@@ -198,15 +198,6 @@ describe("detectInstallMethod", () => {
 });
 
 describe("getAutoUpdateSkipReason", () => {
-	it("returns 'already-attempted' when INDEXER_CLI_AUTO_UPDATE_ATTEMPTED is set", () => {
-		process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED = "1";
-		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
-		setStdoutIsTTY(true);
-		execFileSyncMock.mockImplementation(() => "/usr/local\n");
-
-		expect(getAutoUpdateSkipReason()).toBe("already-attempted");
-	});
-
 	it("returns 'unsupported-install-method' when install method is not npm-global", () => {
 		process.argv = [
 			process.argv[0],
@@ -219,7 +210,6 @@ describe("getAutoUpdateSkipReason", () => {
 
 	it("returns 'non-tty' when stdout is not a TTY", () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(undefined);
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
@@ -252,7 +242,6 @@ describe("getAutoUpdateSkipReason", () => {
 
 	it("returns null when no skip conditions are met", () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
@@ -262,15 +251,6 @@ describe("getAutoUpdateSkipReason", () => {
 });
 
 describe("shouldSkipAutoUpdate", () => {
-	it("returns true when INDEXER_CLI_AUTO_UPDATE_ATTEMPTED is set", () => {
-		process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED = "1";
-		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
-		setStdoutIsTTY(true);
-		execFileSyncMock.mockImplementation(() => "/usr/local\n");
-
-		expect(shouldSkipAutoUpdate()).toBe(true);
-	});
-
 	it("returns true when install method is npx", () => {
 		process.argv = [
 			process.argv[0],
@@ -293,7 +273,6 @@ describe("shouldSkipAutoUpdate", () => {
 
 	it("returns false when install method is npm-global", () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
@@ -332,28 +311,32 @@ describe("shouldSkipAutoUpdate", () => {
 	});
 });
 
-describe("performAutoUpdate", () => {
+describe("performAutoUpdateAfterCommand", () => {
 	it("returns skipped result when shouldSkipAutoUpdate gates it off", async () => {
-		process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED = "1";
-		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
+		process.argv = [
+			process.argv[0],
+			"/home/user/.npm/_npx/abc123/node_modules/.bin/indexer-cli",
+		];
 		setStdoutIsTTY(true);
 
-		const result = await performAutoUpdate();
+		const result = await performAutoUpdateAfterCommand();
 
-		expect(result).toEqual({ kind: "skipped", reason: "already-attempted" });
+		expect(result).toEqual({
+			kind: "skipped",
+			reason: "unsupported-install-method",
+		});
 		expect(execFileSyncMock).not.toHaveBeenCalled();
 		expect(writeFileSyncMock).not.toHaveBeenCalled();
 	});
 
 	it("returns no-update result when cache shows no newer version", async () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockCacheExists("1.0.0", Date.now() - 60_000);
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
 
-		const result = await performAutoUpdate();
+		const result = await performAutoUpdateAfterCommand();
 
 		expect(result).toEqual({ kind: "no-update" });
 		expect(execFileSyncMock).toHaveBeenCalledTimes(1);
@@ -361,14 +344,13 @@ describe("performAutoUpdate", () => {
 
 	it("returns no-update when cache is fresh and version is current", async () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockCacheExists("1.0.0", Date.now());
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
 		const fetchSpy = vi.spyOn(globalThis, "fetch");
 
-		const result = await performAutoUpdate();
+		const result = await performAutoUpdateAfterCommand();
 
 		expect(result).toEqual({ kind: "no-update" });
 		expect(fetchSpy).not.toHaveBeenCalled();
@@ -376,13 +358,13 @@ describe("performAutoUpdate", () => {
 
 	it("returns updated result on successful update flow", async () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.1.0");
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
+		const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-		const result = await performAutoUpdate();
+		const result = await performAutoUpdateAfterCommand();
 
 		expect(execFileSyncMock).toHaveBeenCalledWith(
 			"npm",
@@ -393,8 +375,11 @@ describe("performAutoUpdate", () => {
 			kind: "updated",
 			previousVersion: "1.0.0",
 			installedVersion: "1.1.0",
-			restartRequired: true,
 		});
+		expect(logSpy).toHaveBeenCalledWith("Updated indexer-cli 1.0.0 → 1.1.0.");
+		expect(logSpy).toHaveBeenCalledWith(
+			"The new version will be used on the next run.",
+		);
 		expect(rmSyncMock).toHaveBeenCalledWith(
 			expect.stringContaining(".update-lock"),
 			{
@@ -406,7 +391,6 @@ describe("performAutoUpdate", () => {
 
 	it("returns failed result when update command fails", async () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.1.0");
@@ -417,7 +401,7 @@ describe("performAutoUpdate", () => {
 			});
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		const result = await performAutoUpdate();
+		const result = await performAutoUpdateAfterCommand();
 
 		expect(result.kind).toBe("failed");
 		if (result.kind === "failed") {
@@ -434,14 +418,13 @@ describe("performAutoUpdate", () => {
 
 	it("returns failed result when version did not change after install", async () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.0.0");
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
 		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		const result = await performAutoUpdate();
+		const result = await performAutoUpdateAfterCommand();
 
 		expect(result.kind).toBe("failed");
 		if (result.kind === "failed") {
@@ -458,7 +441,6 @@ describe("performAutoUpdate", () => {
 
 	it("returns skipped result when update lock is held by another process", async () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
@@ -483,14 +465,13 @@ describe("performAutoUpdate", () => {
 			json: () => Promise.resolve({ version: "1.1.0" }),
 		} as Response);
 
-		const result = await performAutoUpdate();
+		const result = await performAutoUpdateAfterCommand();
 
 		expect(result).toEqual({ kind: "skipped", reason: "update-lock-held" });
 	});
 
 	it("cleans stale lock and proceeds with update", async () => {
 		delete process.env.CI;
-		delete process.env.INDEXER_CLI_AUTO_UPDATE_ATTEMPTED;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
 		setStdoutIsTTY(true);
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
@@ -519,7 +500,7 @@ describe("performAutoUpdate", () => {
 			json: () => Promise.resolve({ version: "1.1.0" }),
 		} as Response);
 
-		const result = await performAutoUpdate();
+		const result = await performAutoUpdateAfterCommand();
 
 		expect(rmSyncMock).toHaveBeenCalledWith(
 			expect.stringContaining(".update-lock"),
@@ -529,7 +510,6 @@ describe("performAutoUpdate", () => {
 			kind: "updated",
 			previousVersion: "1.0.0",
 			installedVersion: "1.1.0",
-			restartRequired: true,
 		});
 	});
 });
