@@ -1,2 +1,3 @@
-#!/bin/sh
-exec '/usr/local/bin/indexer-cli' "$@"
+#!/usr/bin/env node
+"use strict";
+require("../dist/cli/entry.js");
