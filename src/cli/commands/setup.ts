@@ -274,7 +274,7 @@ function installGlobalPackage(): CheckResult {
 		return {
 			name: "Global install",
 			status: "failed",
-			detail: "npm install -g failed, will use npx fallback",
+			detail: "npm install -g failed; run `npm install -g indexer-cli` and then `idx setup`",
 		};
 	} catch (e) {
 		return {
