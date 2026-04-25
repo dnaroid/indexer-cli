@@ -43,6 +43,7 @@ import {
 	detectInstallMethod,
 	getAutoUpdateSkipReason,
 	performAutoUpdateAfterCommand,
+	performManualUpdate,
 	shouldSkipAutoUpdate,
 } from "../../../src/core/update-check.js";
 
@@ -356,6 +357,28 @@ describe("performAutoUpdateAfterCommand", () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
+	it("rechecks npm when cached no-update result is stale", async () => {
+		delete process.env.CI;
+		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
+		setStdoutIsTTY(true);
+		mockCacheExists("1.0.0", Date.now() - 25 * 60 * 60 * 1000);
+		execFileSyncMock.mockImplementation(() => "/usr/local\n");
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+			json: () => Promise.resolve({ version: "1.0.0" }),
+		} as Response);
+
+		const result = await performAutoUpdateAfterCommand();
+
+		expect(result).toEqual({ kind: "no-update" });
+		expect(fetchSpy).toHaveBeenCalledWith(
+			"https://registry.npmjs.org/indexer-cli/latest",
+		);
+		expect(writeFileSyncMock).toHaveBeenCalledWith(
+			expect.stringContaining(".update-check.json"),
+			expect.stringContaining('"latestVersion":"1.0.0"'),
+		);
+	});
+
 	it("returns updated result on successful update flow", async () => {
 		delete process.env.CI;
 		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
@@ -511,5 +534,40 @@ describe("performAutoUpdateAfterCommand", () => {
 			previousVersion: "1.0.0",
 			installedVersion: "1.1.0",
 		});
+	});
+});
+
+describe("performManualUpdate", () => {
+	it("forces a registry check even when the no-update cache is fresh", async () => {
+		delete process.env.CI;
+		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
+		setStdoutIsTTY(true);
+		mockCacheExists("1.0.0", Date.now());
+		execFileSyncMock.mockImplementation(() => "/usr/local\n");
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+			json: () => Promise.resolve({ version: "1.0.0" }),
+		} as Response);
+
+		const result = await performManualUpdate();
+
+		expect(result).toEqual({ kind: "no-update" });
+		expect(fetchSpy).toHaveBeenCalledWith(
+			"https://registry.npmjs.org/indexer-cli/latest",
+		);
+	});
+
+	it("can run manually when stdout is not a TTY", async () => {
+		delete process.env.CI;
+		process.argv = [process.argv[0], "/usr/local/bin/indexer-cli"];
+		setStdoutIsTTY(undefined);
+		mockCacheExists("1.0.0", Date.now());
+		execFileSyncMock.mockImplementation(() => "/usr/local\n");
+		vi.spyOn(globalThis, "fetch").mockResolvedValue({
+			json: () => Promise.resolve({ version: "1.0.0" }),
+		} as Response);
+
+		const result = await performManualUpdate();
+
+		expect(result).toEqual({ kind: "no-update" });
 	});
 });

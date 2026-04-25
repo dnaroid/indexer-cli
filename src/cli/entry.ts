@@ -9,6 +9,7 @@ import { registerDoctorCommand } from "./commands/doctor.js";
 import { registerSetupCommand } from "./commands/setup.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
+import { registerUpdateCommand } from "./commands/update.js";
 import { PACKAGE_VERSION } from "../core/version.js";
 import { SKILLS_VERSION } from "../core/skills-version.js";
 import {
@@ -22,7 +23,10 @@ const SKIP_MIGRATION_COMMANDS = new Set([
 	"init",
 	"uninstall",
 	"doctor",
+	"update",
 ]);
+
+const SKIP_POST_AUTO_UPDATE_COMMANDS = new Set(["update"]);
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.helpDisplayed",
@@ -98,11 +102,15 @@ registerStructureCommand(program);
 registerArchitectureCommand(program);
 registerExplainCommand(program);
 registerDepsCommand(program);
+registerUpdateCommand(program);
 registerUninstallCommand(program);
 registerDoctorCommand(program);
 
+let lastActionCommandName: string | null = null;
+
 program.hook("preAction", async (thisCommand, actionCommand) => {
 	void thisCommand;
+	lastActionCommandName = actionCommand.name();
 	await runPreActionChecks(actionCommand.name());
 });
 
@@ -131,7 +139,11 @@ async function main(): Promise<void> {
 		}
 	}
 
-	if (commandExecutedSuccessfully) {
+	if (
+		commandExecutedSuccessfully &&
+		(lastActionCommandName === null ||
+			!SKIP_POST_AUTO_UPDATE_COMMANDS.has(lastActionCommandName))
+	) {
 		await performAutoUpdateAfterCommand();
 	}
 }

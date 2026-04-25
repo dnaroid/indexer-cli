@@ -40,6 +40,11 @@ export type AutoUpdateResult =
 	  }
 	| { kind: "failed"; message: string };
 
+interface RunUpdateOptions {
+	forceCheck?: boolean;
+	ignoreTty?: boolean;
+}
+
 async function fetchLatestVersion(): Promise<string> {
 	const response = await fetch("https://registry.npmjs.org/indexer-cli/latest");
 	const data = (await response.json()) as { version: string };
@@ -138,6 +143,15 @@ export function shouldSkipAutoUpdate(): boolean {
 	return getAutoUpdateSkipReason() !== null;
 }
 
+function getUpdateSkipReason(options: RunUpdateOptions): SkipAutoUpdateReason {
+	if (detectInstallMethod() !== "npm-global")
+		return "unsupported-install-method";
+	if (!options.ignoreTty && !process.stdout.isTTY) return "non-tty";
+	if (process.env.CI === "true" || process.env.CI === "1") return "ci";
+	if (process.argv.includes("--no-auto-update")) return "flag-disabled";
+	return null;
+}
+
 function readInstalledPackageVersion(): string {
 	const npmRoot = tryGetNpmGlobalRoot();
 	if (npmRoot) {
@@ -177,8 +191,8 @@ function releaseUpdateLock(lockHeld: boolean): void {
 	rmSync(UPDATE_LOCK_DIR, { recursive: true, force: true });
 }
 
-export async function performAutoUpdateAfterCommand(): Promise<AutoUpdateResult> {
-	const skipReason = getAutoUpdateSkipReason();
+async function runUpdate(options: RunUpdateOptions = {}): Promise<AutoUpdateResult> {
+	const skipReason = getUpdateSkipReason(options);
 	if (skipReason !== null) {
 		return { kind: "skipped", reason: skipReason };
 	}
@@ -189,12 +203,12 @@ export async function performAutoUpdateAfterCommand(): Promise<AutoUpdateResult>
 		const now = Date.now();
 		const cache = readCache();
 
-		if (cache && !isNewerVersion(PACKAGE_VERSION, cache.latestVersion)) {
-			return { kind: "no-update" };
-		}
-
 		let latest = cache?.latestVersion;
-		if (!cache || now - cache.lastChecked >= CHECK_INTERVAL_MS) {
+		if (
+			options.forceCheck === true ||
+			!cache ||
+			now - cache.lastChecked >= CHECK_INTERVAL_MS
+		) {
 			latest = await fetchLatestVersion();
 			writeCache({ lastChecked: now, latestVersion: latest });
 		}
@@ -260,6 +274,14 @@ export async function performAutoUpdateAfterCommand(): Promise<AutoUpdateResult>
 		releaseUpdateLock(lockHeld);
 		return { kind: "failed", message };
 	}
+}
+
+export async function performAutoUpdateAfterCommand(): Promise<AutoUpdateResult> {
+	return runUpdate();
+}
+
+export async function performManualUpdate(): Promise<AutoUpdateResult> {
+	return runUpdate({ forceCheck: true, ignoreTty: true });
 }
 
 function showUpdateNotification(
