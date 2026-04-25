@@ -5,6 +5,7 @@ import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
 export function registerExplainCommand(program: Command): void {
@@ -161,6 +162,7 @@ export function registerExplainCommand(program: Command): void {
 					const excludePrefixes = options?.includeFixtures
 						? []
 						: ["tests/", "fixtures/", "vendor/"];
+					const pathPrefix = normalizePathPrefix(options?.pathPrefix);
 
 					symbols = symbols.filter((s) => {
 						if (!options?.includeFixtures) {
@@ -171,8 +173,8 @@ export function registerExplainCommand(program: Command): void {
 							}
 						}
 						if (
-							options?.pathPrefix &&
-							!s.filePath.startsWith(options.pathPrefix)
+							pathPrefix &&
+							!s.filePath.startsWith(pathPrefix)
 						) {
 							return false;
 						}
@@ -204,8 +206,8 @@ export function registerExplainCommand(program: Command): void {
 									}
 								}
 								if (
-									options?.pathPrefix &&
-									!s.filePath.startsWith(options.pathPrefix)
+									pathPrefix &&
+									!s.filePath.startsWith(pathPrefix)
 								) {
 									return false;
 								}

@@ -8,6 +8,7 @@ import { SearchEngine } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
 function parseMinScore(
@@ -124,7 +125,7 @@ export function registerSearchCommand(program: Command): void {
 						.map((value) => value.trim())
 						.filter(Boolean);
 
-					let effectivePathPrefix = options?.pathPrefix;
+					let effectivePathPrefix = normalizePathPrefix(options?.pathPrefix);
 					if (effectivePathPrefix) {
 						const prefixFiles = await metadata.listFiles(
 							DEFAULT_PROJECT_ID,

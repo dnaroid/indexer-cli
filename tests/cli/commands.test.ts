@@ -477,6 +477,24 @@ describe.sequential("CLI e2e", () => {
 			}
 		});
 
+		it("ignores --path-prefix .", () => {
+			const result = runCLI(
+				[
+					"search",
+					"logging formatter timestamp context",
+					"--path-prefix",
+					".",
+					"--max-files",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("not found in indexed files");
+			expect(result.stdout).toContain("src/utils/logger.ts");
+		});
+
 		it("falls back to global search on nonexistent --path-prefix", () => {
 			const result = runCLI(
 				[
@@ -615,6 +633,17 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("stripe.ts");
 			expect(result.stdout).not.toContain("src/auth/session.ts");
 			expect(result.stdout).not.toContain("services/");
+		});
+
+		it("ignores --path-prefix .", () => {
+			const result = runCLI(["structure", "--path-prefix", "."], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("not found in indexed files");
+			expect(result.stdout).toContain("src/");
+			expect(result.stdout).toContain("PaymentProcessor");
 		});
 
 		it("excludes fixtures by default and includes them with --include-fixtures", () => {
@@ -811,6 +840,17 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Entrypoints\n  none");
 		});
 
+		it("ignores --path-prefix .", () => {
+			const result = runCLI(["architecture", "--path-prefix", "."], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).not.toContain("not found in indexed files");
+			expect(result.stdout).toContain("File stats by language");
+			expect(result.stdout).toContain("typescript: 31");
+		});
+
 		it("detects multiple entrypoints including workers", () => {
 			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
 
@@ -899,6 +939,16 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Symbol: PaymentProcessor");
 			expect(result.stdout).toContain("src/payments/processor.ts");
+		});
+
+		it("ignores --path-prefix .", () => {
+			const result = runCLI(["explain", "createSession", "--path-prefix", "."], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Symbol: createSession");
+			expect(result.stdout).toContain("src/auth/session.ts");
 		});
 
 		it("renders text output", () => {

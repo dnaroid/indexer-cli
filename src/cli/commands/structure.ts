@@ -7,6 +7,7 @@ import { matchesPathPatterns } from "../../engine/architecture.js";
 import { isTestFile } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
 type TreeNode = {
@@ -369,7 +370,7 @@ export function registerStructureCommand(program: Command): void {
 						);
 					}
 
-					let effectivePathPrefix = options?.pathPrefix;
+					let effectivePathPrefix = normalizePathPrefix(options?.pathPrefix);
 					let files = await metadata.listFiles(
 						DEFAULT_PROJECT_ID,
 						snapshot.id,

@@ -9,6 +9,7 @@ import {
 } from "../../engine/architecture.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
 function summarizeExternalDependencies(
@@ -370,8 +371,9 @@ export function registerArchitectureCommand(program: Command): void {
 								config.get("excludePaths"),
 							);
 
-					if (options?.pathPrefix) {
-						const prefix = options.pathPrefix;
+					const pathPrefix = normalizePathPrefix(options?.pathPrefix);
+					if (pathPrefix) {
+						const prefix = pathPrefix;
 						const allFiles = visibleArchitecture.files ?? [];
 						const matchingFiles = allFiles.filter((f) =>
 							f.path.startsWith(prefix),
