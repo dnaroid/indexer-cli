@@ -29,7 +29,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -278,9 +278,13 @@ describe.sequential("CLI e2e GDScript", () => {
 			const withContentLines = withContent.stdout
 				.split("\n")
 				.filter((line) => line.trim() !== "" && line.trim() !== "---");
-			const withoutContentLines = withoutContent.stdout
+			const withoutContentResultLines = withoutContent.stdout
 				.split("\n")
-				.filter((line) => line.trim() !== "" && line.trim() !== "---");
+				.filter((line) =>
+					/^.+?:\d+-\d+ \(score: [\d.]+(?:, function: .+?)?(?:, why=[^)]+)?\)$/.test(
+						line.trim(),
+					),
+				);
 			const withoutContentResults = parseSearchResults(withoutContent.stdout);
 
 			expect(withContent.exitCode).toBe(0);
@@ -289,7 +293,9 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(withContentLines.length).toBeGreaterThan(
 				withoutContentResults.length,
 			);
-			expect(withoutContentLines.length).toBe(withoutContentResults.length);
+			expect(withoutContentResultLines.length).toBe(
+				withoutContentResults.length,
+			);
 		});
 
 		it("renders text output and respects --path-prefix", () => {

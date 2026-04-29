@@ -21,6 +21,11 @@ const SYMBOL_SIGNATURE_TOKEN_WEIGHT = 2;
 const SYMBOL_BODY_TOKEN_WEIGHT = 2;
 const SYMBOL_BODY_EXACT_BONUS = 1;
 const SYMBOL_START_IN_CHUNK_BONUS = 0.25;
+const HYBRID_CANDIDATE_MULTIPLIER = 4;
+const HYBRID_MIN_CANDIDATES = 20;
+const LEXICAL_SCORE_WEIGHT = 0.03;
+const SYMBOL_SCORE_WEIGHT = 0.04;
+const PATH_SCORE_WEIGHT = 0.02;
 
 const STOP_WORDS = new Set([
 	"a",
@@ -287,10 +292,12 @@ function scoreSymbolCandidate(
 
 export interface SearchOptions {
 	topK?: number;
+	mode?: "hybrid" | "semantic" | "lexical" | "symbol";
 	pathPrefix?: string;
 	chunkTypes?: string[];
 	filePath?: string;
 	includeContent?: boolean;
+	includeReasonCodes?: boolean;
 	minScore?: number;
 	includeImportChunks?: boolean;
 }
@@ -302,6 +309,7 @@ export interface SearchResult {
 	score: number;
 	chunkType?: string;
 	primarySymbol?: string;
+	reasonCode?: string;
 	content?: string;
 }
 
@@ -320,7 +328,9 @@ export class SearchEngine {
 		options: SearchOptions = {},
 	): Promise<SearchResult[]> {
 		const topK = options.topK ?? 10;
+		const mode = options.mode ?? "semantic";
 		const includeContent = options.includeContent ?? true;
+		const includeReasonCodes = options.includeReasonCodes ?? false;
 		const minScore = options.minScore;
 		const excludeImportPreamble =
 			!options.includeImportChunks && !options.chunkTypes;
@@ -342,7 +352,9 @@ export class SearchEngine {
 
 		const vectorResults = await this.vectors.search(
 			queryEmbedding,
-			topK,
+			mode === "semantic"
+				? topK
+				: Math.max(topK * HYBRID_CANDIDATE_MULTIPLIER, HYBRID_MIN_CANDIDATES),
 			filters,
 		);
 		const queryTokens = new Set(normalizeTokens(query));
@@ -421,7 +433,19 @@ export class SearchEngine {
 					? bestSymbol.symbol.name
 					: vr.primarySymbol;
 
-			results.push({
+			const lexicalScore = countTokenOverlap(
+				queryTokens,
+				[
+					vr.filePath,
+					vr.chunkType ?? "",
+					vr.primarySymbol ?? "",
+					content ?? fileContent ?? "",
+				].join("\n"),
+			);
+			const symbolScore = bestSymbol?.score ?? 0;
+			const pathScore = countTokenOverlap(queryTokens, vr.filePath);
+
+			const result = {
 				filePath: vr.filePath,
 				startLine: vr.startLine,
 				endLine: vr.endLine,
@@ -431,8 +455,31 @@ export class SearchEngine {
 					rawSymbol && !LANGUAGE_KEYWORDS.has(rawSymbol)
 						? rawSymbol
 						: undefined,
-				content,
-			});
+				metadata: {
+					lexicalScore,
+					symbolScore,
+					pathScore,
+				},
+			} as SearchResult & {
+				metadata: {
+					lexicalScore: number;
+					symbolScore: number;
+					pathScore: number;
+				};
+			};
+			if (includeReasonCodes) {
+				result.reasonCode = buildReasonCode({
+					semanticScore: vr.score,
+					lexicalScore,
+					symbolScore,
+					pathScore,
+					chunkType: vr.chunkType,
+				});
+			}
+			if (includeContent) {
+				result.content = content;
+			}
+			results.push(result);
 		}
 
 		return results
@@ -457,14 +504,71 @@ export class SearchEngine {
 					penalizedScore *= TEST_FILE_SCORE_PENALTY;
 				}
 
+				const hybridMetadata = (
+					result as SearchResult & {
+						metadata?: {
+							lexicalScore: number;
+							symbolScore: number;
+							pathScore: number;
+						};
+					}
+				).metadata;
+				let finalScore = penalizedScore;
+				if (mode === "hybrid") {
+					finalScore +=
+						(hybridMetadata?.lexicalScore ?? 0) * LEXICAL_SCORE_WEIGHT +
+						(hybridMetadata?.symbolScore ?? 0) * SYMBOL_SCORE_WEIGHT +
+						(hybridMetadata?.pathScore ?? 0) * PATH_SCORE_WEIGHT;
+				} else if (mode === "lexical") {
+					finalScore = (hybridMetadata?.lexicalScore ?? 0) * LEXICAL_SCORE_WEIGHT;
+				} else if (mode === "symbol") {
+					finalScore = (hybridMetadata?.symbolScore ?? 0) * SYMBOL_SCORE_WEIGHT;
+				}
+
 				return {
 					...result,
-					score: penalizedScore,
+					score: finalScore,
 				};
 			})
 			.filter(
 				(result) => typeof minScore !== "number" || result.score >= minScore,
 			)
-			.sort((a, b) => b.score - a.score);
+			.sort((a, b) => b.score - a.score)
+			.slice(0, topK)
+			.map((result) => {
+				const { metadata: _metadata, ...publicResult } = result as SearchResult & {
+					metadata?: unknown;
+				};
+				return publicResult;
+			});
 	}
+}
+
+function buildReasonCode(input: {
+	semanticScore: number;
+	lexicalScore: number;
+	symbolScore: number;
+	pathScore: number;
+	chunkType?: string;
+}): string {
+	const reasons: string[] = [];
+	if (input.symbolScore > 0) {
+		reasons.push("symbol");
+	}
+	if (input.pathScore > 0) {
+		reasons.push("path");
+	}
+	if (input.lexicalScore > 0) {
+		reasons.push("text");
+	}
+	if (input.semanticScore > 0) {
+		reasons.push("semantic");
+	}
+	if (input.chunkType === "imports") {
+		reasons.push("imports");
+	} else if (input.chunkType === "preamble") {
+		reasons.push("preamble");
+	}
+
+	return reasons.length > 0 ? reasons.join("+") : "semantic";
 }

@@ -157,6 +157,7 @@ project root. If no `.indexer-cli/` data exists yet, it stops and tells you to r
 | `--max-files <number>`   | 3       | Number of results to return                                                                                  |
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
+| `--mode <mode>`          | hybrid  | Ranking mode: `hybrid`, `semantic`, `lexical`, or `symbol`                                                   |
 | `--include-imports`      | —       | Include `imports`/`preamble` chunks (excluded by default)                                                    |
 | `--min-score <number>`   | 0.45    | Filter out results below this score (0..1)                                                                   |
 | `--include-content`      | —       | Include matched code content in output (omitted by default to save tokens)                                   |
@@ -196,6 +197,13 @@ specific function, class, or type does and how it is used.
 
 When auto-root detection is used, symbol paths such as `src/payments/processor.ts::PaymentProcessor` are still resolved
 relative to the project root, not the subdirectory where you ran the command.
+
+| Option                   | Default | Description                                  |
+|--------------------------|---------|----------------------------------------------|
+| `--path-prefix <string>` | —       | Limit symbol lookup to files under this path |
+| `--include-fixtures`     | —       | Include fixture/vendor paths in lookup       |
+| `--include-body`         | —       | Include a compact body preview               |
+| `--body-lines <number>`  | 40      | Number of body preview lines, from 1 to 200  |
 
 ### `idx deps <path>`
 

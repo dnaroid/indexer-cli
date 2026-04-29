@@ -28,6 +28,21 @@ function parseMinScore(
 	return minScore;
 }
 
+function parseSearchMode(
+	input?: string,
+): "hybrid" | "semantic" | "lexical" | "symbol" {
+	if (!input) return "hybrid";
+	if (
+		input === "hybrid" ||
+		input === "semantic" ||
+		input === "lexical" ||
+		input === "symbol"
+	) {
+		return input;
+	}
+	throw new Error("--mode must be one of: hybrid, semantic, lexical, symbol.");
+}
+
 export function registerSearchCommand(program: Command): void {
 	program
 		.command("search <query>")
@@ -38,6 +53,11 @@ export function registerSearchCommand(program: Command): void {
 			"limit search to files under a path prefix",
 		)
 		.option("--chunk-types <string>", "comma-separated chunk types to include")
+		.option(
+			"--mode <mode>",
+			"ranking mode: hybrid, semantic, lexical, or symbol",
+			"hybrid",
+		)
 		.option(
 			"--include-imports",
 			"include imports/preamble chunks (excluded by default)",
@@ -57,6 +77,7 @@ export function registerSearchCommand(program: Command): void {
 					maxFiles?: string;
 					pathPrefix?: string;
 					chunkTypes?: string;
+					mode?: string;
 					includeImports?: boolean;
 					minScore?: string;
 					includeContent?: boolean;
@@ -126,6 +147,7 @@ export function registerSearchCommand(program: Command): void {
 						options?.minScore,
 						config.get("searchMinScore"),
 					);
+					const mode = parseSearchMode(options?.mode);
 					const chunkTypes = options?.chunkTypes
 						?.split(",")
 						.map((value) => value.trim())
@@ -152,9 +174,11 @@ export function registerSearchCommand(program: Command): void {
 						query,
 						{
 							topK: Number.isFinite(maxFiles) && maxFiles > 0 ? maxFiles : 3,
+							mode,
 							pathPrefix: effectivePathPrefix,
 							chunkTypes,
 							includeContent: options?.includeContent ?? false,
+							includeReasonCodes: true,
 							minScore,
 							includeImportChunks: options?.includeImports,
 						},
@@ -170,15 +194,19 @@ export function registerSearchCommand(program: Command): void {
 						const symbolPart = result.primarySymbol
 							? `, function: ${result.primarySymbol}`
 							: "";
-						if (i > 0) {
-							console.log("");
-						}
+						const reasonPart = `, why=${result.reasonCode ?? mode}`;
 						console.log(
-							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart})`,
+							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart}${reasonPart})`,
 						);
 						if (options?.includeContent) {
 							console.log(result.content || "(content unavailable)");
 						}
+					}
+					const nextReads = results
+						.slice(0, 3)
+						.map((result) => `${result.filePath}:${result.startLine}-${result.endLine}`);
+					if (nextReads.length > 0) {
+						console.log(`Read next: ${nextReads.join(", ")}`);
 					}
 				} catch (error) {
 					const message =

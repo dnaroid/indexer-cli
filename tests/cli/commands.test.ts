@@ -27,7 +27,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -473,6 +473,35 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("score:");
 			expect(result.stdout).toContain("src/utils/logger.ts");
+		});
+
+		it("prints inline compact reason codes and suggested next reads", () => {
+			const result = runCLI(["search", "auth session", "--max-files", "2"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toMatch(/\(score: [\d.]+(?:, function: .+?)?, why=[^)]+\)/);
+			expect(result.stdout).not.toMatch(/^\s+why=/m);
+			expect(result.stdout).toContain("Read next:");
+		});
+
+		it("supports explicit search ranking modes", () => {
+			const semantic = runCLI(
+				["search", "auth session", "--mode", "semantic", "--max-files", "2"],
+				{ cwd: TEMP_DIR },
+			);
+			const invalid = runCLI(
+				["search", "auth session", "--mode", "invalid-mode", "--max-files", "2"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(semantic.exitCode).toBe(0);
+			expect(semantic.stdout).toContain("why=");
+			expect(invalid.exitCode).toBe(1);
+			expect(invalid.stderr).toContain(
+				"--mode must be one of: hybrid, semantic, lexical, symbol.",
+			);
 		});
 
 		it("respects --path-prefix", () => {
@@ -1003,6 +1032,26 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expectCompactIdxOutput(result.stdout, 35);
+			expect(result.stdout).toContain("body=omitted use --include-body");
+		});
+
+		it("shows a bounded body preview with --include-body", () => {
+			const result = runCLI(
+				[
+					"explain",
+					"createSession",
+					"--include-body",
+					"--body-lines",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Body preview:");
+			expect(result.stdout).toContain("15 export function createSession");
+			expect(result.stdout).toContain("17 \tconst payload");
+			expect(result.stdout).toContain("...");
 		});
 
 		it("returns an error for unknown symbols", () => {
@@ -1019,8 +1068,10 @@ describe.sequential("CLI e2e", () => {
 		it("returns multiple results for ambiguous handleRequest symbol", () => {
 			const result = runCLI(["explain", "handleRequest"], { cwd: TEMP_DIR });
 			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("AMBIG handleRequest matches=2");
 			expect(result.stdout).toContain("src/api/v1/handler.ts");
 			expect(result.stdout).toContain("src/api/v2/handler.ts");
+			expect(result.stdout).toContain("Use: idx explain src/api/");
 		});
 
 		it("disambiguates Status via file::symbol syntax", () => {

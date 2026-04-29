@@ -95,8 +95,8 @@ grep "MyType" src/models/
 
 - Architecture: \`idx architecture [--path-prefix <area>] [--include-fixtures]\`
 - Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--include-internal] [--include-fixtures] [--no-tests]\`
-- Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types>] [--min-score <score>] [--include-content] [--include-imports]\`
-- Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures]\`
+- Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports]\`
+- Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>]\`
 - Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>]\`
 `,
 	},
