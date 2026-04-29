@@ -21,8 +21,8 @@ function parseMinScore(
 	}
 
 	const minScore = Number.parseFloat(input);
-	if (!Number.isFinite(minScore) || minScore < 0 || minScore > 1) {
-		throw new Error("--min-score must be a number between 0 and 1.");
+	if (!Number.isFinite(minScore) || minScore < 0) {
+		throw new Error("--min-score must be a non-negative number.");
 	}
 
 	return minScore;
@@ -111,7 +111,7 @@ export function registerSearchCommand(program: Command): void {
 		)
 		.option(
 			"--min-score <number>",
-			"filter out results with score below the given value (0..1, default: from config)",
+			"filter out results below the final ranking score (semantic is usually 0..1; hybrid may exceed 1; default: from config)",
 		)
 		.option(
 			"--include-content",
@@ -265,7 +265,7 @@ export function registerSearchCommand(program: Command): void {
 							: "";
 						const reasonPart = `, why=${result.reasonCode ?? mode}`;
 						console.log(
-							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart}${reasonPart})`,
+							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}, rank=${mode}${symbolPart}${reasonPart})`,
 						);
 						if (options?.includeContent) {
 							console.log(result.content || "(content unavailable)");

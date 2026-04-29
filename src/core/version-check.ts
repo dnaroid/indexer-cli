@@ -130,7 +130,13 @@ export async function checkAndRefreshSkills(): Promise<boolean> {
 		`indexer-cli: skills updated (version ${storedSkillsVersion ?? "none"} → ${SKILLS_VERSION}). Refreshing .claude/skills/...`,
 	);
 
-	await refreshClaudeSkills(projectRoot);
+	const originalConsoleLog = console.log;
+	try {
+		console.log = () => undefined;
+		await refreshClaudeSkills(projectRoot);
+	} finally {
+		console.log = originalConsoleLog;
+	}
 	ensureIdxBinary();
 
 	const raw = readFileSync(configPath, "utf8");
