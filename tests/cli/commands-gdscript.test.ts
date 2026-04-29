@@ -512,7 +512,7 @@ describe.sequential("CLI e2e GDScript", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: scripts/combat/combat_manager.gd",
+				"M scripts/combat/combat_manager.gd mode=module-imports",
 			);
 			expect(result.stdout).toContain("scripts/game/game_manager.gd");
 			expect(result.stdout).toContain("scripts/multiplayer/session.gd");
@@ -533,7 +533,7 @@ describe.sequential("CLI e2e GDScript", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: scripts/core/game_engine.gd");
+			expect(result.stdout).toContain("M scripts/core/game_engine.gd mode=module-imports");
 			expect(result.stdout).toContain("scripts/game/game_manager.gd");
 			expect(result.stdout).toContain("scripts/utils/helpers.gd");
 			expect(result.stdout).toContain("scripts/constants/game_constants.gd");
@@ -596,7 +596,7 @@ describe.sequential("CLI e2e GDScript", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: scripts/resources/weapon_database.gd",
+				"M scripts/resources/weapon_database.gd mode=module-imports",
 			);
 			expect(result.stdout).toContain("scripts/constants/game_constants.gd");
 			expect(result.stdout).toContain("scripts/core/game_engine.gd");
@@ -649,7 +649,7 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(calleesDepth.stdout).toContain("scripts/multiplayer/session.gd");
 			expect(textResult.exitCode).toBe(0);
 			expect(textResult.stdout).toContain(
-				"Module: scripts/combat/combat_manager.gd",
+				"M scripts/combat/combat_manager.gd mode=module-imports",
 			);
 		});
 

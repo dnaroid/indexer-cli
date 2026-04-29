@@ -625,7 +625,7 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: src/services/order.py");
+			expect(result.stdout).toContain("M src/services/order.py mode=module-imports");
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).toContain("Callees");
 		});
@@ -747,7 +747,7 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: src/services/order.py");
+			expect(result.stdout).toContain("M src/services/order.py mode=module-imports");
 			expect(result.stdout).toContain("Callers");
 		});
 
@@ -757,7 +757,7 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: src/workers/email.py");
+			expect(result.stdout).toContain("M src/workers/email.py mode=module-imports");
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).toContain("Callees");
 		});

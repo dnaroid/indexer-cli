@@ -185,8 +185,8 @@ files if needed.
 
 ### `idx architecture`
 
-Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a
-dependency graph.
+Print an architecture snapshot for the current working directory: file statistics, detected entry points, a dependency
+graph, actionable cycle causes, classified unresolved dependencies, and up to three suggested actions.
 
 | Option                   | Description                            |
 |--------------------------|----------------------------------------|
@@ -215,15 +215,16 @@ relative to the project root, not the subdirectory where you ran the command.
 
 ### `idx deps <path>`
 
-Show callers (who imports this) and callees (what this imports) for a module or symbol. Useful for tracing impact
-of changes and understanding dependency chains.
+Show module import dependencies for a path. The default text output labels imported-by/imports first and keeps
+`Callers`/`Callees` aliases for compatibility. Useful for tracing impact of changes and understanding dependency chains.
 
 Path arguments stay project-root-relative even when you invoke the command from a nested subdirectory.
 
-| Option              | Default | Description                     |
-|---------------------|---------|---------------------------------|
-| `--direction <dir>` | both    | `callers`, `callees`, or `both` |
-| `--depth <n>`       | 1       | Traversal depth                 |
+| Option           | Default | Description                                                |
+|------------------|---------|------------------------------------------------------------|
+| `--direction <dir>` | both | `callers`/imported-by, `callees`/imports, or `both`        |
+| `--depth <n>`    | 1       | Traversal depth, with transitive edges marked as `d=<n>`   |
+| `--show-edges`   | —       | Show the import specifier/kind that created each edge      |
 
 ### `idx uninstall`
 

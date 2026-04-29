@@ -623,7 +623,7 @@ describe.sequential("CLI e2e Ruby", () => {
 			const dependencies = await listIndexedDependencies("lib/core/engine.rb");
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: lib/core/engine.rb");
+			expect(result.stdout).toContain("M lib/core/engine.rb mode=module-imports");
 			expect(result.stdout).toContain("lib/core/health_check.rb");
 			expect(result.stdout).toContain("lib/core/scheduler.rb");
 			expect(result.stdout).toContain("lib/middleware/cors.rb");
@@ -761,7 +761,7 @@ describe.sequential("CLI e2e Ruby", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: lib/services/user_service.rb");
+			expect(result.stdout).toContain("M lib/services/user_service.rb mode=module-imports");
 			expect(result.stdout).toContain("Callers");
 		});
 
@@ -791,7 +791,7 @@ describe.sequential("CLI e2e Ruby", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: lib/workers/batch_processor.rb");
+			expect(result.stdout).toContain("M lib/workers/batch_processor.rb mode=module-imports");
 			expect(result.stdout).toContain("lib/workers/queue_worker.rb");
 			expect(result.stdout).toContain("lib/core/scheduler.rb");
 			expect(result.stdout).toContain("lib/core/engine.rb");

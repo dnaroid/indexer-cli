@@ -7,11 +7,28 @@ import {
 	filterArchitectureSnapshot,
 	type ArchitectureSnapshot,
 } from "../../engine/architecture.js";
+import type { DependencyRecord } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { formatAutoIndexResult } from "../format/compact.js";
 import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
+
+type Severity = "low" | "med" | "high";
+
+interface UnresolvedClassification {
+	kind: string;
+	severity: Severity;
+}
+
+interface CycleDetail {
+	from: string;
+	to: string;
+	severity: Severity;
+	forward?: DependencyRecord;
+	backward?: DependencyRecord;
+	fix: string;
+}
 
 function summarizeExternalDependencies(
 	values: Record<string, string[]>,
@@ -202,6 +219,136 @@ function renderDependencyEdge(
 	return `${relativePath(key, localPrefix)} -> ${rhs.join(", ")}`;
 }
 
+function normalizeFilePath(value: string): string {
+	return value.replace(/\\/g, "/");
+}
+
+function getModuleKey(filePath: string): string {
+	const parts = normalizeFilePath(filePath).split("/");
+	if (parts.length === 1) return "root";
+
+	const rootGroup = parts[0];
+	if (
+		["packages", "services", "apps", "libs", "modules"].includes(rootGroup) &&
+		parts[1]
+	) {
+		return `${rootGroup}/${parts[1]}`;
+	}
+
+	if (parts.length >= 2) return `${parts[0]}/${parts[1]}`;
+	return rootGroup;
+}
+
+function classifyUnresolvedDependency(specifier: string): UnresolvedClassification {
+	const spec = specifier.trim();
+	const normalized = normalizeFilePath(spec);
+	const lower = normalized.toLowerCase();
+
+	if (/\b(dist|build|out|target|bin)\b/.test(lower)) {
+		return { kind: "build-output", severity: "low" };
+	}
+	if (/\b(generated|gen|proto)\b/.test(lower)) {
+		return { kind: "generated-file", severity: "low" };
+	}
+	if (/^[@a-zA-Z0-9_-]+(?:\/[^./][^/]*)?$/.test(spec)) {
+		return { kind: "external-package", severity: "low" };
+	}
+	if (spec.startsWith("@") || spec.startsWith("~") || spec.startsWith("#")) {
+		return { kind: "path-alias", severity: "med" };
+	}
+	if (/^\.\.?\//.test(spec) && /\.(js|jsx|mjs|cjs)$/.test(lower)) {
+		return { kind: "generated-output-missing", severity: "med" };
+	}
+	if (/^\.\.?\//.test(spec)) {
+		return { kind: "missing-source", severity: "med" };
+	}
+	return { kind: "false-positive-possible", severity: "low" };
+}
+
+function buildInternalEdgeIndex(
+	dependencies: DependencyRecord[],
+): Map<string, DependencyRecord> {
+	const edges = new Map<string, DependencyRecord>();
+	for (const dependency of dependencies) {
+		if (dependency.dependencyType !== "internal" || !dependency.toPath) continue;
+		const fromModule = getModuleKey(dependency.fromPath);
+		const toModule = getModuleKey(dependency.toPath);
+		const key = `${fromModule}\0${toModule}`;
+		if (!edges.has(key)) edges.set(key, dependency);
+	}
+	return edges;
+}
+
+function severityForCycle(from: string, to: string): Severity {
+	const pair = `${from} ${to}`;
+	if (/src\/core|src\/storage|core|storage/.test(pair)) return "high";
+	return "med";
+}
+
+function suggestedCycleFix(from: string, to: string): string {
+	return `move shared helpers/types between ${from} and ${to} into a lower-level module`;
+}
+
+function findCycleDetails(
+	architecture: ArchitectureSnapshot,
+	dependencies: DependencyRecord[] = [],
+): CycleDetail[] {
+	const internalDependencies = architecture.dependency_map?.internal ?? {};
+	const edgeIndex = buildInternalEdgeIndex(dependencies);
+	const cycles: CycleDetail[] = [];
+	const seenCycles = new Set<string>();
+
+	for (const [from, tos] of Object.entries(internalDependencies)) {
+		for (const to of tos) {
+			const pair = [from, to].sort().join(" <-> ");
+			if (seenCycles.has(pair)) continue;
+			if (!internalDependencies[to]?.includes(from)) continue;
+
+			cycles.push({
+				from,
+				to,
+				severity: severityForCycle(from, to),
+				forward: edgeIndex.get(`${from}\0${to}`),
+				backward: edgeIndex.get(`${to}\0${from}`),
+				fix: suggestedCycleFix(from, to),
+			});
+			seenCycles.add(pair);
+		}
+	}
+
+	return cycles.sort((a, b) => `${a.from} ${a.to}`.localeCompare(`${b.from} ${b.to}`));
+}
+
+function formatCycleEdge(edge: DependencyRecord | undefined, from: string, to: string): string {
+	if (!edge?.toPath) return `  ${from} -> ${to}`;
+	return `  ${edge.fromPath} -> ${edge.toPath} via=${edge.toSpecifier}`;
+}
+
+function collectArchitectureActions(
+	cycles: CycleDetail[],
+	unresolvedEntries: [string, string[]][],
+): string[] {
+	const actions: string[] = [];
+	const highCycle = cycles.find((cycle) => cycle.severity === "high") ?? cycles[0];
+	if (highCycle) {
+		actions.push(`Break ${highCycle.from} <-> ${highCycle.to}: ${highCycle.fix}.`);
+	}
+
+	const firstUnresolved = unresolvedEntries.find(([, values]) => values.length > 0);
+	if (firstUnresolved) {
+		const [from, values] = firstUnresolved;
+		const first = values[0];
+		const classified = classifyUnresolvedDependency(first);
+		actions.push(`Verify unresolved ${from} -> ${first} kind=${classified.kind}.`);
+	}
+
+	if (cycles.length > 0) {
+		actions.push("Add architecture rules for intended one-way module boundaries.");
+	}
+
+	return actions.slice(0, 3);
+}
+
 function renderExternalCount(
 	key: string,
 	values: unknown[],
@@ -239,7 +386,10 @@ function printExternalSection(
 	}
 }
 
-function formatPlain(architecture: ArchitectureSnapshot): void {
+function formatPlain(
+	architecture: ArchitectureSnapshot,
+	dependencies: DependencyRecord[] = [],
+): void {
 	console.log("File stats by language");
 	const fileEntries = Object.entries(architecture.file_stats ?? {}).sort(
 		(a, b) => a[0].localeCompare(b[0]),
@@ -267,25 +417,14 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 	).sort((a, b) => a[0].localeCompare(b[0]));
 	printDependencySection("Module dependency graph", internalEntries);
 
-	const internalDependencies = architecture.dependency_map?.internal ?? {};
-	const cycles: string[] = [];
-	const seenCycles = new Set<string>();
-	for (const [from, tos] of Object.entries(internalDependencies)) {
-		for (const to of tos) {
-			const pair = [from, to].sort().join(" <-> ");
-			if (seenCycles.has(pair)) {
-				continue;
-			}
-			if (internalDependencies[to]?.includes(from)) {
-				cycles.push(pair);
-				seenCycles.add(pair);
-			}
-		}
-	}
+	const cycles = findCycleDetails(architecture, dependencies);
 	if (cycles.length > 0) {
 		console.log("\n⚠ Cyclic dependencies detected:");
-		for (const cycle of cycles.sort((a, b) => a.localeCompare(b))) {
-			console.log(`  ${cycle}`);
+		for (const cycle of cycles) {
+			console.log(`CYCLE sev=${cycle.severity} ${cycle.from} <-> ${cycle.to}`);
+			console.log(formatCycleEdge(cycle.forward, cycle.from, cycle.to));
+			console.log(formatCycleEdge(cycle.backward, cycle.to, cycle.from));
+			console.log(`  fix=${cycle.fix}`);
 		}
 	}
 
@@ -300,7 +439,25 @@ function formatPlain(architecture: ArchitectureSnapshot): void {
 	const unresolvedEntries = Object.entries(
 		architecture.dependency_map?.unresolved ?? {},
 	).sort((a, b) => a[0].localeCompare(b[0]));
-	printDependencySection("Unresolved dependencies", unresolvedEntries);
+	console.log("Unresolved dependencies");
+	if (unresolvedEntries.length === 0) {
+		console.log("  none");
+	} else {
+		for (const [from, values] of unresolvedEntries) {
+			for (const value of values) {
+				const classified = classifyUnresolvedDependency(value);
+				console.log(
+					`UNRESOLVED sev=${classified.severity} ${from} -> ${value} kind=${classified.kind}`,
+				);
+			}
+		}
+	}
+
+	const actions = collectArchitectureActions(cycles, unresolvedEntries);
+	if (actions.length > 0) {
+		console.log("\nActions:");
+		actions.forEach((action, index) => console.log(`${index + 1}. ${action}`));
+	}
 }
 
 export function registerArchitectureCommand(program: Command): void {
@@ -455,7 +612,11 @@ export function registerArchitectureCommand(program: Command): void {
 						}
 					}
 
-					formatPlain(visibleArchitecture);
+					const dependencies = await metadata.listDependencies(
+						DEFAULT_PROJECT_ID,
+						snapshot.id,
+					);
+					formatPlain(visibleArchitecture, dependencies);
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);

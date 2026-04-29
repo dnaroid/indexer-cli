@@ -655,7 +655,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Core/EngineManager.cs",
+				"M Assets/Scripts/Core/EngineManager.cs mode=module-imports",
 			);
 			expect(result.stdout).toContain("Callees");
 			expect(result.stdout).toContain("Assets/Scripts/Config/AppSettings.cs");
@@ -721,7 +721,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Payments/PaymentProcessor.cs",
+				"M Assets/Scripts/Payments/PaymentProcessor.cs mode=module-imports",
 			);
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).not.toContain("Callees");
@@ -742,7 +742,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Workers/EmailWorker.cs",
+				"M Assets/Scripts/Workers/EmailWorker.cs mode=module-imports",
 			);
 			expect(result.stdout).not.toContain("Callers");
 			expect(result.stdout).toContain("Callees");
@@ -790,7 +790,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Network/NetworkClient.cs",
+				"M Assets/Scripts/Network/NetworkClient.cs mode=module-imports",
 			);
 			expect(result.stdout).toContain("Callees");
 			expect(result.stdout).toContain("Assets/Scripts/Core/EngineManager.cs");
@@ -803,7 +803,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Game/GameManager.cs",
+				"M Assets/Scripts/Game/GameManager.cs mode=module-imports",
 			);
 			expect(result.stdout).toContain("Callers");
 		});

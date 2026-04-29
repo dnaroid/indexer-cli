@@ -1130,7 +1130,7 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: src/services/user.ts");
+			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("src/auth/session.ts");
@@ -1173,8 +1173,19 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: src/services/user.ts");
+			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
 			expect(result.stdout).toContain("Callers");
+		});
+
+		it("shows edge reasons with --show-edges", () => {
+			const result = runCLI(["deps", "src/services/user.ts", "--show-edges"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
+			expect(result.stdout).toContain("<- src/index.ts via=./services/user kind=import");
+			expect(result.stdout).toContain("-> src/auth/session.ts via=../auth/session kind=import");
 		});
 
 		it("keeps default deps output compact with IDX header", () => {
