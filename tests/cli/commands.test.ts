@@ -39,6 +39,17 @@ function parseSearchResults(
 		.filter((r): r is NonNullable<typeof r> => r !== null);
 }
 
+function outputLines(output: string): string[] {
+	const trimmed = output.trim();
+	return trimmed.length === 0 ? [] : trimmed.split(/\r?\n/);
+}
+
+function expectCompactIdxOutput(output: string, maxLines: number): void {
+	const lines = outputLines(output);
+	expect(lines[0]).toMatch(/^IDX (noop|updated|failed)\b/);
+	expect(lines.length).toBeLessThanOrEqual(maxLines);
+}
+
 function firstResultIndex(
 	results: Array<{ filePath: string }>,
 	filePath: string,
@@ -264,6 +275,14 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Detected indexer-cli project root at");
 			expect(result.stdout).toContain("src/auth/session.ts");
+		});
+
+		it("keeps default search output compact with IDX header", () => {
+			const result = runCLI(["search", "auth session"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 12);
+			expect(result.stdout).not.toContain("JSON.stringify");
 		});
 
 		it("matches auth session queries more strongly than game session queries", () => {
@@ -622,6 +641,15 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("PaymentProcessor");
 		});
 
+		it("keeps bounded structure output compact with IDX header", () => {
+			const result = runCLI(["structure", "--max-files", "40"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 80);
+		});
+
 		it("respects --path-prefix", () => {
 			const result = runCLI(["structure", "--path-prefix", "src/payments"], {
 				cwd: TEMP_DIR,
@@ -830,6 +858,13 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Module dependency graph");
 		});
 
+		it("keeps default architecture output within token budget with IDX header", () => {
+			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 150);
+		});
+
 		it("respects --path-prefix", () => {
 			const result = runCLI(["architecture", "--path-prefix", "src/payments"], {
 				cwd: TEMP_DIR,
@@ -961,6 +996,15 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Kind:");
 		});
 
+		it("keeps default explain output compact with IDX header", () => {
+			const result = runCLI(["explain", "AppError"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 35);
+		});
+
 		it("returns an error for unknown symbols", () => {
 			const result = runCLI(["explain", "missing_symbol_xyz"], {
 				cwd: TEMP_DIR,
@@ -1041,6 +1085,15 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Module: src/services/user.ts");
 			expect(result.stdout).toContain("Callers");
+		});
+
+		it("keeps default deps output compact with IDX header", () => {
+			const result = runCLI(["deps", "src/services/user.ts"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 35);
 		});
 
 		it("handles circular dependencies without infinite loop", () => {

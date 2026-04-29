@@ -5,6 +5,7 @@ import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { formatAutoIndexResult } from "../format/compact.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
 export function registerDepsCommand(program: Command): void {
@@ -49,9 +50,14 @@ export function registerDepsCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath, {
+					const indexResult = await ensureIndexed(metadata, resolvedProjectPath, {
 						silent: !process.stderr.isTTY,
 					});
+					console.log(formatAutoIndexResult(indexResult));
+					if (indexResult.status === "failed") {
+						process.exitCode = 1;
+						return;
+					}
 
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);

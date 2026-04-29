@@ -10,6 +10,32 @@ function readSource(relativePath: string): string {
 }
 
 describe("CLI text-only output contract", () => {
+	it("keeps a compact IDX auto-index line available for idx commands", () => {
+		const files = [
+			"../../../src/cli/commands/search.ts",
+			"../../../src/cli/commands/structure.ts",
+			"../../../src/cli/commands/architecture.ts",
+			"../../../src/cli/commands/explain.ts",
+			"../../../src/cli/commands/deps.ts",
+		];
+
+		for (const file of files) {
+			const source = readSource(file);
+			expect(source).toContain("formatAutoIndexResult(indexResult)");
+			expect(source).toContain('indexResult.status === "failed"');
+		}
+	});
+
+	it("formats compact IDX output without JSON", () => {
+		const source = readSource("../../../src/cli/format/compact.ts");
+
+		expect(source).toContain('`IDX ${result.status}`');
+		expect(source).toContain('files=${result.files}');
+		expect(source).toContain('removed=${result.removed}');
+		expect(source).toContain('reason=${sanitizeValue(result.reason)}');
+		expect(source).not.toContain("JSON.stringify");
+	});
+
 	it("does not use --txt, --json, or isJsonOutput in any command", () => {
 		const files = [
 			"../../../src/cli/commands/index.ts",

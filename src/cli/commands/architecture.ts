@@ -9,6 +9,7 @@ import {
 } from "../../engine/architecture.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { formatAutoIndexResult } from "../format/compact.js";
 import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -337,9 +338,14 @@ export function registerArchitectureCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath, {
+					const indexResult = await ensureIndexed(metadata, resolvedProjectPath, {
 						silent: !process.stderr.isTTY,
 					});
+					console.log(formatAutoIndexResult(indexResult));
+					if (indexResult.status === "failed") {
+						process.exitCode = 1;
+						return;
+					}
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) {
