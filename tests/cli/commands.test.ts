@@ -27,7 +27,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -37,6 +37,17 @@ function parseSearchResults(
 			};
 		})
 		.filter((r): r is NonNullable<typeof r> => r !== null);
+}
+
+function outputLines(output: string): string[] {
+	const trimmed = output.trim();
+	return trimmed.length === 0 ? [] : trimmed.split(/\r?\n/);
+}
+
+function expectCompactIdxOutput(output: string, maxLines: number): void {
+	const lines = outputLines(output);
+	expect(lines[0]).toMatch(/^IDX (noop|updated|failed)\b/);
+	expect(lines.length).toBeLessThanOrEqual(maxLines);
 }
 
 function firstResultIndex(
@@ -172,10 +183,10 @@ describe.sequential("CLI e2e", () => {
 			const result = runCLI(["index", "--status"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Files: 31");
+			expect(result.stdout).toContain("Files: 32");
 			expect(result.stdout).toContain("Symbols:");
 			expect(result.stdout).toContain("Chunks:");
-			expect(result.stdout).toContain("Languages: typescript: 31");
+			expect(result.stdout).toContain("Languages: typescript: 32");
 		});
 
 		it("shows the indexed file tree", () => {
@@ -264,6 +275,14 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Detected indexer-cli project root at");
 			expect(result.stdout).toContain("src/auth/session.ts");
+		});
+
+		it("keeps default search output compact with IDX header", () => {
+			const result = runCLI(["search", "auth session"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 12);
+			expect(result.stdout).not.toContain("JSON.stringify");
 		});
 
 		it("matches auth session queries more strongly than game session queries", () => {
@@ -456,6 +475,35 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("src/utils/logger.ts");
 		});
 
+		it("prints inline compact reason codes and suggested next reads", () => {
+			const result = runCLI(["search", "auth session", "--max-files", "2"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toMatch(/\(score: [\d.]+(?:, function: .+?)?, why=[^)]+\)/);
+			expect(result.stdout).not.toMatch(/^\s+why=/m);
+			expect(result.stdout).toContain("Read next:");
+		});
+
+		it("supports explicit search ranking modes", () => {
+			const semantic = runCLI(
+				["search", "auth session", "--mode", "semantic", "--max-files", "2"],
+				{ cwd: TEMP_DIR },
+			);
+			const invalid = runCLI(
+				["search", "auth session", "--mode", "invalid-mode", "--max-files", "2"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(semantic.exitCode).toBe(0);
+			expect(semantic.stdout).toContain("why=");
+			expect(invalid.exitCode).toBe(1);
+			expect(invalid.stderr).toContain(
+				"--mode must be one of: hybrid, semantic, lexical, symbol.",
+			);
+		});
+
 		it("respects --path-prefix", () => {
 			const result = runCLI(
 				[
@@ -513,12 +561,51 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Path 'nonexistent' not found in indexed files.",
-			);
-			expect(result.stdout).toContain(
-				"Showing results for the entire project instead.",
+				"WARN path-prefix-missing prefix=nonexistent fallback=project",
 			);
 			expect(results.length).toBeGreaterThan(0);
+		});
+
+		it("supports compact query diagnostic warnings", () => {
+			const result = runCLI(
+				[
+					"search",
+					"definitely_missing_symbol_query_xyz",
+					"--max-files",
+					"3",
+					"--min-score",
+					"0.99",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("WARN no-results min-score=0.99");
+			expect(result.stdout).toContain("suggestion='try --min-score 0.55'");
+		});
+
+		it("supports search noise-control flags", () => {
+			const result = runCLI(
+				[
+					"search",
+					"session token validate user authentication",
+					"--max-files",
+					"6",
+					"--dedupe-file",
+					"--exclude-tests",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results.length).toBeGreaterThan(0);
+			expect(new Set(results.map((item) => item.filePath)).size).toBe(
+				results.length,
+			);
+			expect(results.every((item) => !item.filePath.includes("test"))).toBe(
+				true,
+			);
 		});
 
 		it("does not fall back when --path-prefix matches files", () => {
@@ -620,6 +707,15 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("src/");
 			expect(result.stdout).toContain("PaymentProcessor");
+		});
+
+		it("keeps bounded structure output compact with IDX header", () => {
+			const result = runCLI(["structure", "--max-files", "40"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 80);
 		});
 
 		it("respects --path-prefix", () => {
@@ -807,6 +903,19 @@ describe.sequential("CLI e2e", () => {
 			expect(depth1.stdout).toContain("v1/");
 			expect(depth1.stdout).toContain("handler.ts");
 		});
+
+		it("shows nearest tests with --include-tests-summary", () => {
+			const result = runCLI(
+				["structure", "--path-prefix", "src/services", "--include-tests-summary"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Tests:");
+			expect(result.stdout).toContain(
+				"T tests/services/user.test.ts -> src/services/user.ts direct",
+			);
+		});
 	});
 
 	describe.sequential("architecture", () => {
@@ -815,7 +924,7 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 31");
+			expect(result.stdout).toContain("typescript: 32");
 			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("Module dependency graph");
 			expect(result.stdout).toMatch(/payments|services|auth/);
@@ -828,6 +937,13 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("File stats by language");
 			expect(result.stdout).toContain("Entrypoints");
 			expect(result.stdout).toContain("Module dependency graph");
+		});
+
+		it("keeps default architecture output within token budget with IDX header", () => {
+			const result = runCLI(["architecture"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 150);
 		});
 
 		it("respects --path-prefix", () => {
@@ -848,7 +964,7 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).not.toContain("not found in indexed files");
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 31");
+			expect(result.stdout).toContain("typescript: 32");
 		});
 
 		it("detects multiple entrypoints including workers", () => {
@@ -883,7 +999,7 @@ describe.sequential("CLI e2e", () => {
 				"Showing results for the entire project instead.",
 			);
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 31");
+			expect(result.stdout).toContain("typescript: 32");
 		});
 
 		it("does not fall back when --path-prefix matches files", () => {
@@ -961,6 +1077,35 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Kind:");
 		});
 
+		it("keeps default explain output compact with IDX header", () => {
+			const result = runCLI(["explain", "AppError"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 35);
+			expect(result.stdout).toContain("body=omitted use --include-body");
+		});
+
+		it("shows a bounded body preview with --include-body", () => {
+			const result = runCLI(
+				[
+					"explain",
+					"createSession",
+					"--include-body",
+					"--body-lines",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Body preview:");
+			expect(result.stdout).toContain("15 export function createSession");
+			expect(result.stdout).toContain("17 \tconst payload");
+			expect(result.stdout).toContain("...");
+		});
+
 		it("returns an error for unknown symbols", () => {
 			const result = runCLI(["explain", "missing_symbol_xyz"], {
 				cwd: TEMP_DIR,
@@ -975,8 +1120,10 @@ describe.sequential("CLI e2e", () => {
 		it("returns multiple results for ambiguous handleRequest symbol", () => {
 			const result = runCLI(["explain", "handleRequest"], { cwd: TEMP_DIR });
 			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("AMBIG handleRequest matches=2");
 			expect(result.stdout).toContain("src/api/v1/handler.ts");
 			expect(result.stdout).toContain("src/api/v2/handler.ts");
+			expect(result.stdout).toContain("Use: idx explain src/api/");
 		});
 
 		it("disambiguates Status via file::symbol syntax", () => {
@@ -987,6 +1134,17 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Symbol: Status");
 			expect(result.stdout).toContain("src/inventory/tracker.ts");
 		});
+
+		it("shows nearest tests and suggested verification", () => {
+			const result = runCLI(["explain", "UserService"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Tests:");
+			expect(result.stdout).toContain(
+				"T tests/services/user.test.ts -> src/services/user.ts direct",
+			);
+			expect(result.stdout).toContain("Verify: npm test -- user");
+		});
 	});
 
 	describe.sequential("deps", () => {
@@ -996,7 +1154,7 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: src/services/user.ts");
+			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("src/auth/session.ts");
@@ -1039,8 +1197,28 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Module: src/services/user.ts");
+			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
 			expect(result.stdout).toContain("Callers");
+		});
+
+		it("shows edge reasons with --show-edges", () => {
+			const result = runCLI(["deps", "src/services/user.ts", "--show-edges"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
+			expect(result.stdout).toContain("<- src/index.ts via=./services/user kind=import");
+			expect(result.stdout).toContain("-> src/auth/session.ts via=../auth/session kind=import");
+		});
+
+		it("keeps default deps output compact with IDX header", () => {
+			const result = runCLI(["deps", "src/services/user.ts"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expectCompactIdxOutput(result.stdout, 35);
 		});
 
 		it("handles circular dependencies without infinite loop", () => {
@@ -1064,6 +1242,19 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("src/services/order.ts");
 			expect(result.stdout).toContain("src/inventory/tracker.ts");
 			expect(result.stdout).toContain("src/utils/logger.ts");
+		});
+
+		it("shows impacted tests and suggested verification with --tests", () => {
+			const result = runCLI(["deps", "src/services/user.ts", "--tests"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Tests:");
+			expect(result.stdout).toContain(
+				"T tests/services/user.test.ts -> src/services/user.ts direct",
+			);
+			expect(result.stdout).toContain("Verify: npm test -- user");
 		});
 	});
 

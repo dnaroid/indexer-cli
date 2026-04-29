@@ -1,12 +1,42 @@
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { formatAutoIndexResult } from "../format/compact.js";
+import {
+	findNearestTests,
+	formatSuggestedVerification,
+	formatTestHints,
+} from "../test-hints.js";
 import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
+
+function parseBodyLines(input?: string): number {
+	if (!input) return 40;
+	const value = Number.parseInt(input, 10);
+	if (!Number.isFinite(value) || value < 1 || value > 200) {
+		throw new Error("--body-lines must be a number between 1 and 200.");
+	}
+	return value;
+}
+
+async function readBodyPreview(
+	repoRoot: string,
+	filePath: string,
+	startLine: number,
+	endLine: number,
+	maxLines: number,
+): Promise<string[]> {
+	const content = await readFile(path.join(repoRoot, filePath), "utf8");
+	const lines = content.split("\n");
+	const start = Math.max(0, startLine - 1);
+	const end = Math.min(lines.length, Math.min(endLine, startLine + maxLines - 1));
+	return lines.slice(start, end).map((line, index) => `${startLine + index} ${line}`);
+}
 
 export function registerExplainCommand(program: Command): void {
 	program
@@ -17,12 +47,18 @@ export function registerExplainCommand(program: Command): void {
 			"limit results to symbols in files under this path",
 		)
 		.option("--include-fixtures", "include fixture/test files in results")
+		.option("--include-body", "include a compact body preview")
+		.option("--body-lines <number>", "number of body preview lines", "40")
+		.option("--signature-only", "omit dependency context and body hints")
 		.action(
 			async (
 				symbolArg: string,
 				options?: {
 					pathPrefix?: string;
 					includeFixtures?: boolean;
+					includeBody?: boolean;
+					bodyLines?: string;
+					signatureOnly?: boolean;
 				},
 			) => {
 				let resolvedProjectPath: string;
@@ -129,9 +165,14 @@ export function registerExplainCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath, {
+					const indexResult = await ensureIndexed(metadata, resolvedProjectPath, {
 						silent: !process.stderr.isTTY,
 					});
+					console.log(formatAutoIndexResult(indexResult));
+					if (indexResult.status === "failed") {
+						process.exitCode = 1;
+						return;
+					}
 
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
@@ -145,7 +186,7 @@ export function registerExplainCommand(program: Command): void {
 
 					if (symbolArg.includes("::")) {
 						const parts = symbolArg.split("::");
-						filterFilePath = parts[0];
+						filterFilePath = normalizePathPrefix(parts[0]);
 						symbolName = parts[1] ?? symbolArg;
 					} else {
 						symbolName = symbolArg;
@@ -228,6 +269,23 @@ export function registerExplainCommand(program: Command): void {
 						? matches.filter((m) => rankSymbolMatch(m.name, symbolName) === 0)
 						: matches.slice(0, 5);
 
+					if (!filterFilePath && finalMatches.length > 1) {
+						console.log(`AMBIG ${symbolName} matches=${finalMatches.length}`);
+						for (let i = 0; i < finalMatches.length; i++) {
+							const match = finalMatches[i];
+							console.log(
+								`${i + 1}. ${match.filePath}:${match.range.start.line}-${match.range.end.line} ${match.kind}${match.exported ? " exported" : ""}`,
+							);
+						}
+						const preferred = finalMatches[0];
+						if (preferred) {
+							console.log(
+								`Use: idx explain ${preferred.filePath}::${preferred.name}`,
+							);
+						}
+						console.log("");
+					}
+
 					if (finalMatches.length === 0) {
 						const fuzzy = symbols.slice(0, 5).map((s) => ({
 							name: s.name,
@@ -243,6 +301,12 @@ export function registerExplainCommand(program: Command): void {
 						process.exitCode = 1;
 						return;
 					}
+
+					const allFiles = await metadata.listFiles(
+						DEFAULT_PROJECT_ID,
+						snapshot.id,
+						{},
+					);
 
 					const results = await Promise.all(
 						finalMatches.map(async (sym) => {
@@ -277,6 +341,12 @@ export function registerExplainCommand(program: Command): void {
 									.filter((d) => d.dependencyType === "internal" && d.toPath)
 									.map((d) => d.toPath as string)
 									.filter((v, i, arr) => arr.indexOf(v) === i),
+								tests: findNearestTests({
+									targetPaths: [sym.filePath],
+									files: allFiles,
+									dependencies: dependents,
+									maxTests: 3,
+								}),
 							};
 						}),
 					);
@@ -295,6 +365,10 @@ export function registerExplainCommand(program: Command): void {
 						if (result.docComment) {
 							console.log(`Docs:   ${result.docComment.split("\n")[0]}`);
 						}
+						if (options?.signatureOnly) {
+							if (results.length > 1) console.log("");
+							continue;
+						}
 						if (result.callers.length > 0) {
 							console.log(`\nCallers (${result.callers.length}):`);
 							for (const caller of result.callers) {
@@ -306,6 +380,37 @@ export function registerExplainCommand(program: Command): void {
 							for (const callee of result.callees) {
 								console.log(`  ${callee}`);
 							}
+						}
+						const testLines = formatTestHints(result.tests);
+						if (testLines.length > 0) {
+							console.log("");
+							for (const line of testLines) {
+								console.log(line);
+							}
+							const verify = formatSuggestedVerification(result.tests);
+							if (verify) console.log(verify);
+						}
+						if (options?.includeBody) {
+							try {
+								const preview = await readBodyPreview(
+									resolvedProjectPath,
+									result.file,
+									result.lines.start,
+									result.lines.end,
+									parseBodyLines(options.bodyLines),
+								);
+								console.log("\nBody preview:");
+								for (const line of preview) {
+									console.log(line);
+								}
+								if (preview.length < result.lines.end - result.lines.start + 1) {
+									console.log("...");
+								}
+							} catch {
+								console.log("\nBody preview unavailable.");
+							}
+						} else {
+							console.log("body=omitted use --include-body");
 						}
 						if (results.length > 1) console.log("");
 					}

@@ -22,11 +22,11 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 
 ## Route to one command
 
-- \`idx architecture\` — repo shape, entry points, module boundaries
+- \`idx architecture\` — repo shape, entry points, module boundaries, cycle causes, unresolved dependency classes
 - \`idx structure\` — file trees, exported symbols, contents of a directory/module
 - \`idx search\` — conceptual behavior questions like "how does X work?"
 - \`idx explain\` — a known symbol when you want indexed explanation
-- \`idx deps\` — callers, callees, or impact for a known path/module
+- \`idx deps\` — imported-by/imports or impact for a known path/module
 
 ## Operating rules
 
@@ -71,11 +71,20 @@ idx structure --path-prefix src/api/ --kind function
 # Good: semantic discovery for unknown behavior
 idx search "how request retries are scheduled" --path-prefix src/jobs/ --max-files 5
 
+# Good: reduce noisy search output before choosing files to read
+idx search "auth session token validation" --dedupe-file --exclude-tests --max-files 5
+
+# Good: focus search on public API/type chunks
+idx search "payment processor interface" --chunk-types api --mode hybrid
+
 # Good: explain a known symbol, scoped to a file
 idx explain src/api/client.ts::createClient
 
-# Good: first-hop impact from a known module
+# Good: first-hop import impact from a known module
 idx deps src/api/client.ts --direction callers --depth 1
+
+# Good: inspect the import specifier behind dependency edges
+idx deps src/api/client.ts --show-edges
 
 # Bad: semantic search for an exact identifier
 idx search "MyType" --path-prefix src/models/
@@ -94,10 +103,10 @@ grep "MyType" src/models/
 ## CLI reference
 
 - Architecture: \`idx architecture [--path-prefix <area>] [--include-fixtures]\`
-- Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--include-internal] [--include-fixtures] [--no-tests]\`
-- Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types>] [--min-score <score>] [--include-content] [--include-imports]\`
-- Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures]\`
-- Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>]\`
+- Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--include-internal] [--include-fixtures] [--no-tests] [--include-tests-summary]\`
+- Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types|api|impl|tests|imports>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports] [--dedupe-file] [--dedupe-symbol] [--cluster] [--exclude-tests] [--include-tests]\`
+- Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>] [--signature-only]\`
+- Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>] [--show-edges] [--tests]\`
 `,
 	},
 ];

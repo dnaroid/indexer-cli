@@ -31,7 +31,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -342,9 +342,13 @@ describe.sequential("CLI e2e CSharp", () => {
 			const withContentLines = withContent.stdout
 				.split("\n")
 				.filter((line) => line.trim() !== "" && line.trim() !== "---");
-			const withoutContentLines = withoutContent.stdout
+			const withoutContentResultLines = withoutContent.stdout
 				.split("\n")
-				.filter((line) => line.trim() !== "" && line.trim() !== "---");
+				.filter((line) =>
+					/^.+?:\d+-\d+ \(score: [\d.]+(?:, function: .+?)?(?:, why=[^)]+)?\)$/.test(
+						line.trim(),
+					),
+				);
 			const withoutContentResults = parseSearchResults(withoutContent.stdout);
 
 			expect(withContent.exitCode).toBe(0);
@@ -353,7 +357,9 @@ describe.sequential("CLI e2e CSharp", () => {
 			expect(withContentLines.length).toBeGreaterThan(
 				withoutContentResults.length,
 			);
-			expect(withoutContentLines.length).toBe(withoutContentResults.length);
+			expect(withoutContentResultLines.length).toBe(
+				withoutContentResults.length,
+			);
 		});
 
 		it("renders text output", () => {
@@ -649,7 +655,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Core/EngineManager.cs",
+				"M Assets/Scripts/Core/EngineManager.cs mode=module-imports",
 			);
 			expect(result.stdout).toContain("Callees");
 			expect(result.stdout).toContain("Assets/Scripts/Config/AppSettings.cs");
@@ -715,7 +721,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Payments/PaymentProcessor.cs",
+				"M Assets/Scripts/Payments/PaymentProcessor.cs mode=module-imports",
 			);
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).not.toContain("Callees");
@@ -736,7 +742,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Workers/EmailWorker.cs",
+				"M Assets/Scripts/Workers/EmailWorker.cs mode=module-imports",
 			);
 			expect(result.stdout).not.toContain("Callers");
 			expect(result.stdout).toContain("Callees");
@@ -784,7 +790,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Network/NetworkClient.cs",
+				"M Assets/Scripts/Network/NetworkClient.cs mode=module-imports",
 			);
 			expect(result.stdout).toContain("Callees");
 			expect(result.stdout).toContain("Assets/Scripts/Core/EngineManager.cs");
@@ -797,7 +803,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Module: Assets/Scripts/Game/GameManager.cs",
+				"M Assets/Scripts/Game/GameManager.cs mode=module-imports",
 			);
 			expect(result.stdout).toContain("Callers");
 		});

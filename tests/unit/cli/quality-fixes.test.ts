@@ -366,7 +366,12 @@ describe("CLI quality fixes", () => {
 			});
 
 			expect(logs).toContain("\n⚠ Cyclic dependencies detected:");
-			expect(logs).toContain("  src/cli <-> src/core");
+			expect(logs).toContain("CYCLE sev=high src/cli <-> src/core");
+			expect(logs).toContain("  src/cli -> src/core");
+			expect(logs).toContain("  src/core -> src/cli");
+			expect(logs).toContain(
+				"  fix=move shared helpers/types between src/cli and src/core into a lower-level module",
+			);
 		});
 
 		it("does not print a cycle warning when the graph is acyclic", () => {
@@ -406,6 +411,34 @@ describe("CLI quality fixes", () => {
 
 			expect(logs).toContain("  chalk");
 			expect(logs).toContain("  react (2 modules)");
+		});
+
+		it("classifies unresolved dependencies and suggests actions", () => {
+			architecture.formatPlain({
+				file_stats: {},
+				entrypoints: [],
+				dependency_map: {
+					internal: {},
+					external: {},
+					builtin: {},
+					unresolved: {
+						"src/cli": ["./commands/update.js"],
+						"daemon/src": ["../../shared/dist/index.js"],
+					},
+				},
+			});
+
+			expect(logs).toContain("Unresolved dependencies");
+			expect(logs).toContain(
+				"UNRESOLVED sev=low daemon/src -> ../../shared/dist/index.js kind=build-output",
+			);
+			expect(logs).toContain(
+				"UNRESOLVED sev=med src/cli -> ./commands/update.js kind=generated-output-missing",
+			);
+			expect(logs).toContain("\nActions:");
+			expect(logs).toContain(
+				"1. Verify unresolved daemon/src -> ../../shared/dist/index.js kind=build-output.",
+			);
 		});
 	});
 

@@ -19,7 +19,7 @@ async function loadEnsureIndexedInternals<T>(): Promise<T> {
 	}
 
 	const transpiled = ts.transpileModule(
-		`${match[0]}\nexport { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError };`,
+		`${match[0]}\nexport { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles };`,
 		{
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
@@ -40,6 +40,16 @@ const ensureIndexedInternals = await loadEnsureIndexedInternals<{
 		error: unknown,
 		mode: "full" | "incremental",
 	) => string;
+	countChangedFiles: (changedFiles: {
+		added: string[];
+		modified: string[];
+		deleted: string[];
+	}) => number | undefined;
+	countRemovedFiles: (changedFiles: {
+		added: string[];
+		modified: string[];
+		deleted: string[];
+	}) => number | undefined;
 }>();
 
 describe("ensureIndexed error formatting", () => {
@@ -94,5 +104,16 @@ describe("ensureIndexed error formatting", () => {
 		expect(ensureIndexedInternals.formatAutoIndexError(error, "full")).toBe(
 			"Auto-indexing failed during full reindex: Failed after indexing 80 files while generating architecture snapshot: Invalid argument; cause: Invalid argument (code: EINVAL, syscall: scandir, path: repositories/pipeline-dag/dags)",
 		);
+	});
+
+	it("counts updated and removed files for compact IDX output", () => {
+		const changedFiles = {
+			added: ["src/new.ts"],
+			modified: ["src/existing.ts", "src/other.ts"],
+			deleted: ["src/old.ts"],
+		};
+
+		expect(ensureIndexedInternals.countChangedFiles(changedFiles)).toBe(3);
+		expect(ensureIndexedInternals.countRemovedFiles(changedFiles)).toBe(1);
 	});
 });

@@ -41,6 +41,17 @@ type IndexPlan =
 	| { isFullReindex: false; changedFiles: GitDiff }
 	| null;
 
+export type AutoIndexResult =
+	| { status: "noop"; ms: number }
+	| {
+			status: "updated";
+			files?: number;
+			removed?: number;
+			errors?: number;
+			ms: number;
+	  }
+	| { status: "failed"; reason: string; action?: string; ms: number };
+
 function getErrorMessage(error: unknown): string {
 	if (error instanceof Error) {
 		return error.message || error.name;
@@ -119,6 +130,15 @@ function formatAutoIndexError(
 	mode: "full" | "incremental",
 ): string {
 	return `Auto-indexing failed during ${mode} reindex: ${describeError(error)}`;
+}
+
+function countChangedFiles(changedFiles: GitDiff | undefined): number | undefined {
+	if (!changedFiles) return undefined;
+	return changedFiles.added.length + changedFiles.modified.length;
+}
+
+function countRemovedFiles(changedFiles: GitDiff | undefined): number | undefined {
+	return changedFiles?.deleted.length;
 }
 
 /**
@@ -220,7 +240,8 @@ export async function ensureIndexed(
 	options?: {
 		silent?: boolean;
 	},
-): Promise<void> {
+): Promise<AutoIndexResult> {
+	const ensureStartedAt = Date.now();
 	const silent = options?.silent ?? !process.stderr.isTTY;
 	const git = new SimpleGitOperations();
 	const snapshot =
@@ -229,7 +250,7 @@ export async function ensureIndexed(
 	const indexPlan = await getIndexPlan(git, repoRoot, metadata, snapshot);
 
 	if (!indexPlan) {
-		return;
+		return { status: "noop", ms: Date.now() - ensureStartedAt };
 	}
 
 	let release: (() => Promise<void>) | null = null;
@@ -244,7 +265,12 @@ export async function ensureIndexed(
 			if (!silent) {
 				console.error("Skipping auto-index: another process holds the lock.");
 			}
-			return;
+			return {
+				status: "failed",
+				reason: "lock-held",
+				action: "retry",
+				ms: Date.now() - ensureStartedAt,
+			};
 		}
 		throw error;
 	}
@@ -261,7 +287,7 @@ export async function ensureIndexed(
 		);
 
 		if (!updatedPlan) {
-			return;
+			return { status: "noop", ms: Date.now() - ensureStartedAt };
 		}
 
 		const dataDir = path.join(repoRoot, ".indexer-cli");
@@ -341,6 +367,18 @@ export async function ensureIndexed(
 					console.error(`  Error: ${error}`);
 				}
 			}
+
+			return {
+				status: "updated",
+				files: updatedPlan.isFullReindex
+					? result.filesIndexed
+					: countChangedFiles(updatedPlan.changedFiles),
+				removed: updatedPlan.isFullReindex
+					? 0
+					: countRemovedFiles(updatedPlan.changedFiles),
+				errors: result.errors.length > 0 ? result.errors.length : undefined,
+				ms: Date.now() - ensureStartedAt,
+			};
 		} catch (indexError) {
 			throw new Error(
 				formatAutoIndexError(

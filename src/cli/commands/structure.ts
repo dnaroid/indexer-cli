@@ -7,6 +7,8 @@ import { matchesPathPatterns } from "../../engine/architecture.js";
 import { isTestFile } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { formatAutoIndexResult } from "../format/compact.js";
+import { findNearestTests, formatTestHints } from "../test-hints.js";
 import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -320,6 +322,7 @@ export function registerStructureCommand(program: Command): void {
 			"include non-exported symbols (methods, private members)",
 		)
 		.option("--no-tests", "exclude test files from output")
+		.option("--include-tests-summary", "show nearest tests for listed source files")
 		.action(
 			async (options?: {
 				pathPrefix?: string;
@@ -329,6 +332,7 @@ export function registerStructureCommand(program: Command): void {
 				includeFixtures?: boolean;
 				includeInternal?: boolean;
 				tests?: boolean;
+				includeTestsSummary?: boolean;
 			}) => {
 				let resolvedProjectPath: string;
 				try {
@@ -359,9 +363,14 @@ export function registerStructureCommand(program: Command): void {
 						maxFiles !== undefined ? { printed: 0, hidden: 0 } : undefined;
 
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath, {
+					const indexResult = await ensureIndexed(metadata, resolvedProjectPath, {
 						silent: !process.stderr.isTTY,
 					});
+					console.log(formatAutoIndexResult(indexResult));
+					if (indexResult.status === "failed") {
+						process.exitCode = 1;
+						return;
+					}
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) {
@@ -468,6 +477,34 @@ export function registerStructureCommand(program: Command): void {
 						console.log(
 							`\n... and ${fileCounter.hidden} more files (use --max-files to see more)`,
 						);
+					}
+
+					if (options?.includeTestsSummary) {
+						const [allFiles, allDependencies] = await Promise.all([
+							metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, {}),
+							metadata.listDependencies(DEFAULT_PROJECT_ID, snapshot.id),
+						]);
+						const printedPaths = filteredFiles
+							.map((file) => file.path)
+							.filter((filePath) => !isTestFile(filePath))
+							.sort((a, b) => a.localeCompare(b));
+						const targetPaths =
+							maxFiles === undefined ? printedPaths : printedPaths.slice(0, maxFiles);
+						const testHints = findNearestTests({
+							targetPaths,
+							files: allFiles,
+							dependencies: allDependencies,
+							maxTests: 5,
+						});
+						const testLines = formatTestHints(testHints);
+						if (testLines.length > 0) {
+							console.log("");
+							for (const line of testLines) {
+								console.log(line);
+							}
+						} else {
+							console.log("\nTests: none");
+						}
 					}
 				} catch (error) {
 					const message =

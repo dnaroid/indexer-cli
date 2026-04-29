@@ -156,10 +156,19 @@ project root. If no `.indexer-cli/` data exists yet, it stops and tells you to r
 |--------------------------|---------|--------------------------------------------------------------------------------------------------------------|
 | `--max-files <number>`   | 3       | Number of results to return                                                                                  |
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
-| `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
+| `--chunk-types <string>` | —       | Comma-separated filter. Types: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types`; aliases: `api`, `impl`, `tests`, `imports` |
+| `--mode <mode>`          | hybrid  | Ranking mode: `hybrid`, `semantic`, `lexical`, or `symbol`                                                   |
 | `--include-imports`      | —       | Include `imports`/`preamble` chunks (excluded by default)                                                    |
 | `--min-score <number>`   | 0.45    | Filter out results below this score (0..1)                                                                   |
 | `--include-content`      | —       | Include matched code content in output (omitted by default to save tokens)                                   |
+| `--dedupe-file`          | —       | Return at most one result per file                                                                           |
+| `--dedupe-symbol`        | —       | Return at most one result per file/symbol pair                                                               |
+| `--cluster`              | —       | Group nearby similar chunks and show one representative                                                      |
+| `--exclude-tests`        | —       | Exclude test files from search results                                                                       |
+| `--include-tests`        | —       | Include test files without the default test penalty                                                          |
+
+`idx search` prints compact diagnostics when a query is likely too broad, a path prefix is missing, or a high
+`--min-score` filters every result. Example: `WARN no-results min-score=0.99 suggestion='try --min-score 0.55'`.
 
 ### `idx structure`
 
@@ -173,11 +182,12 @@ files if needed.
 | `--max-depth <number>`   | Limit directory traversal depth in the rendered tree                                                      |
 | `--max-files <number>`   | Limit number of files shown in output                                                                     |
 | `--no-tests`             | Exclude test files from output                                                                            |
+| `--include-tests-summary` | Show nearest tests for listed source files                                                                |
 
 ### `idx architecture`
 
-Print an architecture snapshot for the current working directory: file statistics, detected entry points, and a
-dependency graph.
+Print an architecture snapshot for the current working directory: file statistics, detected entry points, a dependency
+graph, actionable cycle causes, classified unresolved dependencies, and up to three suggested actions.
 
 | Option                   | Description                            |
 |--------------------------|----------------------------------------|
@@ -197,17 +207,27 @@ specific function, class, or type does and how it is used.
 When auto-root detection is used, symbol paths such as `src/payments/processor.ts::PaymentProcessor` are still resolved
 relative to the project root, not the subdirectory where you ran the command.
 
+| Option                   | Default | Description                                  |
+|--------------------------|---------|----------------------------------------------|
+| `--path-prefix <string>` | —       | Limit symbol lookup to files under this path |
+| `--include-fixtures`     | —       | Include fixture/vendor paths in lookup       |
+| `--include-body`         | —       | Include a compact body preview               |
+| `--body-lines <number>`  | 40      | Number of body preview lines, from 1 to 200  |
+| `--signature-only`       | —       | Omit dependency context, tests, and body hints |
+
 ### `idx deps <path>`
 
-Show callers (who imports this) and callees (what this imports) for a module or symbol. Useful for tracing impact
-of changes and understanding dependency chains.
+Show module import dependencies for a path. The default text output labels imported-by/imports first and keeps
+`Callers`/`Callees` aliases for compatibility. Useful for tracing impact of changes and understanding dependency chains.
 
 Path arguments stay project-root-relative even when you invoke the command from a nested subdirectory.
 
-| Option              | Default | Description                     |
-|---------------------|---------|---------------------------------|
-| `--direction <dir>` | both    | `callers`, `callees`, or `both` |
-| `--depth <n>`       | 1       | Traversal depth                 |
+| Option           | Default | Description                                                |
+|------------------|---------|------------------------------------------------------------|
+| `--direction <dir>` | both | `callers`/imported-by, `callees`/imports, or `both`        |
+| `--depth <n>`    | 1       | Traversal depth, with transitive edges marked as `d=<n>`   |
+| `--show-edges`   | —       | Show the import specifier/kind that created each edge      |
+| `--tests`        | —       | Show nearest/impacted tests and a suggested verification command |
 
 ### `idx uninstall`
 

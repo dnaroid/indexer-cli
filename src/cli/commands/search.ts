@@ -8,6 +8,7 @@ import { SearchEngine } from "../../engine/searcher.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { formatAutoIndexResult } from "../format/compact.js";
 import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -27,6 +28,68 @@ function parseMinScore(
 	return minScore;
 }
 
+function parseSearchMode(
+	input?: string,
+): "hybrid" | "semantic" | "lexical" | "symbol" {
+	if (!input) return "hybrid";
+	if (
+		input === "hybrid" ||
+		input === "semantic" ||
+		input === "lexical" ||
+		input === "symbol"
+	) {
+		return input;
+	}
+	throw new Error("--mode must be one of: hybrid, semantic, lexical, symbol.");
+}
+
+const CHUNK_TYPE_ALIASES: Record<string, string[]> = {
+	api: ["types", "declaration", "module_section"],
+	impl: ["impl"],
+	imports: ["imports", "preamble"],
+	tests: ["impl", "types", "full_file"],
+};
+
+function parseChunkTypes(input?: string): string[] | undefined {
+	const rawValues = input
+		?.split(",")
+		.map((value) => value.trim())
+		.filter(Boolean);
+
+	if (!rawValues || rawValues.length === 0) {
+		return undefined;
+	}
+
+	const chunkTypes = new Set<string>();
+	for (const value of rawValues) {
+		const aliasValues = CHUNK_TYPE_ALIASES[value];
+		if (aliasValues) {
+			for (const aliasValue of aliasValues) {
+				chunkTypes.add(aliasValue);
+			}
+			continue;
+		}
+		chunkTypes.add(value);
+	}
+
+	return Array.from(chunkTypes);
+}
+
+function isLikelyBroadQuery(query: string): boolean {
+	return query
+		.trim()
+		.split(/\s+/)
+		.filter(Boolean).length <= 2;
+}
+
+function formatNoResultsWarning(minScore: number | undefined): string {
+	if (typeof minScore === "number" && minScore > 0.55) {
+		const suggestedMinScore = Math.max(0.1, Math.min(0.55, minScore - 0.2));
+		return `WARN no-results min-score=${minScore.toFixed(2)} suggestion='try --min-score ${suggestedMinScore.toFixed(2)}'`;
+	}
+	return "WARN no-results suggestion='try broader query or lower --min-score'";
+}
+
 export function registerSearchCommand(program: Command): void {
 	program
 		.command("search <query>")
@@ -37,6 +100,11 @@ export function registerSearchCommand(program: Command): void {
 			"limit search to files under a path prefix",
 		)
 		.option("--chunk-types <string>", "comma-separated chunk types to include")
+		.option(
+			"--mode <mode>",
+			"ranking mode: hybrid, semantic, lexical, or symbol",
+			"hybrid",
+		)
 		.option(
 			"--include-imports",
 			"include imports/preamble chunks (excluded by default)",
@@ -49,6 +117,11 @@ export function registerSearchCommand(program: Command): void {
 			"--include-content",
 			"include matched code content in output (omitted by default to save tokens)",
 		)
+		.option("--dedupe-file", "return at most one result per file")
+		.option("--dedupe-symbol", "return at most one result per file/symbol pair")
+		.option("--cluster", "group nearby similar chunks and show one representative")
+		.option("--exclude-tests", "exclude test files from results")
+		.option("--include-tests", "include test files without the default test penalty")
 		.action(
 			async (
 				query: string,
@@ -56,9 +129,15 @@ export function registerSearchCommand(program: Command): void {
 					maxFiles?: string;
 					pathPrefix?: string;
 					chunkTypes?: string;
+					mode?: string;
 					includeImports?: boolean;
 					minScore?: string;
 					includeContent?: boolean;
+					dedupeFile?: boolean;
+					dedupeSymbol?: boolean;
+					cluster?: boolean;
+					excludeTests?: boolean;
+					includeTests?: boolean;
 				},
 			) => {
 				let resolvedProjectPath: string;
@@ -102,9 +181,14 @@ export function registerSearchCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					await ensureIndexed(metadata, resolvedProjectPath, {
+					const indexResult = await ensureIndexed(metadata, resolvedProjectPath, {
 						silent: !process.stderr.isTTY,
 					});
+					console.log(formatAutoIndexResult(indexResult));
+					if (indexResult.status === "failed") {
+						process.exitCode = 1;
+						return;
+					}
 					await Promise.all([vectors.initialize(), embedder.initialize()]);
 
 					const snapshot =
@@ -120,10 +204,8 @@ export function registerSearchCommand(program: Command): void {
 						options?.minScore,
 						config.get("searchMinScore"),
 					);
-					const chunkTypes = options?.chunkTypes
-						?.split(",")
-						.map((value) => value.trim())
-						.filter(Boolean);
+					const mode = parseSearchMode(options?.mode);
+					const chunkTypes = parseChunkTypes(options?.chunkTypes);
 
 					let effectivePathPrefix = normalizePathPrefix(options?.pathPrefix);
 					if (effectivePathPrefix) {
@@ -134,7 +216,7 @@ export function registerSearchCommand(program: Command): void {
 						);
 						if (prefixFiles.length === 0) {
 							console.log(
-								`Path '${effectivePathPrefix}' not found in indexed files. Showing results for the entire project instead.`,
+								`WARN path-prefix-missing prefix=${effectivePathPrefix} fallback=project`,
 							);
 							effectivePathPrefix = undefined;
 						}
@@ -146,17 +228,34 @@ export function registerSearchCommand(program: Command): void {
 						query,
 						{
 							topK: Number.isFinite(maxFiles) && maxFiles > 0 ? maxFiles : 3,
+							mode,
 							pathPrefix: effectivePathPrefix,
 							chunkTypes,
 							includeContent: options?.includeContent ?? false,
+							includeReasonCodes: true,
 							minScore,
 							includeImportChunks: options?.includeImports,
+							dedupeFile: options?.dedupeFile,
+							dedupeSymbol: options?.dedupeSymbol,
+							cluster: options?.cluster,
+							excludeTests: options?.excludeTests,
+							includeTests: options?.includeTests,
 						},
 					);
 
 					if (results.length === 0) {
-						console.log("No results found.");
+						console.log(formatNoResultsWarning(minScore));
 						return;
+					}
+					if (isLikelyBroadQuery(query)) {
+						const lowConfidenceCount = results.filter(
+							(result) => result.score < 0.6,
+						).length;
+						if (lowConfidenceCount === results.length) {
+							console.log(
+								`WARN broad-query terms=${query.trim().split(/\s+/).filter(Boolean).length} results-low-confidence suggestion='add symbol or path-prefix'`,
+							);
+						}
 					}
 
 					for (let i = 0; i < results.length; i++) {
@@ -164,15 +263,19 @@ export function registerSearchCommand(program: Command): void {
 						const symbolPart = result.primarySymbol
 							? `, function: ${result.primarySymbol}`
 							: "";
-						if (i > 0) {
-							console.log("");
-						}
+						const reasonPart = `, why=${result.reasonCode ?? mode}`;
 						console.log(
-							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart})`,
+							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}${symbolPart}${reasonPart})`,
 						);
 						if (options?.includeContent) {
 							console.log(result.content || "(content unavailable)");
 						}
+					}
+					const nextReads = results
+						.slice(0, 3)
+						.map((result) => `${result.filePath}:${result.startLine}-${result.endLine}`);
+					if (nextReads.length > 0) {
+						console.log(`Read next: ${nextReads.join(", ")}`);
 					}
 				} catch (error) {
 					const message =
