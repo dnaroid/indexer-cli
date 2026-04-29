@@ -71,6 +71,12 @@ idx structure --path-prefix src/api/ --kind function
 # Good: semantic discovery for unknown behavior
 idx search "how request retries are scheduled" --path-prefix src/jobs/ --max-files 5
 
+# Good: reduce noisy search output before choosing files to read
+idx search "auth session token validation" --dedupe-file --exclude-tests --max-files 5
+
+# Good: focus search on public API/type chunks
+idx search "payment processor interface" --chunk-types api --mode hybrid
+
 # Good: explain a known symbol, scoped to a file
 idx explain src/api/client.ts::createClient
 
@@ -95,7 +101,7 @@ grep "MyType" src/models/
 
 - Architecture: \`idx architecture [--path-prefix <area>] [--include-fixtures]\`
 - Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--include-internal] [--include-fixtures] [--no-tests]\`
-- Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports]\`
+- Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types|api|impl|tests|imports>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports] [--dedupe-file] [--dedupe-symbol] [--cluster] [--exclude-tests] [--include-tests]\`
 - Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>]\`
 - Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>]\`
 `,

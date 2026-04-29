@@ -300,6 +300,11 @@ export interface SearchOptions {
 	includeReasonCodes?: boolean;
 	minScore?: number;
 	includeImportChunks?: boolean;
+	dedupeFile?: boolean;
+	dedupeSymbol?: boolean;
+	cluster?: boolean;
+	includeTests?: boolean;
+	excludeTests?: boolean;
 }
 
 export interface SearchResult {
@@ -334,6 +339,7 @@ export class SearchEngine {
 		const minScore = options.minScore;
 		const excludeImportPreamble =
 			!options.includeImportChunks && !options.chunkTypes;
+		const applyTestPenalty = !options.includeTests;
 
 		logger.info(`Searching for "${query}" (topK=${topK})`);
 
@@ -482,12 +488,18 @@ export class SearchEngine {
 			results.push(result);
 		}
 
-		return results
+		const rankedResults = results
 			.filter((result) => {
 				if (excludeImportPreamble) {
 					return (
 						result.chunkType !== "imports" && result.chunkType !== "preamble"
 					);
+				}
+				return true;
+			})
+			.filter((result) => {
+				if (options.excludeTests && isTestFile(result.filePath)) {
+					return false;
 				}
 				return true;
 			})
@@ -500,7 +512,7 @@ export class SearchEngine {
 					penalizedScore *= PREAMBLE_CHUNK_SCORE_PENALTY;
 				}
 
-				if (isTestFile(result.filePath)) {
+				if (applyTestPenalty && isTestFile(result.filePath)) {
 					penalizedScore *= TEST_FILE_SCORE_PENALTY;
 				}
 
@@ -533,7 +545,13 @@ export class SearchEngine {
 			.filter(
 				(result) => typeof minScore !== "number" || result.score >= minScore,
 			)
-			.sort((a, b) => b.score - a.score)
+			.sort((a, b) => b.score - a.score);
+
+		return dedupeSearchResults(rankedResults, {
+			dedupeFile: options.dedupeFile ?? options.cluster,
+			dedupeSymbol: options.dedupeSymbol,
+			cluster: options.cluster,
+		})
 			.slice(0, topK)
 			.map((result) => {
 				const { metadata: _metadata, ...publicResult } = result as SearchResult & {
@@ -542,6 +560,44 @@ export class SearchEngine {
 				return publicResult;
 			});
 	}
+}
+
+function dedupeSearchResults<T extends SearchResult>(
+	results: T[],
+	options: { dedupeFile?: boolean; dedupeSymbol?: boolean; cluster?: boolean },
+): T[] {
+	if (!options.dedupeFile && !options.dedupeSymbol && !options.cluster) {
+		return results;
+	}
+
+	const seenFiles = new Set<string>();
+	const seenSymbols = new Set<string>();
+	const seenClusters = new Set<string>();
+	const deduped: T[] = [];
+
+	for (const result of results) {
+		if (options.dedupeFile) {
+			if (seenFiles.has(result.filePath)) continue;
+			seenFiles.add(result.filePath);
+		}
+
+		if (options.dedupeSymbol && result.primarySymbol) {
+			const key = `${result.filePath}::${result.primarySymbol}`;
+			if (seenSymbols.has(key)) continue;
+			seenSymbols.add(key);
+		}
+
+		if (options.cluster) {
+			const bucketStart = Math.floor(result.startLine / 50) * 50;
+			const key = `${result.filePath}:${result.primarySymbol ?? result.chunkType ?? "chunk"}:${bucketStart}`;
+			if (seenClusters.has(key)) continue;
+			seenClusters.add(key);
+		}
+
+		deduped.push(result);
+	}
+
+	return deduped;
 }
 
 function buildReasonCode(input: {

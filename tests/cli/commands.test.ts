@@ -561,12 +561,51 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain(
-				"Path 'nonexistent' not found in indexed files.",
-			);
-			expect(result.stdout).toContain(
-				"Showing results for the entire project instead.",
+				"WARN path-prefix-missing prefix=nonexistent fallback=project",
 			);
 			expect(results.length).toBeGreaterThan(0);
+		});
+
+		it("supports compact query diagnostic warnings", () => {
+			const result = runCLI(
+				[
+					"search",
+					"definitely_missing_symbol_query_xyz",
+					"--max-files",
+					"3",
+					"--min-score",
+					"0.99",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("WARN no-results min-score=0.99");
+			expect(result.stdout).toContain("suggestion='try --min-score 0.55'");
+		});
+
+		it("supports search noise-control flags", () => {
+			const result = runCLI(
+				[
+					"search",
+					"session token validate user authentication",
+					"--max-files",
+					"6",
+					"--dedupe-file",
+					"--exclude-tests",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results.length).toBeGreaterThan(0);
+			expect(new Set(results.map((item) => item.filePath)).size).toBe(
+				results.length,
+			);
+			expect(results.every((item) => !item.filePath.includes("test"))).toBe(
+				true,
+			);
 		});
 
 		it("does not fall back when --path-prefix matches files", () => {

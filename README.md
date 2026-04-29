@@ -156,11 +156,19 @@ project root. If no `.indexer-cli/` data exists yet, it stops and tells you to r
 |--------------------------|---------|--------------------------------------------------------------------------------------------------------------|
 | `--max-files <number>`   | 3       | Number of results to return                                                                                  |
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
-| `--chunk-types <string>` | —       | Comma-separated filter: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types` |
+| `--chunk-types <string>` | —       | Comma-separated filter. Types: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types`; aliases: `api`, `impl`, `tests`, `imports` |
 | `--mode <mode>`          | hybrid  | Ranking mode: `hybrid`, `semantic`, `lexical`, or `symbol`                                                   |
 | `--include-imports`      | —       | Include `imports`/`preamble` chunks (excluded by default)                                                    |
 | `--min-score <number>`   | 0.45    | Filter out results below this score (0..1)                                                                   |
 | `--include-content`      | —       | Include matched code content in output (omitted by default to save tokens)                                   |
+| `--dedupe-file`          | —       | Return at most one result per file                                                                           |
+| `--dedupe-symbol`        | —       | Return at most one result per file/symbol pair                                                               |
+| `--cluster`              | —       | Group nearby similar chunks and show one representative                                                      |
+| `--exclude-tests`        | —       | Exclude test files from search results                                                                       |
+| `--include-tests`        | —       | Include test files without the default test penalty                                                          |
+
+`idx search` prints compact diagnostics when a query is likely too broad, a path prefix is missing, or a high
+`--min-score` filters every result. Example: `WARN no-results min-score=0.99 suggestion='try --min-score 0.55'`.
 
 ### `idx structure`
 
