@@ -67,6 +67,19 @@ function parseMaxFiles(value?: string): number | undefined {
 	return parsed;
 }
 
+function parseCursor(value?: string): number {
+	if (!value) {
+		return 0;
+	}
+
+	const parsed = Number.parseInt(value, 10);
+	if (!Number.isFinite(parsed) || parsed < 0) {
+		throw new Error("--cursor must be a non-negative integer");
+	}
+
+	return parsed;
+}
+
 function createNode(): TreeNode {
 	return { files: new Set<string>(), directories: new Map<string, TreeNode>() };
 }
@@ -104,9 +117,7 @@ function getSymbolKindRank(kind: string): number {
 	return SYMBOL_KIND_RANK.get(kind) ?? SYMBOL_KIND_ORDER.length;
 }
 
-function sortSymbols(
-	symbols: Array<{ name: string; kind: string; exported: boolean }>,
-): Array<{ name: string; kind: string; exported: boolean }> {
+function sortSymbols(symbols: SymbolRecord[]): SymbolRecord[] {
 	return [...symbols].sort((a, b) => {
 		const kindRank = getSymbolKindRank(a.kind) - getSymbolKindRank(b.kind);
 		if (kindRank !== 0) {
@@ -126,8 +137,18 @@ function sortSymbols(
 	});
 }
 
+function formatSymbolName(symbol: SymbolRecord): string {
+	const startLine = symbol.range.start.line;
+	const endLine = symbol.range.end.line;
+	const range =
+		Number.isFinite(startLine) && Number.isFinite(endLine)
+			? `:${startLine}-${endLine}`
+			: "";
+	return `${symbol.name}${range}`;
+}
+
 function formatSymbols(
-	symbols: Array<{ name: string; kind: string; exported: boolean }>,
+	symbols: SymbolRecord[],
 	includeInternal?: boolean,
 ): string | undefined {
 	if (symbols.length === 0) {
@@ -143,11 +164,11 @@ function formatSymbols(
 		const group = groups.get(key);
 
 		if (group) {
-			group.names.push(symbol.name);
+			group.names.push(formatSymbolName(symbol));
 			continue;
 		}
 
-		groups.set(key, { label, names: [symbol.name] });
+		groups.set(key, { label, names: [formatSymbolName(symbol)] });
 	}
 
 	return Array.from(groups.values())
@@ -158,7 +179,7 @@ function formatSymbols(
 function printFileLine(
 	indent: string,
 	fileLabel: string,
-	symbols: Array<{ name: string; kind: string; exported: boolean }>,
+	symbols: SymbolRecord[],
 	includeInternal?: boolean,
 ): void {
 	const formattedSymbols = formatSymbols(symbols, includeInternal);
@@ -316,6 +337,7 @@ export function registerStructureCommand(program: Command): void {
 			"limit directory traversal depth in the rendered tree",
 		)
 		.option("--max-files <number>", "limit number of files shown in output")
+		.option("--cursor <number>", "continue output from a previous TRUNC cursor")
 		.option("--include-fixtures", "include fixture/vendor paths in output")
 		.option(
 			"--include-internal",
@@ -329,6 +351,7 @@ export function registerStructureCommand(program: Command): void {
 				kind?: string;
 				maxDepth?: string;
 				maxFiles?: string;
+				cursor?: string;
 				includeFixtures?: boolean;
 				includeInternal?: boolean;
 				tests?: boolean;
@@ -359,8 +382,7 @@ export function registerStructureCommand(program: Command): void {
 				try {
 					let maxDepth = parseMaxDepth(options?.maxDepth);
 					const maxFiles = parseMaxFiles(options?.maxFiles);
-					const fileCounter =
-						maxFiles !== undefined ? { printed: 0, hidden: 0 } : undefined;
+					const cursor = parseCursor(options?.cursor);
 
 					await metadata.initialize();
 					const indexResult = await ensureIndexed(metadata, resolvedProjectPath, {
@@ -416,9 +438,14 @@ export function registerStructureCommand(program: Command): void {
 						options?.tests === false
 							? visibleFiles.filter((file) => !isTestFile(file.path))
 							: visibleFiles;
-					const visibleFilePaths = new Set(
-						filteredFiles.map((file) => file.path),
+					const sortedFilteredFiles = [...filteredFiles].sort((a, b) =>
+						a.path.localeCompare(b.path),
 					);
+					const pageFiles =
+						maxFiles === undefined
+							? sortedFilteredFiles.slice(cursor)
+							: sortedFilteredFiles.slice(cursor, cursor + maxFiles);
+					const visibleFilePaths = new Set(pageFiles.map((file) => file.path));
 					const allSymbols = await metadata.listSymbols(
 						DEFAULT_PROJECT_ID,
 						snapshot.id,
@@ -446,8 +473,14 @@ export function registerStructureCommand(program: Command): void {
 						symbolsByFile.set(symbol.filePath, current);
 					}
 
-					if (filteredFiles.length === 0) {
+					if (sortedFilteredFiles.length === 0) {
 						console.log("No indexed files found for the requested filters.");
+						return;
+					}
+					if (pageFiles.length === 0) {
+						console.log(
+							`No indexed files found at cursor=${cursor} for ${sortedFilteredFiles.length} matching files.`,
+						);
 						return;
 					}
 
@@ -455,7 +488,7 @@ export function registerStructureCommand(program: Command): void {
 					const stripPrefix = effectivePathPrefix
 						? effectivePathPrefix.replace(/\/+$/, "") + "/"
 						: "";
-					for (const file of filteredFiles) {
+					for (const file of pageFiles) {
 						const relativePath = stripPrefix
 							? file.path.slice(stripPrefix.length)
 							: file.path;
@@ -469,14 +502,40 @@ export function registerStructureCommand(program: Command): void {
 						symbolsByFile,
 						0,
 						maxDepth,
-						fileCounter,
-						maxFiles,
+						undefined,
+						undefined,
 						options?.includeInternal,
 					);
-					if (fileCounter && fileCounter.hidden > 0) {
+					const nextCursor = cursor + pageFiles.length;
+					const hidden = Math.max(0, sortedFilteredFiles.length - nextCursor);
+					if (hidden > 0) {
+						const nextParts = ["idx structure"];
+						if (effectivePathPrefix) {
+							nextParts.push(`--path-prefix ${effectivePathPrefix}`);
+						}
+						if (maxDepth !== undefined) {
+							nextParts.push(`--max-depth ${maxDepth}`);
+						}
+						if (maxFiles !== undefined) {
+							nextParts.push(`--max-files ${maxFiles}`);
+						}
+						if (options?.kind) {
+							nextParts.push(`--kind ${options.kind}`);
+						}
+						if (options?.includeInternal) {
+							nextParts.push("--include-internal");
+						}
+						if (options?.includeFixtures) {
+							nextParts.push("--include-fixtures");
+						}
+						if (options?.tests === false) {
+							nextParts.push("--no-tests");
+						}
+						nextParts.push(`--cursor ${nextCursor}`);
 						console.log(
-							`\n... and ${fileCounter.hidden} more files (use --max-files to see more)`,
+							`\nTRUNC hidden=${hidden} cursor=${nextCursor}`,
 						);
+						console.log(`NEXT ${nextParts.join(" ")}`);
 					}
 
 					if (options?.includeTestsSummary) {
@@ -484,7 +543,7 @@ export function registerStructureCommand(program: Command): void {
 							metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, {}),
 							metadata.listDependencies(DEFAULT_PROJECT_ID, snapshot.id),
 						]);
-						const printedPaths = filteredFiles
+						const printedPaths = pageFiles
 							.map((file) => file.path)
 							.filter((filePath) => !isTestFile(filePath))
 							.sort((a, b) => a.localeCompare(b));

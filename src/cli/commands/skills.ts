@@ -23,8 +23,8 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 ## Route to one command
 
 - \`idx architecture\` — repo shape, entry points, module boundaries, cycle causes, unresolved dependency classes
-- \`idx structure\` — file trees, exported symbols, contents of a directory/module
-- \`idx search\` — conceptual behavior questions like "how does X work?"
+- \`idx structure\` — file trees, exported symbols with line ranges, contents of a directory/module
+- \`idx search\` — conceptual behavior questions like "how does X work?"; returns ranked file ranges plus \`why=\` reason codes
 - \`idx explain\` — a known symbol when you want indexed explanation
 - \`idx deps\` — imported-by/imports or impact for a known path/module
 
@@ -34,10 +34,12 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 - Prefer the cheapest route that fits the question. Only run a second idx command if the first clearly failed or left a specific gap.
 - Use \`--path-prefix\` whenever the subsystem is known, e.g. \`src/api/\`, \`src/auth/\`.
 - For \`idx structure\`, also narrow with \`--kind\` when possible.
+- If \`idx structure\` prints \`TRUNC\`/\`NEXT\`, run the \`NEXT\` command only when the hidden page is still relevant.
 - For \`idx deps\`, start with \`--depth 1\`; increase only if first-hop impact is insufficient.
 - For \`idx explain\`, prefer \`file::symbol\` when the name may be ambiguous.
 - \`--include-content\` is expensive. Use it only when you need implementation detail *without* planning to \`Read\`; if you'll read files anyway, skip it.
 - After \`idx search\`, read the returned files/ranges. Do **not** follow search with \`idx explain\` on the same results.
+- Use \`Read next:\` from \`idx search\` as the default next file/range selection unless you have a better reason.
 - Do **not** run \`idx explain\` as a prelude to reading a file you already know you need.
 - Do **not** chain discovery steps mechanically (\`search → explain\`, \`explain → Read\`) when direct reading is cheaper.
 
@@ -77,6 +79,9 @@ idx search "auth session token validation" --dedupe-file --exclude-tests --max-f
 # Good: focus search on public API/type chunks
 idx search "payment processor interface" --chunk-types api --mode hybrid
 
+# Good: continue a capped structure page only if more files are needed
+idx structure --path-prefix src --max-depth 2 --max-files 20 --cursor 20
+
 # Good: explain a known symbol, scoped to a file
 idx explain src/api/client.ts::createClient
 
@@ -103,7 +108,7 @@ grep "MyType" src/models/
 ## CLI reference
 
 - Architecture: \`idx architecture [--path-prefix <area>] [--include-fixtures]\`
-- Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--include-internal] [--include-fixtures] [--no-tests] [--include-tests-summary]\`
+- Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--cursor <n>] [--include-internal] [--include-fixtures] [--no-tests] [--include-tests-summary]\`
 - Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types|api|impl|tests|imports>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports] [--dedupe-file] [--dedupe-symbol] [--cluster] [--exclude-tests] [--include-tests]\`
 - Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>] [--signature-only]\`
 - Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>] [--show-edges] [--tests]\`

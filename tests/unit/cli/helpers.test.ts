@@ -140,7 +140,8 @@ describe("CLI helper functions", () => {
 				typeof defaultVal === "number" && defaultVal >= 0 && defaultVal <= 1,
 			).toBe(true);
 			expect(search.parseMinScore("0.4")).toBe(0.4);
-			expect(() => search.parseMinScore("2")).toThrow(/--min-score/i);
+			expect(search.parseMinScore("2")).toBe(2);
+			expect(() => search.parseMinScore("-1")).toThrow(/--min-score/i);
 		});
 	});
 

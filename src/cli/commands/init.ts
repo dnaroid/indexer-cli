@@ -45,6 +45,7 @@ const DEFAULT_DEPRECATED_SKILL_DIRECTORIES = [
 async function writeClaudeSkills(
 	projectRoot: string,
 	skills = GENERATED_SKILLS,
+	options: { silent?: boolean } = {},
 ): Promise<void> {
 	for (const skill of skills) {
 		const skillDir = path.join(
@@ -56,7 +57,9 @@ async function writeClaudeSkills(
 		await mkdir(skillDir, { recursive: true });
 		const skillPath = path.join(skillDir, "SKILL.md");
 		await writeFile(skillPath, skill.content, "utf8");
-		console.log(`  Skill: ${path.relative(projectRoot, skillPath)}`);
+		if (!options.silent) {
+			console.log(`  Skill: ${path.relative(projectRoot, skillPath)}`);
+		}
 	}
 }
 
@@ -65,6 +68,7 @@ export async function refreshClaudeSkills(
 	skillDirectories = GENERATED_SKILL_DIRECTORIES,
 	skills = GENERATED_SKILLS,
 	deprecatedSkillDirectories = DEFAULT_DEPRECATED_SKILL_DIRECTORIES,
+	options: { silent?: boolean } = {},
 ): Promise<void> {
 	for (const skillDirectory of [
 		...skillDirectories,
@@ -78,13 +82,15 @@ export async function refreshClaudeSkills(
 		);
 		if (await pathExists(skillDir)) {
 			await rm(skillDir, { recursive: true, force: true });
-			console.log(
-				`  Removed stale skill: ${path.relative(projectRoot, skillDir)}`,
-			);
+			if (!options.silent) {
+				console.log(
+					`  Removed stale skill: ${path.relative(projectRoot, skillDir)}`,
+				);
+			}
 		}
 	}
 
-	await writeClaudeSkills(projectRoot, skills);
+	await writeClaudeSkills(projectRoot, skills, options);
 }
 
 async function ensureGitignoreEntries(

@@ -3,11 +3,13 @@ import type { DependencyRecord, FileRecord } from "../core/types.js";
 import { isTestFile } from "../engine/searcher.js";
 
 export type TestHintReason = "direct" | "related-name" | "related-path";
+export type TestHintConfidence = "high" | "medium" | "low";
 
 export interface TestHint {
 	testPath: string;
 	targetPath: string;
 	reason: TestHintReason;
+	confidence: TestHintConfidence;
 	score: number;
 }
 
@@ -70,6 +72,7 @@ function relationFromNames(testPath: string, targetPath: string): TestHint | nul
 			testPath,
 			targetPath,
 			reason: "related-name",
+			confidence: "medium",
 			score: 80,
 		};
 	}
@@ -80,6 +83,7 @@ function relationFromNames(testPath: string, targetPath: string): TestHint | nul
 			testPath,
 			targetPath,
 			reason: "related-path",
+			confidence: "low",
 			score: 40 + shared,
 		};
 	}
@@ -106,6 +110,7 @@ export function findNearestTests(options: FindNearestTestsOptions): TestHint[] {
 			testPath: dep.fromPath,
 			targetPath: dep.toPath,
 			reason: "direct",
+			confidence: "high",
 			score: 100,
 		});
 	}
@@ -136,12 +141,15 @@ export function formatTestHints(hints: TestHint[]): string[] {
 	if (hints.length === 0) return [];
 	return [
 		"Tests:",
-		...hints.map((hint) => `T ${hint.testPath} -> ${hint.targetPath} ${hint.reason}`),
+		...hints.map(
+			(hint) =>
+				`T ${hint.testPath} -> ${hint.targetPath} ${hint.reason} conf=${hint.confidence}`,
+		),
 	];
 }
 
 export function formatSuggestedVerification(hints: TestHint[]): string | undefined {
-	const first = hints[0];
+	const first = hints.find((hint) => hint.confidence !== "low");
 	if (!first) return undefined;
 	const stem = fileStem(first.testPath);
 	if (!stem) return undefined;
