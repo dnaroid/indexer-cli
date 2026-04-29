@@ -530,4 +530,72 @@ describe("OllamaEmbeddingProvider", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
 	});
+
+	it("includes Ollama error body details when /api/embed returns 400", async () => {
+		const provider = new OllamaEmbeddingProvider("http://localhost:11434");
+		vi.spyOn(provider as any, "fetchWithTimeout").mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					error: "input length exceeds the context length",
+				}),
+				{
+					status: 400,
+					headers: { "Content-Type": "application/json" },
+				},
+			),
+		);
+
+		await expect(
+			(provider as any).performEmbedRequest(["too long"]) as Promise<
+				number[][]
+			>,
+		).rejects.toThrow(
+			"Ollama responded with status 400: input length exceeds the context length",
+		);
+	});
+
+	it("falls back to status-only error when /api/embed returns a non-JSON error body", async () => {
+		const provider = new OllamaEmbeddingProvider("http://localhost:11434");
+		vi.spyOn(provider as any, "fetchWithTimeout").mockResolvedValueOnce(
+			new Response("plain text error", {
+				status: 400,
+				headers: { "Content-Type": "text/plain" },
+			}),
+		);
+
+		await expect(
+			(provider as any).performEmbedRequest(["bad body"]) as Promise<
+				number[][]
+			>,
+		).rejects.toThrow("Ollama responded with status 400");
+	});
+
+	it("includes Ollama error body details when fallback endpoint returns non-ok", async () => {
+		const provider = new OllamaEmbeddingProvider("http://localhost:11434");
+		vi.spyOn(provider as any, "fetchWithTimeout").mockResolvedValueOnce(
+			new Response(JSON.stringify({ error: "some error" }), {
+				status: 500,
+				headers: { "Content-Type": "application/json" },
+			}),
+		);
+
+		await expect(
+			(provider as any).fallbackSequentialEmbed(["bad fallback"]),
+		).rejects.toThrow(
+			"Ollama responded with status 500: some error (fallback)",
+		);
+	});
+
+	it("propagates error body through embed to embedBatch failure message", async () => {
+		const provider = new OllamaEmbeddingProvider("http://localhost:11434");
+		vi.spyOn(provider as any, "performEmbedRequest").mockRejectedValueOnce(
+			new Error(
+				"Ollama responded with status 400: input length exceeds the context length",
+			),
+		);
+
+		await expect((provider as any).embedBatch(["too long"])).rejects.toThrow(
+			"Ollama embedding failed: Ollama responded with status 400: input length exceeds the context length",
+		);
+	});
 });

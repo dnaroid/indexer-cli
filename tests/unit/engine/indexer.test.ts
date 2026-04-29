@@ -872,6 +872,30 @@ describe("IndexerEngine internals", () => {
 	});
 
 	describe("embedWithContextGuard", () => {
+		it("detects full propagated ollama 400 context length errors", () => {
+			const engine = new IndexerEngine(createMockOptions() as any);
+
+			expect(
+				(engine as any).isOllamaContextLengthError(
+					new Error(
+						"Ollama embedding failed: Ollama responded with status 400: input length exceeds the context length",
+					),
+				),
+			).toBe(true);
+			expect(
+				(engine as any).isOllamaContextLengthError(
+					new Error(
+						"Ollama embedding failed: Ollama responded with status 400",
+					),
+				),
+			).toBe(false);
+			expect(
+				(engine as any).isOllamaContextLengthError(
+					new Error("database timeout"),
+				),
+			).toBe(false);
+		});
+
 		it("retries with trimmed content after an ollama context overflow", async () => {
 			mockConfig({
 				embeddingProvider: "ollama",
@@ -900,6 +924,64 @@ describe("IndexerEngine internals", () => {
 			expect(options.embedder.embed.mock.calls[1]?.[0][0].length).toBeLessThan(
 				content.length,
 			);
+		});
+
+		it("retries with trimmed content for propagated ollama context length errors", async () => {
+			mockConfig({
+				embeddingProvider: "ollama",
+				ollamaNumCtx: 100,
+				embeddingModel: "jina-8k",
+			});
+			const options = createMockOptions();
+			options.embedder.embed
+				.mockRejectedValueOnce(
+					new Error(
+						"Ollama embedding failed: Ollama responded with status 400: input length exceeds the context length",
+					),
+				)
+				.mockResolvedValueOnce([[1, 2, 3]]);
+			const engine = new IndexerEngine(options as any);
+			setPrivateField(engine, "tokenEstimator", {
+				estimate: vi.fn((value: string) => Math.ceil(value.length / 5)),
+			});
+
+			const content = "x".repeat(500);
+			const embeddings = await (engine as any).embedWithContextGuard(
+				[content],
+				"test operation",
+			);
+
+			expect(embeddings).toEqual([[1, 2, 3]]);
+			expect(options.embedder.embed).toHaveBeenCalledTimes(2);
+			expect(options.embedder.embed.mock.calls[1]?.[0][0].length).toBeLessThan(
+				content.length,
+			);
+		});
+
+		it("throws non-context errors without retrying", async () => {
+			mockConfig({
+				embeddingProvider: "ollama",
+				ollamaNumCtx: 100,
+				embeddingModel: "jina-8k",
+			});
+			const options = createMockOptions();
+			options.embedder.embed.mockRejectedValue(
+				new Error("Ollama responded with status 500: internal server error"),
+			);
+			const engine = new IndexerEngine(options as any);
+			setPrivateField(engine, "tokenEstimator", {
+				estimate: vi.fn((value: string) => Math.ceil(value.length / 5)),
+			});
+
+			await expect(
+				(engine as any).embedWithContextGuard(
+					["x".repeat(500)],
+					"test operation",
+				),
+			).rejects.toThrow(
+				"Ollama responded with status 500: internal server error",
+			);
+			expect(options.embedder.embed).toHaveBeenCalledTimes(1);
 		});
 	});
 

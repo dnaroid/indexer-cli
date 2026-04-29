@@ -176,7 +176,10 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 			}
 
 			if (!response.ok) {
-				throw new Error(`Ollama responded with status ${response.status}`);
+				const errorDetail = await this.readErrorBody(response);
+				throw new Error(
+					`Ollama responded with status ${response.status}${errorDetail}`,
+				);
 			}
 
 			const data = await response.json();
@@ -218,8 +221,9 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 			);
 
 			if (!response.ok) {
+				const errorDetail = await this.readErrorBody(response);
 				throw new Error(
-					`Ollama responded with status ${response.status} (fallback)`,
+					`Ollama responded with status ${response.status}${errorDetail} (fallback)`,
 				);
 			}
 
@@ -355,5 +359,17 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 		} finally {
 			clearTimeout(timeoutId);
 		}
+	}
+
+	private async readErrorBody(response: Response): Promise<string> {
+		try {
+			const data = await response.json();
+			if (data?.error && typeof data.error === "string") {
+				return `: ${data.error}`;
+			}
+		} catch {
+			// response body not readable — omit details
+		}
+		return "";
 	}
 }
