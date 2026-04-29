@@ -159,7 +159,7 @@ project root. If no `.indexer-cli/` data exists yet, it stops and tells you to r
 | `--chunk-types <string>` | —       | Comma-separated filter. Types: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types`; aliases: `api`, `impl`, `tests`, `imports` |
 | `--mode <mode>`          | hybrid  | Ranking mode: `hybrid`, `semantic`, `lexical`, or `symbol`                                                   |
 | `--include-imports`      | —       | Include `imports`/`preamble` chunks (excluded by default)                                                    |
-| `--min-score <number>`   | 0.45    | Filter out results below this score (0..1)                                                                   |
+| `--min-score <number>`   | 0.55    | Filter out results below the final ranking score. Semantic scores are usually 0..1; hybrid scores may exceed 1 |
 | `--include-content`      | —       | Include matched code content in output (omitted by default to save tokens)                                   |
 | `--dedupe-file`          | —       | Return at most one result per file                                                                           |
 | `--dedupe-symbol`        | —       | Return at most one result per file/symbol pair                                                               |
@@ -168,7 +168,15 @@ project root. If no `.indexer-cli/` data exists yet, it stops and tells you to r
 | `--include-tests`        | —       | Include test files without the default test penalty                                                          |
 
 `idx search` prints compact diagnostics when a query is likely too broad, a path prefix is missing, or a high
-`--min-score` filters every result. Example: `WARN no-results min-score=0.99 suggestion='try --min-score 0.55'`.
+`--min-score` filters every result. Each result includes a line range, `rank=<mode>`, and compact `why=` reason codes.
+The final line suggests the cheapest file ranges to read next. Example:
+
+```text
+src/cli/commands/search.ts:93-169 (score: 2.24, rank=hybrid, function: registerSearchCommand, why=symbol+path+text+semantic)
+Read next: src/cli/commands/search.ts:93-169
+```
+
+No-result diagnostics stay compact, for example: `WARN no-results min-score=0.99 suggestion='try --min-score 0.55'`.
 
 ### `idx structure`
 
@@ -181,8 +189,24 @@ files if needed.
 | `--kind <string>`        | Filter by symbol kind: `function`, `class`, `method`, `interface`, `type`, `variable`, `module`, `signal` |
 | `--max-depth <number>`   | Limit directory traversal depth in the rendered tree                                                      |
 | `--max-files <number>`   | Limit number of files shown in output                                                                     |
+| `--cursor <number>`      | Continue from a previous `TRUNC` cursor                                                                   |
+| `--include-internal`     | Include non-exported/internal symbols                                                                     |
+| `--include-fixtures`     | Include fixture/vendor paths in output                                                                    |
 | `--no-tests`             | Exclude test files from output                                                                            |
 | `--include-tests-summary` | Show nearest tests for listed source files                                                                |
+
+`idx structure` annotates symbols with line ranges, so agents can jump directly to the smallest useful `Read` range:
+
+```text
+search.ts — function: registerSearchCommand:93-294
+```
+
+When output is capped with `--max-files`, truncation is explicit and includes a continuation command:
+
+```text
+TRUNC hidden=49 cursor=5
+NEXT idx structure --path-prefix src --max-depth 2 --max-files 5 --cursor 5
+```
 
 ### `idx architecture`
 
