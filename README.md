@@ -182,6 +182,7 @@ files if needed.
 | `--max-depth <number>`   | Limit directory traversal depth in the rendered tree                                                      |
 | `--max-files <number>`   | Limit number of files shown in output                                                                     |
 | `--no-tests`             | Exclude test files from output                                                                            |
+| `--include-tests-summary` | Show nearest tests for listed source files                                                                |
 
 ### `idx architecture`
 
@@ -212,6 +213,7 @@ relative to the project root, not the subdirectory where you ran the command.
 | `--include-fixtures`     | —       | Include fixture/vendor paths in lookup       |
 | `--include-body`         | —       | Include a compact body preview               |
 | `--body-lines <number>`  | 40      | Number of body preview lines, from 1 to 200  |
+| `--signature-only`       | —       | Omit dependency context, tests, and body hints |
 
 ### `idx deps <path>`
 
@@ -225,6 +227,7 @@ Path arguments stay project-root-relative even when you invoke the command from 
 | `--direction <dir>` | both | `callers`/imported-by, `callees`/imports, or `both`        |
 | `--depth <n>`    | 1       | Traversal depth, with transitive edges marked as `d=<n>`   |
 | `--show-edges`   | —       | Show the import specifier/kind that created each edge      |
+| `--tests`        | —       | Show nearest/impacted tests and a suggested verification command |
 
 ### `idx uninstall`
 

@@ -183,10 +183,10 @@ describe.sequential("CLI e2e", () => {
 			const result = runCLI(["index", "--status"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Files: 31");
+			expect(result.stdout).toContain("Files: 32");
 			expect(result.stdout).toContain("Symbols:");
 			expect(result.stdout).toContain("Chunks:");
-			expect(result.stdout).toContain("Languages: typescript: 31");
+			expect(result.stdout).toContain("Languages: typescript: 32");
 		});
 
 		it("shows the indexed file tree", () => {
@@ -903,6 +903,19 @@ describe.sequential("CLI e2e", () => {
 			expect(depth1.stdout).toContain("v1/");
 			expect(depth1.stdout).toContain("handler.ts");
 		});
+
+		it("shows nearest tests with --include-tests-summary", () => {
+			const result = runCLI(
+				["structure", "--path-prefix", "src/services", "--include-tests-summary"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Tests:");
+			expect(result.stdout).toContain(
+				"T tests/services/user.test.ts -> src/services/user.ts direct",
+			);
+		});
 	});
 
 	describe.sequential("architecture", () => {
@@ -911,7 +924,7 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 31");
+			expect(result.stdout).toContain("typescript: 32");
 			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("Module dependency graph");
 			expect(result.stdout).toMatch(/payments|services|auth/);
@@ -951,7 +964,7 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).not.toContain("not found in indexed files");
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 31");
+			expect(result.stdout).toContain("typescript: 32");
 		});
 
 		it("detects multiple entrypoints including workers", () => {
@@ -986,7 +999,7 @@ describe.sequential("CLI e2e", () => {
 				"Showing results for the entire project instead.",
 			);
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 31");
+			expect(result.stdout).toContain("typescript: 32");
 		});
 
 		it("does not fall back when --path-prefix matches files", () => {
@@ -1121,6 +1134,17 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Symbol: Status");
 			expect(result.stdout).toContain("src/inventory/tracker.ts");
 		});
+
+		it("shows nearest tests and suggested verification", () => {
+			const result = runCLI(["explain", "UserService"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Tests:");
+			expect(result.stdout).toContain(
+				"T tests/services/user.test.ts -> src/services/user.ts direct",
+			);
+			expect(result.stdout).toContain("Verify: npm test -- user");
+		});
 	});
 
 	describe.sequential("deps", () => {
@@ -1218,6 +1242,19 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("src/services/order.ts");
 			expect(result.stdout).toContain("src/inventory/tracker.ts");
 			expect(result.stdout).toContain("src/utils/logger.ts");
+		});
+
+		it("shows impacted tests and suggested verification with --tests", () => {
+			const result = runCLI(["deps", "src/services/user.ts", "--tests"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("Tests:");
+			expect(result.stdout).toContain(
+				"T tests/services/user.test.ts -> src/services/user.ts direct",
+			);
+			expect(result.stdout).toContain("Verify: npm test -- user");
 		});
 	});
 

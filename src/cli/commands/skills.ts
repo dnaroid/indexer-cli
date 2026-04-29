@@ -103,10 +103,10 @@ grep "MyType" src/models/
 ## CLI reference
 
 - Architecture: \`idx architecture [--path-prefix <area>] [--include-fixtures]\`
-- Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--include-internal] [--include-fixtures] [--no-tests]\`
+- Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--include-internal] [--include-fixtures] [--no-tests] [--include-tests-summary]\`
 - Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types|api|impl|tests|imports>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports] [--dedupe-file] [--dedupe-symbol] [--cluster] [--exclude-tests] [--include-tests]\`
-- Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>]\`
-- Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>] [--show-edges]\`
+- Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>] [--signature-only]\`
+- Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>] [--show-edges] [--tests]\`
 `,
 	},
 ];

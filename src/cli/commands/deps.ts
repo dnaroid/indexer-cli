@@ -6,6 +6,11 @@ import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { formatAutoIndexResult } from "../format/compact.js";
+import {
+	findNearestTests,
+	formatSuggestedVerification,
+	formatTestHints,
+} from "../test-hints.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 import type { DependencyRecord } from "../../core/types.js";
 
@@ -96,6 +101,7 @@ export function registerDepsCommand(program: Command): void {
 		)
 		.option("--depth <n>", "traversal depth (default: 1)", "1")
 		.option("--show-edges", "show import specifier reasons for dependency edges")
+		.option("--tests", "show nearest/impacted tests and suggested verification")
 		.action(
 			async (
 				targetPath: string,
@@ -103,6 +109,7 @@ export function registerDepsCommand(program: Command): void {
 					direction?: string;
 					depth?: string;
 					showEdges?: boolean;
+					tests?: boolean;
 				},
 			) => {
 				let resolvedProjectPath: string;
@@ -150,6 +157,7 @@ export function registerDepsCommand(program: Command): void {
 						Math.min(5, parseInt(options?.depth ?? "1", 10)),
 					);
 					const showEdges = options?.showEdges === true;
+					const includeTests = options?.tests === true;
 
 					// Normalize path (strip leading ./)
 					const normalizedPath = targetPath.replace(/^\.\//, "");
@@ -267,6 +275,31 @@ export function registerDepsCommand(program: Command): void {
 					console.log(
 						`\nRisk: ${risk} imported-by=${result.importedBy.length} imports=${result.imports.length} mode=module-imports`,
 					);
+
+					if (includeTests) {
+						const [allFiles, allDependencies] = await Promise.all([
+							metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, {}),
+							metadata.listDependencies(DEFAULT_PROJECT_ID, snapshot.id),
+						]);
+						const testHints = findNearestTests({
+							targetPaths: seedPaths,
+							files: allFiles,
+							dependencies: allDependencies,
+							maxTests: 3,
+						});
+						const testLines = formatTestHints(testHints);
+						if (testLines.length > 0) {
+							console.log("");
+							for (const line of testLines) {
+								console.log(line);
+							}
+							const verify = formatSuggestedVerification(testHints);
+							if (verify) console.log(verify);
+						} else {
+							console.log("\nTests: none");
+							console.log("Verify: inspect package scripts");
+						}
+					}
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);

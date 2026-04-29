@@ -7,6 +7,11 @@ import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { formatAutoIndexResult } from "../format/compact.js";
+import {
+	findNearestTests,
+	formatSuggestedVerification,
+	formatTestHints,
+} from "../test-hints.js";
 import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -297,6 +302,12 @@ export function registerExplainCommand(program: Command): void {
 						return;
 					}
 
+					const allFiles = await metadata.listFiles(
+						DEFAULT_PROJECT_ID,
+						snapshot.id,
+						{},
+					);
+
 					const results = await Promise.all(
 						finalMatches.map(async (sym) => {
 							const [deps, dependents] = await Promise.all([
@@ -330,6 +341,12 @@ export function registerExplainCommand(program: Command): void {
 									.filter((d) => d.dependencyType === "internal" && d.toPath)
 									.map((d) => d.toPath as string)
 									.filter((v, i, arr) => arr.indexOf(v) === i),
+								tests: findNearestTests({
+									targetPaths: [sym.filePath],
+									files: allFiles,
+									dependencies: dependents,
+									maxTests: 3,
+								}),
 							};
 						}),
 					);
@@ -363,6 +380,15 @@ export function registerExplainCommand(program: Command): void {
 							for (const callee of result.callees) {
 								console.log(`  ${callee}`);
 							}
+						}
+						const testLines = formatTestHints(result.tests);
+						if (testLines.length > 0) {
+							console.log("");
+							for (const line of testLines) {
+								console.log(line);
+							}
+							const verify = formatSuggestedVerification(result.tests);
+							if (verify) console.log(verify);
 						}
 						if (options?.includeBody) {
 							try {
