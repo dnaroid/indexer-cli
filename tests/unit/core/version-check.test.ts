@@ -41,6 +41,7 @@ vi.mock("../../../src/core/skills-version.js", () => ({
 }));
 
 const tempDirs: string[] = [];
+const originalIndexerCliHome = process.env.INDEXER_CLI_HOME;
 
 function createTempDir(): string {
 	const dir = mkdtempSync(path.join(tmpdir(), "version-check-test-"));
@@ -61,6 +62,11 @@ afterEach(async () => {
 	refreshSkillsMock.mockReset();
 	ensureIdxBinaryMock.mockReset();
 	process.exitCode = undefined;
+	if (originalIndexerCliHome === undefined) {
+		delete process.env.INDEXER_CLI_HOME;
+	} else {
+		process.env.INDEXER_CLI_HOME = originalIndexerCliHome;
+	}
 
 	await Promise.all(
 		tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
@@ -249,6 +255,97 @@ describe("checkAndRefreshSkills", () => {
 		expect(refreshSkillsMock).not.toHaveBeenCalled();
 		expect(ensureIdxBinaryMock).not.toHaveBeenCalled();
 	});
+
+describe("refreshRegisteredProjectSkillsIfNeeded", () => {
+	it("refreshes only registered projects with stale skills versions", async () => {
+		const registryHome = createTempDir();
+		process.env.INDEXER_CLI_HOME = registryHome;
+
+		const staleProject = createTempDir();
+		const currentProject = createTempDir();
+		writeConfig(
+			staleProject,
+			JSON.stringify({ version: "0.5.0", skillsVersion: 12345 }),
+		);
+		writeConfig(
+			currentProject,
+			JSON.stringify({ version: "0.5.0", skillsVersion: mockSkillsVersion }),
+		);
+
+		const { addProject, getRegisteredProjects } = await import(
+			"../../../src/core/registry.js"
+		);
+		addProject({
+			projectPath: staleProject,
+			cliVersion: "0.5.0",
+			skillsVersion: 12345,
+		});
+		addProject({
+			projectPath: currentProject,
+			cliVersion: "0.5.0",
+			skillsVersion: mockSkillsVersion,
+		});
+
+		const { refreshRegisteredProjectSkillsIfNeeded } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await refreshRegisteredProjectSkillsIfNeeded({ silent: true });
+
+		expect(result).toEqual({
+			checked: 2,
+			refreshed: 1,
+			failed: 0,
+			stale: 0,
+		});
+		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
+		expect(refreshSkillsMock).toHaveBeenCalledWith(staleProject);
+		expect(ensureIdxBinaryMock).toHaveBeenCalledTimes(1);
+
+		const updatedConfig = JSON.parse(
+			readFileSync(
+				path.join(staleProject, ".indexer-cli", "config.json"),
+				"utf8",
+			),
+		);
+		expect(updatedConfig.skillsVersion).toBe(mockSkillsVersion);
+
+		const updatedRegistry = getRegisteredProjects();
+		expect(
+			updatedRegistry.find(
+				(entry) => path.resolve(entry.projectPath) === staleProject,
+			)?.skillsVersion,
+		).toBe(mockSkillsVersion);
+	});
+
+	it("removes stale registry entries before checking skills", async () => {
+		const registryHome = createTempDir();
+		process.env.INDEXER_CLI_HOME = registryHome;
+
+		const staleProject = createTempDir();
+		const { addProject, getRegisteredProjects } = await import(
+			"../../../src/core/registry.js"
+		);
+		addProject({
+			projectPath: staleProject,
+			cliVersion: "0.5.0",
+			skillsVersion: 12345,
+		});
+
+		const { refreshRegisteredProjectSkillsIfNeeded } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await refreshRegisteredProjectSkillsIfNeeded({ silent: true });
+
+		expect(result).toEqual({
+			checked: 0,
+			refreshed: 0,
+			failed: 0,
+			stale: 1,
+		});
+		expect(getRegisteredProjects()).toEqual([]);
+		expect(refreshSkillsMock).not.toHaveBeenCalled();
+	});
+});
 
 	it("returns false when skillsVersion matches current version", async () => {
 		const tempDir = createTempDir();

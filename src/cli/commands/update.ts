@@ -1,6 +1,37 @@
+import { execFileSync } from "node:child_process";
 import type { Command } from "commander";
 import { performManualUpdate } from "../../core/update-check.js";
 import { PACKAGE_VERSION } from "../../core/version.js";
+import { refreshRegisteredProjectSkillsIfNeeded } from "../../core/version-check.js";
+
+function runFreshSkillsRefresh(): void {
+	try {
+		execFileSync(
+			"idx",
+			["--no-auto-update", "doctor", "--check-skills-only", "--force"],
+			{
+				stdio: "inherit",
+			},
+		);
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		console.error(
+			`Failed to refresh registered project skills with the updated CLI: ${message}`,
+		);
+		process.exitCode = 1;
+	}
+}
+
+async function refreshSkillsWithCurrentCli(): Promise<void> {
+	const result = await refreshRegisteredProjectSkillsIfNeeded();
+	if (result.refreshed > 0 || result.stale > 0) {
+		console.log(
+			`Skills check: refreshed ${result.refreshed} of ${result.checked} registered projects${
+				result.stale > 0 ? `, removed ${result.stale} stale entries` : ""
+			}`,
+		);
+	}
+}
 
 function describeSkipReason(reason: string): string {
 	switch (reason) {
@@ -29,8 +60,10 @@ export function registerUpdateCommand(program: Command): void {
 			switch (result.kind) {
 				case "no-update":
 					console.log(`indexer-cli is already up to date (${PACKAGE_VERSION}).`);
+					await refreshSkillsWithCurrentCli();
 					return;
 				case "updated":
+					runFreshSkillsRefresh();
 					return;
 				case "skipped":
 					console.error(`Update skipped: ${describeSkipReason(result.reason)}`);

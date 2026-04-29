@@ -7,6 +7,14 @@ import { SKILLS_VERSION } from "./skills-version.js";
 import { refreshClaudeSkills } from "../cli/commands/init.js";
 import { ensureIdxBinary } from "./idx-binary.js";
 import { resolveInitializedProjectRoot } from "../cli/project-root.js";
+import { addProject, cleanStaleEntries, getRegisteredProjects } from "./registry.js";
+
+export interface RefreshSkillsResult {
+	checked: number;
+	refreshed: number;
+	failed: number;
+	stale: number;
+}
 
 /**
  * Parse a version string into [major, minor, patch].
@@ -93,13 +101,10 @@ export async function checkAndMigrateIfNeeded(): Promise<boolean> {
 	}
 }
 
-export async function checkAndRefreshSkills(): Promise<boolean> {
-	let projectRoot: string;
-	try {
-		projectRoot = resolveInitializedProjectRoot().projectRoot;
-	} catch {
-		return false;
-	}
+async function refreshSkillsIfNeededForProject(
+	projectRoot: string,
+	options: { announce?: boolean; silent?: boolean } = {},
+): Promise<boolean> {
 	const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
 
 	if (!existsSync(configPath)) {
@@ -126,13 +131,17 @@ export async function checkAndRefreshSkills(): Promise<boolean> {
 		return false;
 	}
 
-	console.error(
-		`indexer-cli: skills updated (version ${storedSkillsVersion ?? "none"} → ${SKILLS_VERSION}). Refreshing .claude/skills/...`,
-	);
+	if (options.announce !== false) {
+		console.error(
+			`indexer-cli: skills updated (version ${storedSkillsVersion ?? "none"} → ${SKILLS_VERSION}). Refreshing .claude/skills/...`,
+		);
+	}
 
 	const originalConsoleLog = console.log;
 	try {
-		console.log = () => undefined;
+		if (options.silent !== false) {
+			console.log = () => undefined;
+		}
 		await refreshClaudeSkills(projectRoot);
 	} finally {
 		console.log = originalConsoleLog;
@@ -145,4 +154,91 @@ export async function checkAndRefreshSkills(): Promise<boolean> {
 	writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 
 	return true;
+}
+
+export async function forceRefreshProjectSkills(
+	projectRoot: string,
+	options: { silent?: boolean } = {},
+): Promise<void> {
+	const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
+
+	if (!existsSync(configPath)) {
+		return;
+	}
+
+	const originalConsoleLog = console.log;
+	try {
+		if (options.silent) {
+			console.log = () => undefined;
+		}
+		await refreshClaudeSkills(projectRoot);
+	} finally {
+		console.log = originalConsoleLog;
+	}
+	ensureIdxBinary();
+
+	const raw = readFileSync(configPath, "utf8");
+	const parsed = JSON.parse(raw) as Record<string, unknown>;
+	parsed.skillsVersion = SKILLS_VERSION;
+	writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+
+	addProject({
+		projectPath: projectRoot,
+		cliVersion: PACKAGE_VERSION,
+		skillsVersion: SKILLS_VERSION,
+	});
+}
+
+export async function checkAndRefreshSkills(): Promise<boolean> {
+	let projectRoot: string;
+	try {
+		projectRoot = resolveInitializedProjectRoot().projectRoot;
+	} catch {
+		return false;
+	}
+
+	return refreshSkillsIfNeededForProject(projectRoot);
+}
+
+export async function refreshRegisteredProjectSkillsIfNeeded(
+	options: { silent?: boolean } = {},
+): Promise<RefreshSkillsResult> {
+	const staleEntries = cleanStaleEntries();
+	const projects = getRegisteredProjects();
+	const result: RefreshSkillsResult = {
+		checked: projects.length,
+		refreshed: 0,
+		failed: 0,
+		stale: staleEntries.length,
+	};
+
+	for (const entry of projects) {
+		const projectRoot = path.resolve(entry.projectPath);
+		try {
+			const refreshed = await refreshSkillsIfNeededForProject(projectRoot, {
+				announce: !options.silent,
+				silent: true,
+			});
+			if (refreshed) {
+				result.refreshed += 1;
+				addProject({
+					projectPath: projectRoot,
+					cliVersion: PACKAGE_VERSION,
+					skillsVersion: SKILLS_VERSION,
+				});
+			}
+		} catch (error) {
+			result.failed += 1;
+			if (!options.silent) {
+				const message = error instanceof Error ? error.message : String(error);
+				console.error(`Failed to refresh skills in ${projectRoot}: ${message}`);
+			}
+		}
+	}
+
+	if (result.failed > 0) {
+		process.exitCode = 1;
+	}
+
+	return result;
 }

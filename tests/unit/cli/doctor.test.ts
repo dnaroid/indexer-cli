@@ -34,18 +34,18 @@ describe("doctor source contract", () => {
 		expect(source).not.toContain('"reinit"');
 	});
 
-	it("doctor command imports performInit, performUninstall, refreshClaudeSkills and registry functions", () => {
+	it("doctor command imports performInit, performUninstall, skills refresh helpers and registry functions", () => {
 		const source = readFileSync(
 			path.resolve(import.meta.dirname, "../../../src/cli/commands/doctor.ts"),
 			"utf8",
 		);
 
-		expect(source).toContain(
-			'import { performInit, refreshClaudeSkills } from "./init.js";',
-		);
+		expect(source).toContain('import { performInit } from "./init.js";');
 		expect(source).toContain(
 			'import { performUninstall } from "./uninstall.js";',
 		);
+		expect(source).toContain("forceRefreshProjectSkills");
+		expect(source).toContain("refreshRegisteredProjectSkillsIfNeeded");
 		expect(source).toContain("getRegisteredProjects");
 		expect(source).toContain("cleanStaleEntries");
 		expect(source).toContain("performSetup");
@@ -60,6 +60,7 @@ describe("doctor command registration", () => {
 		);
 
 		expect(source).toContain('.argument("[dir]"');
+		expect(source).toContain("--check-skills-only");
 		expect(source).toContain("--skills-only");
 		expect(source).toContain("-f, --force");
 	});

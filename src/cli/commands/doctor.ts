@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises";
 import type { Command } from "commander";
 import { PACKAGE_VERSION } from "../../core/version.js";
 import { SKILLS_VERSION } from "../../core/skills-version.js";
-import { performInit, refreshClaudeSkills } from "./init.js";
+import { performInit } from "./init.js";
 import { performUninstall } from "./uninstall.js";
 import { performSetup } from "./setup.js";
 import {
@@ -14,6 +14,10 @@ import {
 	getRegisteredProjects,
 	cleanStaleEntries,
 } from "../../core/registry.js";
+import {
+	forceRefreshProjectSkills,
+	refreshRegisteredProjectSkillsIfNeeded,
+} from "../../core/version-check.js";
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
@@ -53,12 +57,20 @@ export function registerDoctorCommand(program: Command): void {
 		.command("doctor")
 		.description("Health-check and repair registered indexer projects")
 		.argument("[dir]", "scan a workspace directory for indexed projects")
+		.option(
+			"--check-skills-only",
+			"only refresh registered project skills when their stored skills version is stale",
+		)
 		.option("--skills-only", "only refresh skills without full reinstall")
 		.option("-f, --force", "skip confirmation prompt")
 		.action(
 			async (
 				dir: string | undefined,
-				options: { skillsOnly?: boolean; force?: boolean },
+				options: {
+					checkSkillsOnly?: boolean;
+					skillsOnly?: boolean;
+					force?: boolean;
+				},
 			) => {
 				console.log("\nRegistered projects:");
 				const allRegistered = getRegisteredProjects();
@@ -72,6 +84,23 @@ export function registerDoctorCommand(program: Command): void {
 				console.log("");
 
 				performSetup();
+
+				if (dir === undefined && !options.skillsOnly) {
+					const refreshResult = await refreshRegisteredProjectSkillsIfNeeded();
+					if (refreshResult.refreshed > 0 || refreshResult.stale > 0) {
+						console.log(
+							`Skills check: refreshed ${refreshResult.refreshed} of ${refreshResult.checked} registered projects${
+								refreshResult.stale > 0
+									? `, removed ${refreshResult.stale} stale entries`
+									: ""
+							}`,
+						);
+					}
+				}
+
+				if (options.checkSkillsOnly) {
+					return;
+				}
 
 				let projectPaths: string[] = [];
 
@@ -165,7 +194,7 @@ export function registerDoctorCommand(program: Command): void {
 
 					try {
 						if (options.skillsOnly) {
-							await refreshClaudeSkills(projectPath);
+							await forceRefreshProjectSkills(projectPath);
 						} else {
 							await performUninstall(projectPath);
 							await performInit(projectPath, {
