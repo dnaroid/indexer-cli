@@ -1303,6 +1303,92 @@ describe("IndexerEngine internals", () => {
 			expect(onFileStart).toHaveBeenNthCalledWith(2, "src/two.ts", 2, 2);
 			expect(errors).toEqual([]);
 		});
+
+		it("does not fail a whole TinyMCE i18n-like batch when one file exceeds ollama context", async () => {
+			mockConfig({
+				embeddingProvider: "ollama",
+				ollamaNumCtx: 100,
+				indexBatchSize: 2,
+			});
+			const repoRoot = createTempRepo();
+			const filePaths = [
+				"public/tinymce/plugins/help/js/i18n/keynav/el.js",
+				"public/tinymce/plugins/help/js/i18n/keynav/en.js",
+			];
+			for (const filePath of filePaths) {
+				mkdirSync(join(repoRoot, filePath.split("/").slice(0, -1).join("/")), {
+					recursive: true,
+				});
+				writeFileSync(
+					join(repoRoot, filePath),
+					[
+						"tinymce.Resource.add('tinymce.html-i18n.help-keynav.test',",
+						"'<h1>Keyboard navigation</h1>\\n' +",
+						"'<p>" + "x".repeat(2000) + "</p>\\n');",
+					].join("\n"),
+					"utf8",
+				);
+			}
+
+			const options = createMockOptions({ repoRoot });
+			options.embedder.embed.mockImplementation(async (texts: string[]) => {
+				if (texts.some((text) => text.startsWith("Z"))) {
+					throw new Error("input length exceeds the context length");
+				}
+				return texts.map((_, index) => [index + 0.1, index + 0.2, index + 0.3]);
+			});
+			const engine = new IndexerEngine(options as any);
+			vi.spyOn(engine as any, "prepareFileRecords").mockImplementation(
+				async (...args: any[]) => {
+					const filePath = args[0].filePath;
+					const content = filePath.endsWith("el.js")
+						? `Z${"x".repeat(4000)}`
+						: "short keyboard navigation help";
+					const chunkRecords: ChunkRecord[] = [
+						{
+							snapshotId: "snapshot-1",
+							chunkId: `${filePath}-chunk-1`,
+							filePath,
+							startLine: 1,
+							endLine: 3,
+							contentHash: `${filePath}-hash-1`,
+							tokenEstimate: content.length,
+							chunkType: "impl",
+							hasOverlap: false,
+						},
+					];
+					return createPreparedFileData(filePath, {
+						chunkRecords,
+						chunksContent: new Map([[chunkRecords[0].chunkId, content]]),
+					});
+				},
+			);
+			const errors: string[] = [];
+
+			await (engine as any).indexPreparedFiles({
+				projectId: "project-id",
+				repoRoot,
+				gitRef: "head-commit",
+				snapshotId: "snapshot-1",
+				filesToIndex: filePaths,
+				knownFiles: new Set(filePaths),
+				totalFiles: filePaths.length,
+				errors,
+				operation: "batch indexing",
+			});
+
+			expect(errors).toEqual([
+				expect.stringContaining(
+					"Invalid embedding for public/tinymce/plugins/help/js/i18n/keynav/el.js",
+				),
+			]);
+			expect(errors.join("\n")).not.toContain("Embedding failed for");
+			expect(options.vectors.upsert).toHaveBeenCalledWith([
+				expect.objectContaining({
+					filePath: "public/tinymce/plugins/help/js/i18n/keynav/en.js",
+				}),
+			]);
+		});
 	});
 
 	describe("indexProject", () => {

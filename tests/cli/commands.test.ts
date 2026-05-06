@@ -27,7 +27,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, rank=[^,)]+)?(?:, function: (.+?))?, why=[^)]+\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -481,7 +481,9 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toMatch(/\(score: [\d.]+(?:, function: .+?)?, why=[^)]+\)/);
+			expect(result.stdout).toMatch(
+				/\(score: [\d.]+(?:, (?!why=)\w+=[^,)]+)*(?:, function: .+?)?, why=[^)]+\)/,
+			);
 			expect(result.stdout).not.toMatch(/^\s+why=/m);
 			expect(result.stdout).toContain("Read next:");
 		});
@@ -492,7 +494,14 @@ describe.sequential("CLI e2e", () => {
 				{ cwd: TEMP_DIR },
 			);
 			const invalid = runCLI(
-				["search", "auth session", "--mode", "invalid-mode", "--max-files", "2"],
+				[
+					"search",
+					"auth session",
+					"--mode",
+					"invalid-mode",
+					"--max-files",
+					"2",
+				],
 				{ cwd: TEMP_DIR },
 			);
 
@@ -906,7 +915,12 @@ describe.sequential("CLI e2e", () => {
 
 		it("shows nearest tests with --include-tests-summary", () => {
 			const result = runCLI(
-				["structure", "--path-prefix", "src/services", "--include-tests-summary"],
+				[
+					"structure",
+					"--path-prefix",
+					"src/services",
+					"--include-tests-summary",
+				],
 				{ cwd: TEMP_DIR },
 			);
 
@@ -1058,9 +1072,12 @@ describe.sequential("CLI e2e", () => {
 		});
 
 		it("ignores --path-prefix .", () => {
-			const result = runCLI(["explain", "createSession", "--path-prefix", "."], {
-				cwd: TEMP_DIR,
-			});
+			const result = runCLI(
+				["explain", "createSession", "--path-prefix", "."],
+				{
+					cwd: TEMP_DIR,
+				},
+			);
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Symbol: createSession");
@@ -1089,13 +1106,7 @@ describe.sequential("CLI e2e", () => {
 
 		it("shows a bounded body preview with --include-body", () => {
 			const result = runCLI(
-				[
-					"explain",
-					"createSession",
-					"--include-body",
-					"--body-lines",
-					"3",
-				],
+				["explain", "createSession", "--include-body", "--body-lines", "3"],
 				{ cwd: TEMP_DIR },
 			);
 
@@ -1154,7 +1165,9 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
+			expect(result.stdout).toContain(
+				"M src/services/user.ts mode=module-imports",
+			);
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("src/auth/session.ts");
@@ -1197,7 +1210,9 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
+			expect(result.stdout).toContain(
+				"M src/services/user.ts mode=module-imports",
+			);
 			expect(result.stdout).toContain("Callers");
 		});
 
@@ -1207,9 +1222,15 @@ describe.sequential("CLI e2e", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M src/services/user.ts mode=module-imports");
-			expect(result.stdout).toContain("<- src/index.ts via=./services/user kind=import");
-			expect(result.stdout).toContain("-> src/auth/session.ts via=../auth/session kind=import");
+			expect(result.stdout).toContain(
+				"M src/services/user.ts mode=module-imports",
+			);
+			expect(result.stdout).toContain(
+				"<- src/index.ts via=./services/user kind=import",
+			);
+			expect(result.stdout).toContain(
+				"-> src/auth/session.ts via=../auth/session kind=import",
+			);
 		});
 
 		it("keeps default deps output compact with IDX header", () => {

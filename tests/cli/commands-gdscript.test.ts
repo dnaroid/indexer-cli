@@ -29,7 +29,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, rank=[^,)]+)?(?:, function: (.+?))?, why=[^)]+\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -281,7 +281,7 @@ describe.sequential("CLI e2e GDScript", () => {
 			const withoutContentResultLines = withoutContent.stdout
 				.split("\n")
 				.filter((line) =>
-					/^.+?:\d+-\d+ \(score: [\d.]+(?:, function: .+?)?(?:, why=[^)]+)?\)$/.test(
+					/^.+?:\d+-\d+ \(score: [\d.]+(?:, rank=[^,)]+)?(?:, function: .+?)?, why=[^)]+\)$/.test(
 						line.trim(),
 					),
 				);
@@ -392,7 +392,9 @@ describe.sequential("CLI e2e GDScript", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("function (internal): _process, _ready");
+			expect(result.stdout).toMatch(
+				/function \(internal\): _process:\d+-\d+, _ready:\d+-\d+/,
+			);
 			expect(result.stdout).not.toContain("class:");
 		});
 
@@ -402,7 +404,9 @@ describe.sequential("CLI e2e GDScript", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("signal: combat_ended, damage_dealt");
+			expect(result.stdout).toMatch(
+				/signal: combat_ended:\d+-\d+, damage_dealt:\d+-\d+/,
+			);
 			expect(result.stdout).not.toContain("function:");
 		});
 
@@ -533,7 +537,9 @@ describe.sequential("CLI e2e GDScript", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M scripts/core/game_engine.gd mode=module-imports");
+			expect(result.stdout).toContain(
+				"M scripts/core/game_engine.gd mode=module-imports",
+			);
 			expect(result.stdout).toContain("scripts/game/game_manager.gd");
 			expect(result.stdout).toContain("scripts/utils/helpers.gd");
 			expect(result.stdout).toContain("scripts/constants/game_constants.gd");

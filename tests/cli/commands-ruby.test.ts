@@ -33,7 +33,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, rank=[^,)]+)?(?:, function: (.+?))?, why=[^)]+\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -337,7 +337,7 @@ describe.sequential("CLI e2e Ruby", () => {
 			const withoutContentResultLines = withoutContent.stdout
 				.split("\n")
 				.filter((line) =>
-					/^.+?:\d+-\d+ \(score: [\d.]+(?:, function: .+?)?(?:, why=[^)]+)?\)$/.test(
+					/^.+?:\d+-\d+ \(score: [\d.]+(?:, rank=[^,)]+)?(?:, function: .+?)?, why=[^)]+\)$/.test(
 						line.trim(),
 					),
 				);
@@ -423,7 +423,9 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("lib/");
 			expect(result.stdout).toContain("processor.rb");
-			expect(result.stdout).toContain("module: Payments, ProcessorBase");
+			expect(result.stdout).toMatch(
+				/module: Payments:\d+-\d+, ProcessorBase:\d+-\d+/,
+			);
 		});
 
 		it("filters classes with --kind class", () => {
@@ -442,8 +444,8 @@ describe.sequential("CLI e2e Ruby", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain(
-				"method: create_session, login_access, validate_token",
+			expect(result.stdout).toMatch(
+				/method: create_session:\d+-\d+, login_access:\d+-\d+, validate_token:\d+-\d+/,
 			);
 			expect(result.stdout).not.toContain("class:");
 		});
@@ -454,7 +456,9 @@ describe.sequential("CLI e2e Ruby", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("module: Payments, ProcessorBase");
+			expect(result.stdout).toMatch(
+				/module: Payments:\d+-\d+, ProcessorBase:\d+-\d+/,
+			);
 			expect(result.stdout).not.toContain("class:");
 		});
 
@@ -464,8 +468,8 @@ describe.sequential("CLI e2e Ruby", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain(
-				"method (internal): build_name, normalize_email",
+			expect(result.stdout).toMatch(
+				/method \(internal\): build_name:\d+-\d+, normalize_email:\d+-\d+/,
 			);
 			expect(result.stdout).not.toContain(
 				"method: build_name, normalize_email",
@@ -623,7 +627,9 @@ describe.sequential("CLI e2e Ruby", () => {
 			const dependencies = await listIndexedDependencies("lib/core/engine.rb");
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M lib/core/engine.rb mode=module-imports");
+			expect(result.stdout).toContain(
+				"M lib/core/engine.rb mode=module-imports",
+			);
 			expect(result.stdout).toContain("lib/core/health_check.rb");
 			expect(result.stdout).toContain("lib/core/scheduler.rb");
 			expect(result.stdout).toContain("lib/middleware/cors.rb");
@@ -761,7 +767,9 @@ describe.sequential("CLI e2e Ruby", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M lib/services/user_service.rb mode=module-imports");
+			expect(result.stdout).toContain(
+				"M lib/services/user_service.rb mode=module-imports",
+			);
 			expect(result.stdout).toContain("Callers");
 		});
 
@@ -791,7 +799,9 @@ describe.sequential("CLI e2e Ruby", () => {
 			);
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M lib/workers/batch_processor.rb mode=module-imports");
+			expect(result.stdout).toContain(
+				"M lib/workers/batch_processor.rb mode=module-imports",
+			);
 			expect(result.stdout).toContain("lib/workers/queue_worker.rb");
 			expect(result.stdout).toContain("lib/core/scheduler.rb");
 			expect(result.stdout).toContain("lib/core/engine.rb");

@@ -31,7 +31,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, rank=[^,)]+)?(?:, function: (.+?))?, why=[^)]+\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -345,7 +345,7 @@ describe.sequential("CLI e2e CSharp", () => {
 			const withoutContentResultLines = withoutContent.stdout
 				.split("\n")
 				.filter((line) =>
-					/^.+?:\d+-\d+ \(score: [\d.]+(?:, function: .+?)?(?:, why=[^)]+)?\)$/.test(
+					/^.+?:\d+-\d+ \(score: [\d.]+(?:, rank=[^,)]+)?(?:, function: .+?)?, why=[^)]+\)$/.test(
 						line.trim(),
 					),
 				);
@@ -465,8 +465,8 @@ describe.sequential("CLI e2e CSharp", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain(
-				"method: FormatDisplayName, ValidatePlayer",
+			expect(result.stdout).toMatch(
+				/method: FormatDisplayName:\d+-\d+, ValidatePlayer:\d+-\d+/,
 			);
 			expect(result.stdout).toMatch(/ProcessPayment|Awake|Update/);
 			expect(result.stdout).not.toContain("class:");

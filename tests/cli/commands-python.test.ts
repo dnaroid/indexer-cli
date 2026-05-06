@@ -34,7 +34,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, function: (.+?))?(?:, why=[^)]+)?\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, rank=[^,)]+)?(?:, function: (.+?))?, why=[^)]+\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -432,8 +432,8 @@ describe.sequential("CLI e2e Python", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("src/");
 			expect(result.stdout).toContain("processor.py");
-			expect(result.stdout).toContain(
-				"class: PaymentAuditHook, PaymentProcessor, PaymentReceipt, PaymentRequest",
+			expect(result.stdout).toMatch(
+				/class: PaymentAuditHook:\d+-\d+, PaymentProcessor:\d+-\d+, PaymentReceipt:\d+-\d+, PaymentRequest:\d+-\d+/,
 			);
 		});
 
@@ -443,7 +443,9 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("class: Policy, UserValidator");
+			expect(result.stdout).toMatch(
+				/class: Policy:\d+-\d+, UserValidator:\d+-\d+/,
+			);
 			expect(result.stdout).not.toContain("function:");
 		});
 
@@ -453,8 +455,8 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain(
-				"function: create_access_session, create_session, login_user, read_access_token, validate_token",
+			expect(result.stdout).toMatch(
+				/function: create_access_session:\d+-\d+, create_session:\d+-\d+, login_user:\d+-\d+, read_access_token:\d+-\d+, validate_token:\d+-\d+/,
 			);
 			expect(result.stdout).not.toContain("class:");
 		});
@@ -625,7 +627,9 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M src/services/order.py mode=module-imports");
+			expect(result.stdout).toContain(
+				"M src/services/order.py mode=module-imports",
+			);
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).toContain("Callees");
 		});
@@ -747,7 +751,9 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M src/services/order.py mode=module-imports");
+			expect(result.stdout).toContain(
+				"M src/services/order.py mode=module-imports",
+			);
 			expect(result.stdout).toContain("Callers");
 		});
 
@@ -757,7 +763,9 @@ describe.sequential("CLI e2e Python", () => {
 			});
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("M src/workers/email.py mode=module-imports");
+			expect(result.stdout).toContain(
+				"M src/workers/email.py mode=module-imports",
+			);
 			expect(result.stdout).toContain("Callers");
 			expect(result.stdout).toContain("Callees");
 		});
