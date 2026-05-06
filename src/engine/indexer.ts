@@ -351,7 +351,52 @@ export class IndexerEngine {
 
 				const embeddings: number[][] = [];
 				for (const item of sizeDetails) {
-					embeddings.push((await this.embedder.embed([item.content]))[0]);
+					let currentBudget = tokenBudget;
+					let currentContent = item.content;
+					let lastContextError: unknown = null;
+
+					while (currentBudget >= 1) {
+						try {
+							embeddings.push((await this.embedder.embed([currentContent]))[0]);
+							lastContextError = null;
+							break;
+						} catch (itemError) {
+							if (!this.isOllamaContextLengthError(itemError)) {
+								throw itemError;
+							}
+
+							lastContextError = itemError;
+							const nextBudget = Math.floor(currentBudget * 0.5);
+							if (nextBudget < 1 || currentContent.length <= 1) {
+								break;
+							}
+
+							currentBudget = nextBudget;
+							currentContent = this.trimToTokenBudget(
+								contents[item.index],
+								currentBudget,
+							);
+						}
+					}
+
+					if (lastContextError) {
+						const message =
+							lastContextError instanceof Error
+								? lastContextError.message
+								: String(lastContextError);
+						logger.warn(
+							`Skipping one embedding item after repeated Ollama context overflows during ${operation}`,
+							{
+								operation,
+								index: item.index,
+								originalChars: contents[item.index].length,
+								originalTokens: this.tokenEstimator.estimate(contents[item.index]),
+								lastBudget: currentBudget,
+								message,
+							},
+						);
+						embeddings.push([]);
+					}
 				}
 				return embeddings;
 			};
