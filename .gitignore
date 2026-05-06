@@ -19,3 +19,4 @@ yarn-error.log*
 .indexer-cli/
 .claude/
 .pi/
+.pi
