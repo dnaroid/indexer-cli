@@ -983,6 +983,47 @@ describe("IndexerEngine internals", () => {
 			);
 			expect(options.embedder.embed).toHaveBeenCalledTimes(1);
 		});
+
+		it("falls back to individual embeddings after repeated batch context overflows", async () => {
+			mockConfig({
+				embeddingProvider: "ollama",
+				ollamaNumCtx: 100,
+				embeddingModel: "jina-8k",
+			});
+			const options = createMockOptions();
+			options.embedder.embed
+				.mockRejectedValueOnce(
+					new Error("input length exceeds the context length"),
+				)
+				.mockRejectedValueOnce(
+					new Error("input length exceeds the context length"),
+				)
+				.mockRejectedValueOnce(
+					new Error("input length exceeds the context length"),
+				)
+				.mockResolvedValueOnce([[1, 2, 3]])
+				.mockResolvedValueOnce([[4, 5, 6]]);
+			const engine = new IndexerEngine(options as any);
+			setPrivateField(engine, "tokenEstimator", {
+				estimate: vi.fn((value: string) => Math.ceil(value.length / 5)),
+			});
+
+			const embeddings = await (engine as any).embedWithContextGuard(
+				["x".repeat(500), "y".repeat(500)],
+				"test operation",
+			);
+
+			expect(embeddings).toEqual([
+				[1, 2, 3],
+				[4, 5, 6],
+			]);
+			expect(options.embedder.embed).toHaveBeenCalledTimes(5);
+			expect(options.embedder.embed.mock.calls[3]?.[0]).toHaveLength(1);
+			expect(options.embedder.embed.mock.calls[4]?.[0]).toHaveLength(1);
+			expect(options.embedder.embed.mock.calls[3]?.[0][0].length).toBeLessThan(
+				500,
+			);
+		});
 	});
 
 	describe("loadChurnByFile", () => {

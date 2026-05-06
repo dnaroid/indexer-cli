@@ -297,11 +297,8 @@ export class IndexerEngine {
 				throw error;
 			}
 
-			const retryWithBudget = async (
-				tokenBudget: number,
-				passName: string,
-			): Promise<number[][]> => {
-				const sizeDetails = contents.map((content, index) => {
+			const buildSizeDetails = (tokenBudget: number) =>
+				contents.map((content, index) => {
 					const originalTokens = this.tokenEstimator.estimate(content);
 					const trimmedContent = this.trimToTokenBudget(content, tokenBudget);
 					const trimmedTokens = this.tokenEstimator.estimate(trimmedContent);
@@ -317,6 +314,11 @@ export class IndexerEngine {
 					};
 				});
 
+			const logContextOverflowRetry = (
+				tokenBudget: number,
+				passName: string,
+				sizeDetails: ReturnType<typeof buildSizeDetails>,
+			) => {
 				logger.warn(`Embedding context overflow during ${operation}`, {
 					operation,
 					passName,
@@ -329,8 +331,29 @@ export class IndexerEngine {
 					).length,
 					sizes: sizeDetails.map(({ content: _content, ...detail }) => detail),
 				});
+			};
+
+			const retryWithBudget = async (
+				tokenBudget: number,
+				passName: string,
+			): Promise<number[][]> => {
+				const sizeDetails = buildSizeDetails(tokenBudget);
+				logContextOverflowRetry(tokenBudget, passName, sizeDetails);
 
 				return this.embedder.embed(sizeDetails.map((item) => item.content));
+			};
+
+			const retryIndividuallyWithBudget = async (
+				tokenBudget: number,
+			): Promise<number[][]> => {
+				const sizeDetails = buildSizeDetails(tokenBudget);
+				logContextOverflowRetry(tokenBudget, "individual", sizeDetails);
+
+				const embeddings: number[][] = [];
+				for (const item of sizeDetails) {
+					embeddings.push((await this.embedder.embed([item.content]))[0]);
+				}
+				return embeddings;
 			};
 
 			try {
@@ -342,10 +365,20 @@ export class IndexerEngine {
 				if (!this.isOllamaContextLengthError(retryError)) {
 					throw retryError;
 				}
-				return retryWithBudget(
-					Math.max(16, Math.floor(ollamaNumCtx * 0.75)),
-					"second",
-				);
+				try {
+					return await retryWithBudget(
+						Math.max(16, Math.floor(ollamaNumCtx * 0.75)),
+						"second",
+					);
+				} catch (secondRetryError) {
+					if (!this.isOllamaContextLengthError(secondRetryError)) {
+						throw secondRetryError;
+					}
+
+					return retryIndividuallyWithBudget(
+						Math.max(16, Math.floor(ollamaNumCtx * 0.6)),
+					);
+				}
 			}
 		}
 	}
