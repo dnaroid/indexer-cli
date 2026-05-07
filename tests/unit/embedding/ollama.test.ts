@@ -135,6 +135,11 @@ describe("OllamaEmbeddingProvider", () => {
 		).toBe(true);
 		expect(
 			(provider as any).isConnectionError({
+				message: "Request to /api/embed timed out after 180000ms",
+			}),
+		).toBe(true);
+		expect(
+			(provider as any).isConnectionError({
 				cause: { code: "ETIMEDOUT" },
 			}),
 		).toBe(true);
@@ -284,6 +289,44 @@ describe("OllamaEmbeddingProvider", () => {
 
 		expect(result).toEqual([mockEmbedding(10), mockEmbedding(20)]);
 		expect(fetchWithTimeout).toHaveBeenCalledTimes(3);
+	});
+
+	it("uses a longer timeout for batch embedding requests", async () => {
+		const provider = new OllamaEmbeddingProvider("http://localhost:11434");
+		const fetchWithTimeout = vi
+			.spyOn(provider as any, "fetchWithTimeout")
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({ embeddings: [mockEmbedding(1), mockEmbedding(2)] }),
+					{
+						status: 200,
+						headers: { "Content-Type": "application/json" },
+					},
+				),
+			);
+
+		await (provider as any).performEmbedRequest(["first", "second"]);
+
+		expect(fetchWithTimeout).toHaveBeenCalledWith(
+			"http://localhost:11434/api/embed",
+			expect.objectContaining({ method: "POST" }),
+			90_000,
+		);
+	});
+
+	it("uses a long timeout when pulling an Ollama model", async () => {
+		const provider = new OllamaEmbeddingProvider("http://localhost:11434");
+		const fetchWithTimeout = vi
+			.spyOn(provider as any, "fetchWithTimeout")
+			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+		await (provider as any).pullModel();
+
+		expect(fetchWithTimeout).toHaveBeenCalledWith(
+			"http://localhost:11434/api/pull",
+			expect.objectContaining({ method: "POST" }),
+			1_800_000,
+		);
 	});
 
 	it("throws when the fallback sequential endpoint returns a non-ok response", async () => {
@@ -459,7 +502,7 @@ describe("OllamaEmbeddingProvider", () => {
 		expect((provider as any).reconnectInFlight).toBeNull();
 	});
 
-	it("starts Ollama in the background when the spawn command succeeds", () => {
+	it("starts Ollama in the background when the spawn command succeeds", async function () {
 		vi.resetModules();
 		const execSyncMock = vi.fn().mockReturnValue(Buffer.from(""));
 		vi.doMock("node:child_process", async (importOriginal) => {
@@ -468,23 +511,22 @@ describe("OllamaEmbeddingProvider", () => {
 			return { ...actual, execSync: execSyncMock };
 		});
 
-		return import("../../../src/embedding/ollama.js").then(
-			({ OllamaEmbeddingProvider }) => {
-				const provider = new OllamaEmbeddingProvider("http://localhost:11434");
+		const { OllamaEmbeddingProvider } = await import(
+			"../../../src/embedding/ollama.js"
+		);
+		const provider = new OllamaEmbeddingProvider("http://localhost:11434");
 
-				expect(() => (provider as any).startOllama()).not.toThrow();
-				expect(execSyncMock).toHaveBeenCalledWith(
-					"ollama serve > /dev/null 2>&1 &",
-					{
-						stdio: "pipe",
-						timeout: 3000,
-					},
-				);
-
-				vi.doUnmock("node:child_process");
-				vi.resetModules();
+		expect(() => (provider as any).startOllama()).not.toThrow();
+		expect(execSyncMock).toHaveBeenCalledWith(
+			"ollama serve > /dev/null 2>&1 &",
+			{
+				stdio: "pipe",
+				timeout: 3000,
 			},
 		);
+
+		vi.doUnmock("node:child_process");
+		vi.resetModules();
 	});
 
 	it("initialize delegates to ensureOllamaAvailable", async () => {
@@ -504,7 +546,7 @@ describe("OllamaEmbeddingProvider", () => {
 		await expect(provider.close()).resolves.toBeUndefined();
 	});
 
-	it("aborts fetchWithTimeout when the timeout expires", async () => {
+	it("reports fetchWithTimeout expiration with endpoint details", async () => {
 		vi.useFakeTimers();
 		const fetchMock = vi.fn(
 			(_url: string, init?: RequestInit) =>
@@ -526,7 +568,9 @@ describe("OllamaEmbeddingProvider", () => {
 
 		await vi.advanceTimersByTimeAsync(25);
 
-		await expect(pending).rejects.toThrow("aborted");
+		await expect(pending).rejects.toThrow(
+			"Request to /api/embed timed out after 25ms",
+		);
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
 	});

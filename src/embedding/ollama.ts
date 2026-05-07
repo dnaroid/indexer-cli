@@ -4,6 +4,11 @@ import { SystemLogger } from "../core/logger.js";
 
 const logger = new SystemLogger("embeddings-ollama");
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const EMBED_REQUEST_BASE_TIMEOUT_MS = 60_000;
+const EMBED_REQUEST_PER_TEXT_TIMEOUT_MS = 15_000;
+const PULL_MODEL_TIMEOUT_MS = 30 * 60_000;
+
 export class OllamaEmbeddingProvider implements EmbeddingProvider {
 	public readonly id = "ollama";
 	public readonly dimension = 768;
@@ -14,7 +19,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 	private concurrency: number;
 	private numCtx: number;
 	private reconnectInFlight: Promise<void> | null = null;
-	private readonly requestTimeoutMs = 15_000;
+	private readonly requestTimeoutMs = DEFAULT_REQUEST_TIMEOUT_MS;
 
 	constructor(
 		baseUrl: string,
@@ -139,7 +144,8 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 			message.includes("ETIMEDOUT") ||
 			message.includes("ECONNRESET") ||
 			message.includes("EHOSTUNREACH") ||
-			message.toLowerCase().includes("timeout")
+			message.toLowerCase().includes("timeout") ||
+			message.toLowerCase().includes("timed out")
 		);
 	}
 
@@ -169,6 +175,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 						},
 					}),
 				},
+				this.getEmbeddingRequestTimeoutMs(texts.length),
 			);
 
 			if (response.status === 404) {
@@ -218,6 +225,7 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 						},
 					}),
 				},
+				this.getEmbeddingRequestTimeoutMs(1),
 			);
 
 			if (!response.ok) {
@@ -241,14 +249,18 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 
 	private async pullModel(): Promise<void> {
 		try {
-			await this.fetchWithTimeout(`${this.baseUrl}/api/pull`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					name: this.model,
-					stream: false,
-				}),
-			});
+			await this.fetchWithTimeout(
+				`${this.baseUrl}/api/pull`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						name: this.model,
+						stream: false,
+					}),
+				},
+				PULL_MODEL_TIMEOUT_MS,
+			);
 			logger.info(`Model ${this.model} pulled successfully.`);
 		} catch (error: unknown) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -353,12 +365,31 @@ export class OllamaEmbeddingProvider implements EmbeddingProvider {
 		timeoutMs = this.requestTimeoutMs,
 	): Promise<Response> {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+		let timedOut = false;
+		const timeoutId = setTimeout(() => {
+			timedOut = true;
+			controller.abort();
+		}, timeoutMs);
 		try {
 			return await fetch(url, { ...init, signal: controller.signal });
+		} catch (error) {
+			if (timedOut) {
+				throw new Error(
+					`Request to ${new URL(url).pathname} timed out after ${timeoutMs}ms`,
+					{ cause: error },
+				);
+			}
+			throw error;
 		} finally {
 			clearTimeout(timeoutId);
 		}
+	}
+
+	private getEmbeddingRequestTimeoutMs(textCount: number): number {
+		return (
+			EMBED_REQUEST_BASE_TIMEOUT_MS +
+			Math.max(1, textCount) * EMBED_REQUEST_PER_TEXT_TIMEOUT_MS
+		);
 	}
 
 	private async readErrorBody(response: Response): Promise<string> {
