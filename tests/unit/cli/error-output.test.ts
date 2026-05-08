@@ -90,13 +90,44 @@ describe("CLI error output", () => {
 		expect(hasStackTrace(result.stdout)).toBe(false);
 	});
 
-	it("produces only one-line error messages (no multi-line dumps)", () => {
+	it("produces error message with available options listed for unknown global option", () => {
 		const result = runCLI(["--nonexistent"]);
 
 		expect(result.exitCode).toBe(1);
 		const errorLines = result.stderr.split("\n").filter((l) => l.trim());
-		expect(errorLines).toHaveLength(1);
 		expect(errorLines[0]).toMatch(/^error:/);
+		expect(result.stderr).toContain("Available options:");
+		expect(result.stderr).toContain("--no-auto-update");
+		expect(hasStackTrace(result.stderr)).toBe(false);
+	});
+
+	it("produces error message with available commands listed for unknown command", () => {
+		const result = runCLI(["nonexistent-command"]);
+
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr).toContain(
+			"error: unknown command 'nonexistent-command'",
+		);
+		expect(result.stderr).toContain("Available commands:");
+		expect(result.stderr).toContain("index");
+		expect(result.stderr).toContain("search");
+		expect(result.stderr).toContain("setup");
+		expect(hasStackTrace(result.stderr)).toBe(false);
+	});
+
+	it("produces error message with subcommand-specific options for unknown subcommand option", () => {
+		const result = runCLI(["search", "--bogusflag"]);
+
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr).toContain("error: unknown option '--bogusflag'");
+		expect(result.stderr).toContain("Available options:");
+		// search-specific options
+		expect(result.stderr).toContain("--max-files");
+		expect(result.stderr).toContain("--mode");
+		expect(result.stderr).toContain("--path-prefix");
+		// should NOT contain global-only options
+		expect(result.stderr).not.toContain("--no-auto-update");
+		expect(hasStackTrace(result.stderr)).toBe(false);
 	});
 
 	it("keeps --help and --version working with exit code 0", () => {

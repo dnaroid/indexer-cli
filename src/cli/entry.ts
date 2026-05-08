@@ -83,6 +83,34 @@ function isHandledCommanderExit(error: unknown): boolean {
 	return typeof code === "string" && HANDLED_COMMANDER_EXIT_CODES.has(code);
 }
 
+function getCommandNameFromArgv(): string | null {
+	const args = process.argv.slice(2);
+	const firstNonFlag = args.find((a) => !a.startsWith("-"));
+	if (firstNonFlag && program.commands.some((c) => c.name() === firstNonFlag)) {
+		return firstNonFlag;
+	}
+	return null;
+}
+
+function formatAvailableOptions(): string {
+	const commandName = getCommandNameFromArgv();
+	const cmd = commandName
+		? program.commands.find((c) => c.name() === commandName)
+		: program;
+	if (!cmd || cmd.options.length === 0) return "";
+	const lines = cmd.options.map((o) => {
+		const desc = o.description ? `  ${o.description}` : "";
+		return `  ${o.flags}${desc}`;
+	});
+	return `\nAvailable options:\n${lines.join("\n")}`;
+}
+
+function formatAvailableCommands(): string {
+	const commands = program.commands.map((c) => c.name()).filter(Boolean);
+	if (commands.length === 0) return "";
+	return `\nAvailable commands:\n  ${commands.join("\n  ")}`;
+}
+
 program
 	.name("idx")
 	.description("Lightweight project indexer with semantic search.")
@@ -130,6 +158,14 @@ async function main(): Promise<void> {
 	} catch (error: unknown) {
 		if (!isHandledCommanderExit(error)) {
 			throw error;
+		}
+		if (typeof error === "object" && error !== null && "code" in error) {
+			const code = Reflect.get(error, "code");
+			if (code === "commander.unknownOption") {
+				console.error(formatAvailableOptions());
+			} else if (code === "commander.unknownCommand") {
+				console.error(formatAvailableCommands());
+			}
 		}
 		if (typeof error === "object" && error !== null && "exitCode" in error) {
 			const exitCode = Reflect.get(error, "exitCode");
