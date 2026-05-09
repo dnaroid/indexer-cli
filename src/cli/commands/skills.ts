@@ -10,8 +10,8 @@ export const GENERATED_SKILLS: GeneratedSkill[] = [
 		directory: "repo-discovery",
 		content: `---
 name: repo-discovery
-description: FIRST choice for repository discovery and code understanding. Use this to choose the cheapest indexed path for architecture, structure, behavior, symbol, AST, or dependency questions before broad file reads or grep.
-allowed-tools: Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*)
+description: FIRST choice for repository discovery and code understanding. Use this to choose the cheapest indexed path for architecture, structure, behavior, symbol, AST, or dependency questions before broad file reads or blind text search.
+allowed-tools: Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*), Bash(rg:*), Bash(grep:*)
 ---
 
 # Use repo-discovery as the indexed entry point
@@ -46,17 +46,17 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 - Do **not** run \`idx explain\` as a prelude to reading a file you already know you need.
 - Do **not** chain discovery steps mechanically (\`search → explain\`, \`explain → Read\`) when direct reading is cheaper.
 
-## Use idx vs grep/LSP
+## Use idx vs exact text search/LSP
 
 idx is **semantic** search: use it when you do **not** know the exact name and need to find code by meaning.
 
-Use \`grep\`/LSP when the target is already concrete:
-- exact identifier name → \`grep\`, \`lsp_symbols\`, or references/definition tools
+Use exact text search/LSP when the target is already concrete:
+- exact identifier name → \`rg\` (preferred), \`grep\`, \`lsp_symbols\`, or references/definition tools
 - exact small file path → \`Read\`
 - exact large file path + unknown internal layout → \`idx ast <file>\`, then read the smallest ranges
 - known file + known symbol → \`idx explain file::symbol\` or LSP if exact lookup is enough
 
-Rule of thumb: if you can write an exact search pattern, use \`grep\`/LSP. Use idx for exploration, not lookup.
+Rule of thumb: avoid broad blind \`rg\`/\`grep\`/\`find\` during discovery, but if you can write an exact search pattern, use \`rg\`/LSP. Use idx for exploration, not lookup.
 
 ## Query guidance
 
@@ -102,7 +102,7 @@ idx deps src/api/client.ts --show-edges
 idx search "MyType" --path-prefix src/models/
 
 # Better: exact lookup is cheaper
-grep "MyType" src/models/
+rg -n "MyType" src/models/
 \`\`\`
 
 ## Skip idx when

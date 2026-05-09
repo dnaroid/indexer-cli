@@ -7,7 +7,7 @@ right code.
 
 The main feature of `indexer-cli` is not just search on its own: it turns your repository into something coding agents
 can navigate efficiently. Running `idx init` installs a project-local discovery skill so Claude, OpenCode, and similar
-tools can pick the right indexed workflow instead of wasting tokens on blind `grep`, `find`, and repeated file reads.
+tools can pick the right indexed workflow instead of wasting tokens on blind `rg`/`grep`, `find`, and repeated file reads.
 
 Under the hood, `indexer-cli` indexes source code, generates vector embeddings through a local Ollama instance, and
 stores everything in a per-project `.indexer-cli/` directory. That gives both humans and agents fast natural-language
@@ -79,7 +79,7 @@ before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
 
-Without repo-local skills, agents often spend tokens on repetitive repository discovery: broad `grep`, repeated file
+Without repo-local skills, agents often spend tokens on repetitive repository discovery: broad `rg`/`grep`, repeated file
 reads, and trial-and-error navigation. With `indexer-cli`, agents can load one focused discovery skill and start from
 the right indexed path immediately.
 
@@ -107,7 +107,7 @@ idx architecture
 All discovery commands return human-readable text output, optimized for coding agents.
 
 This is especially useful in Claude and OpenCode setups, where project-local skills can guide the agent away from
-blind `grep`/`find` usage and toward indexed discovery, which usually means less wasted context and lower token usage
+blind `rg`/`grep`/`find` usage and toward indexed discovery, which usually means less wasted context and lower token usage
 during repo discovery.
 
 ## CLI Commands
