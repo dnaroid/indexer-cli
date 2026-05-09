@@ -20,7 +20,7 @@ post-commit hook keeps the index up to date automatically.
 - **`idx` command alias**: `setup` installs or repairs a clean `idx` wrapper — no npm warnings in agent output
 - **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated
   context loading
-- **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby
+- **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby, Rust
 - **Semantic code search**: Natural language queries over your entire codebase
 - **Incremental indexing**: Uses `git diff` to re-index only changed files, bulk-copies unchanged vectors
 - **Local-first**: All data stored in `.indexer-cli/` inside the project (SQLite + sqlite-vec)

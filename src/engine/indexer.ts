@@ -26,6 +26,7 @@ import { PythonPlugin } from "../languages/python.js";
 import { CSharpPlugin } from "../languages/csharp.js";
 import { GDScriptPlugin } from "../languages/gdscript.js";
 import { RubyPlugin } from "../languages/ruby.js";
+import { RustPlugin } from "../languages/rust.js";
 import { SystemLogger } from "../core/logger.js";
 import { config } from "../core/config.js";
 import { TokenEstimator } from "../utils/token-estimator.js";
@@ -121,7 +122,8 @@ export type BuiltinLanguagePluginId =
 	| "python"
 	| "csharp"
 	| "gdscript"
-	| "ruby";
+	| "ruby"
+	| "rust";
 
 export const DEFAULT_LANGUAGE_PLUGIN_IDS: readonly BuiltinLanguagePluginId[] = [
 	"typescript",
@@ -129,6 +131,7 @@ export const DEFAULT_LANGUAGE_PLUGIN_IDS: readonly BuiltinLanguagePluginId[] = [
 	"csharp",
 	"gdscript",
 	"ruby",
+	"rust",
 ];
 
 const BUILTIN_LANGUAGE_PLUGIN_FACTORIES: Record<
@@ -140,6 +143,7 @@ const BUILTIN_LANGUAGE_PLUGIN_FACTORIES: Record<
 	csharp: () => new CSharpPlugin(),
 	gdscript: () => new GDScriptPlugin(),
 	ruby: () => new RubyPlugin(),
+	rust: () => new RustPlugin(),
 };
 
 function normalizeImportKind(
@@ -390,7 +394,9 @@ export class IndexerEngine {
 								operation,
 								index: item.index,
 								originalChars: contents[item.index].length,
-								originalTokens: this.tokenEstimator.estimate(contents[item.index]),
+								originalTokens: this.tokenEstimator.estimate(
+									contents[item.index],
+								),
 								lastBudget: currentBudget,
 								message,
 							},
@@ -592,9 +598,17 @@ export class IndexerEngine {
 		const isCSharp = languageId === "csharp";
 		const isGDScript = languageId === "gdscript";
 		const isRuby = languageId === "ruby";
+		const isRust = languageId === "rust";
 		const isJSImport =
 			languageId === "typescript" || languageId === "javascript";
-		if (!isPython && !isCSharp && !isGDScript && !isRuby && !isJSImport) {
+		if (
+			!isPython &&
+			!isCSharp &&
+			!isGDScript &&
+			!isRuby &&
+			!isRust &&
+			!isJSImport
+		) {
 			return [];
 		}
 
@@ -614,7 +628,9 @@ export class IndexerEngine {
 					? /^(extends\s+\S+|class_name\s+\S+|const\s+\S+\s*=\s*preload\(|var\s+\S+\s*=\s*preload\()/
 					: isRuby
 						? /^(require|require_relative|include|extend)\b/
-						: /^(import\s+|export\s+.+\s+from\s+|const\s+.+\s*=\s*require\()/;
+						: isRust
+							? /^(use\s+|extern\s+crate\s+|(?:pub\s+)?mod\s+\w+\s*;)/
+							: /^(import\s+|export\s+.+\s+from\s+|const\s+.+\s*=\s*require\()/;
 
 		let importEnd = 0;
 		for (let index = 0; index < lines.length; index += 1) {
@@ -663,6 +679,13 @@ export class IndexerEngine {
 		const rubyTypePattern = /^(?:class|module)\s+([A-Z][A-Za-z0-9_:]*)/;
 		const rubyMethodPattern =
 			/^def\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_]*[!?=]?)/;
+		const rustTypePattern =
+			/^(?:pub(?:\([^)]*\))?\s+)?(?:unsafe\s+)?(?:struct|enum|trait|type)\s+([A-Za-z_][A-Za-z0-9_]*)/;
+		const rustImplPattern = /^impl(?:<[^>]+>)?\s+(.+?)\s*\{/;
+		const rustFuncPattern =
+			/^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:extern\s+"[^"]+"\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:<[^>]+>)?\s*\(/;
+		const rustModPattern =
+			/^(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{/;
 		const jsDefPattern =
 			/^(?:export\s+)?(?:async\s+)?(?:function|class|const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)/;
 
@@ -744,6 +767,48 @@ export class IndexerEngine {
 						line: index + 1,
 						chunkType: "impl",
 						primarySymbol: methodMatch[1],
+					});
+				}
+				continue;
+			}
+
+			if (isRust) {
+				const typeMatch = line.match(rustTypePattern);
+				if (typeMatch) {
+					definitions.push({
+						line: index + 1,
+						chunkType: "types",
+						primarySymbol: typeMatch[1],
+					});
+					continue;
+				}
+
+				const implMatch = line.match(rustImplPattern);
+				if (implMatch) {
+					definitions.push({
+						line: index + 1,
+						chunkType: "impl",
+						primarySymbol: `impl ${implMatch[1].trim()}`,
+					});
+					continue;
+				}
+
+				const funcMatch = line.match(rustFuncPattern);
+				if (funcMatch) {
+					definitions.push({
+						line: index + 1,
+						chunkType: "impl",
+						primarySymbol: funcMatch[1],
+					});
+					continue;
+				}
+
+				const modMatch = line.match(rustModPattern);
+				if (modMatch) {
+					definitions.push({
+						line: index + 1,
+						chunkType: "module_section",
+						primarySymbol: modMatch[1],
 					});
 				}
 				continue;
@@ -1310,6 +1375,8 @@ export class IndexerEngine {
 				return "gdscript";
 			case ".rb":
 				return "ruby";
+			case ".rs":
+				return "rust";
 			default:
 				return "plaintext";
 		}

@@ -189,6 +189,14 @@ const CSHARP_SYSTEM_NAMESPACES = new Set([
 	"NET",
 ]);
 
+const RUST_BUILTIN_CRATES = new Set([
+	"alloc",
+	"core",
+	"proc_macro",
+	"std",
+	"test",
+]);
+
 const IMPORT_SPECIFIER_EXTENSION = /\.(?:jsx?|mjs|cjs)$/i;
 const TS_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
 const TS_INDEX_CANDIDATES = ["/index.ts", "/index.tsx"];
@@ -217,6 +225,8 @@ export function resolveDependency(
 			);
 		case "ruby":
 			return resolveRubyDependency(importSpecifier, fromFilePath, knownFiles);
+		case "rust":
+			return resolveRustDependency(importSpecifier, fromFilePath, knownFiles);
 		default:
 			return resolveTSDependency(importSpecifier, fromFilePath, knownFiles);
 	}
@@ -441,6 +451,89 @@ function resolveGDScriptDependency(
 	}
 
 	return { dependencyType: "external" };
+}
+
+function resolveRustDependency(
+	importSpecifier: string,
+	fromFilePath: string,
+	knownFiles: Set<string>,
+): ResolveResult {
+	const parts = importSpecifier.split("::").filter(Boolean);
+	const topLevel = parts[0];
+
+	if (!topLevel) {
+		return { dependencyType: "external" };
+	}
+
+	if (RUST_BUILTIN_CRATES.has(topLevel)) {
+		return { dependencyType: "builtin" };
+	}
+
+	if (topLevel !== "crate" && topLevel !== "self" && topLevel !== "super") {
+		const moduleDeclaration = resolveRustModuleDeclaration(
+			parts,
+			fromFilePath,
+			knownFiles,
+		);
+		return moduleDeclaration ?? { dependencyType: "external" };
+	}
+
+	const baseDir = resolveRustBaseDir(topLevel, fromFilePath);
+	const moduleParts = parts.slice(1);
+	const resolved = resolveRustModulePath(baseDir, moduleParts, knownFiles);
+
+	if (resolved) {
+		return { dependencyType: "internal", toPath: resolved };
+	}
+
+	return { dependencyType: "internal" };
+}
+
+function resolveRustModuleDeclaration(
+	parts: string[],
+	fromFilePath: string,
+	knownFiles: Set<string>,
+): ResolveResult | null {
+	const fromDir = dirname(normalizePath(fromFilePath));
+	const resolved = resolveRustModulePath(fromDir, parts, knownFiles);
+	return resolved ? { dependencyType: "internal", toPath: resolved } : null;
+}
+
+function resolveRustBaseDir(topLevel: string, fromFilePath: string): string {
+	const normalizedFrom = normalizePath(fromFilePath);
+	if (topLevel === "crate") {
+		const segments = normalizedFrom.split("/");
+		const srcIndex = segments.lastIndexOf("src");
+		return srcIndex >= 0 ? segments.slice(0, srcIndex + 1).join("/") : "src";
+	}
+
+	let baseDir = dirname(normalizedFrom);
+	if (topLevel === "super") {
+		baseDir = dirname(baseDir);
+	}
+	return baseDir;
+}
+
+function resolveRustModulePath(
+	baseDir: string,
+	parts: string[],
+	knownFiles: Set<string>,
+): string | null {
+	for (let length = parts.length; length >= 1; length -= 1) {
+		const modulePath = parts.slice(0, length).join("/");
+		const candidates = [
+			normalizePath(join(baseDir, `${modulePath}.rs`)),
+			normalizePath(join(baseDir, modulePath, "mod.rs")),
+		];
+
+		for (const candidate of candidates) {
+			if (knownFiles.has(candidate)) {
+				return candidate;
+			}
+		}
+	}
+
+	return null;
 }
 
 function resolveRubyDependency(

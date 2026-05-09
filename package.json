@@ -34,6 +34,7 @@
 		"test:cli:gdscript": "vitest run tests/cli/commands-gdscript.test.ts --testTimeout=180000 --no-file-parallelism",
 		"test:cli:csharp": "vitest run tests/cli/commands-csharp.test.ts --testTimeout=180000 --no-file-parallelism",
 		"test:cli:ruby": "vitest run tests/cli/commands-ruby.test.ts --testTimeout=180000 --no-file-parallelism",
+		"test:cli:rust": "vitest run tests/cli/commands-rust.test.ts --testTimeout=180000 --no-file-parallelism",
 		"smoke-test": "bash scripts/smoke-test-package.sh",
 		"publish-npm": "bash scripts/publish.sh"
 	},
@@ -48,6 +49,7 @@
 		"tree-sitter-gdscript": "^6.1.0",
 		"tree-sitter-python": "^0.21.0",
 		"tree-sitter-ruby": "^0.23.1",
+		"tree-sitter-rust": "^0.21.0",
 		"ts-morph": "^21.0.0"
 	},
 	"devDependencies": {

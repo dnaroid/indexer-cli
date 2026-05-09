@@ -6,6 +6,7 @@ import { PythonPlugin } from "../../languages/python.js";
 import { CSharpPlugin } from "../../languages/csharp.js";
 import { GDScriptPlugin } from "../../languages/gdscript.js";
 import { RubyPlugin } from "../../languages/ruby.js";
+import { RustPlugin } from "../../languages/rust.js";
 import type { LanguagePlugin } from "../../languages/plugin.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 
@@ -98,6 +99,7 @@ function createLanguagePlugins(): LanguagePlugin[] {
 		new CSharpPlugin(),
 		new GDScriptPlugin(),
 		new RubyPlugin(),
+		new RustPlugin(),
 	];
 }
 

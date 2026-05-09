@@ -145,9 +145,7 @@ program.hook("preAction", async (thisCommand, actionCommand) => {
 });
 
 async function main(): Promise<void> {
-	const hasNoArgs =
-		process.argv.length === 2 ||
-		(process.argv.length === 3 && process.argv[1].endsWith("indexer-cli.js"));
+	const hasNoArgs = process.argv.length === 2;
 	let commandExecutedSuccessfully = false;
 
 	try {

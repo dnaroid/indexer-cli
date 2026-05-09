@@ -307,7 +307,7 @@ describe("IndexerEngine internals", () => {
 		it("creates all default plugins when no ids are provided", () => {
 			const plugins = createDefaultLanguagePlugins();
 
-			expect(plugins).toHaveLength(5);
+			expect(plugins).toHaveLength(6);
 			expect(plugins.map((plugin) => plugin.id)).toEqual([
 				...DEFAULT_LANGUAGE_PLUGIN_IDS,
 			]);
@@ -358,6 +358,7 @@ describe("IndexerEngine internals", () => {
 				".cs",
 				".gd",
 				".rb",
+				".rs",
 			]);
 		});
 
@@ -414,6 +415,7 @@ describe("IndexerEngine internals", () => {
 			["file.cs", "csharp"],
 			["file.gd", "gdscript"],
 			["file.rb", "ruby"],
+			["file.rs", "rust"],
 			["file.txt", "plaintext"],
 		])("maps %s to %s", (filePath, expected) => {
 			expect((engine as any).getLanguageIdFromPath(filePath)).toBe(expected);
@@ -613,6 +615,64 @@ describe("IndexerEngine internals", () => {
 					endLine: 6,
 					chunkType: "impl",
 					primarySymbol: "call",
+				},
+			]);
+		});
+
+		it("creates heuristic chunks for supported Rust files", () => {
+			const engine = new IndexerEngine(createMockOptions());
+			const content = [
+				"use crate::services::auth::AuthService;",
+				"mod errors;",
+				"",
+				"pub struct App {",
+				"    auth: AuthService,",
+				"}",
+				"",
+				"impl App {",
+				"    pub fn new(auth: AuthService) -> Self {",
+				"        Self { auth }",
+				"    }",
+				"}",
+			].join("\n");
+
+			expect((engine as any).splitHeuristicChunks(content, "rust")).toEqual([
+				{
+					content: [
+						"use crate::services::auth::AuthService;",
+						"mod errors;",
+					].join("\n"),
+					startLine: 1,
+					endLine: 2,
+					chunkType: "imports",
+				},
+				{
+					content: ["pub struct App {", "    auth: AuthService,", "}"].join(
+						"\n",
+					),
+					startLine: 4,
+					endLine: 7,
+					chunkType: "types",
+					primarySymbol: "App",
+				},
+				{
+					content: "impl App {",
+					startLine: 8,
+					endLine: 8,
+					chunkType: "impl",
+					primarySymbol: "impl App",
+				},
+				{
+					content: [
+						"pub fn new(auth: AuthService) -> Self {",
+						"        Self { auth }",
+						"    }",
+						"}",
+					].join("\n"),
+					startLine: 9,
+					endLine: 12,
+					chunkType: "impl",
+					primarySymbol: "new",
 				},
 			]);
 		});
@@ -1058,9 +1118,9 @@ describe("IndexerEngine internals", () => {
 
 			expect(embeddings).toEqual([[1, 2, 3]]);
 			expect(options.embedder.embed).toHaveBeenCalledTimes(5);
-			expect(options.embedder.embed.mock.calls[3]?.[0][0].length).toBeGreaterThan(
-				options.embedder.embed.mock.calls[4]?.[0][0].length,
-			);
+			expect(
+				options.embedder.embed.mock.calls[3]?.[0][0].length,
+			).toBeGreaterThan(options.embedder.embed.mock.calls[4]?.[0][0].length);
 		});
 	});
 
