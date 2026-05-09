@@ -4,11 +4,8 @@ export type GeneratedSkill = {
 	content: string;
 };
 
-export const GENERATED_SKILLS: GeneratedSkill[] = [
-	{
-		name: "repo-discovery",
-		directory: "repo-discovery",
-		content: `---
+function buildRepoDiscoverySkillContent(): string {
+	return `---
 name: repo-discovery
 description: FIRST choice for repository discovery and code understanding. Use this to choose the cheapest indexed path for architecture, structure, behavior, symbol, AST, or dependency questions before broad file reads or blind text search.
 allowed-tools: Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*), Bash(rg:*), Bash(grep:*)
@@ -24,7 +21,7 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 
 - \`idx architecture\` — repo shape, entry points, module boundaries, cycle causes, unresolved dependency classes
 - \`idx structure\` — file trees, exported symbols with line ranges, contents of a directory/module
-- \`idx ast <file>\` — compact syntax tree for one large file when symbol ranges are too coarse
+- \`idx ast <file>\` — compact syntax tree for one large file; use before repeated reads when ranges are coarse or JSX/parent structure matters
 - \`idx search\` — conceptual behavior questions like "how does X work?"; returns ranked file ranges plus \`why=\` reason codes
 - \`idx explain\` — a known symbol when you want indexed explanation
 - \`idx deps\` — imported-by/imports or impact for a known path/module
@@ -36,7 +33,7 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 - Use \`--path-prefix\` whenever the subsystem is known, e.g. \`src/api/\`, \`src/auth/\`.
 - For \`idx structure\`, also narrow with \`--kind\` when possible.
 - If \`idx structure\` prints \`TRUNC\`/\`NEXT\`, run the \`NEXT\` command only when the hidden page is still relevant.
-- Use \`idx ast <file>\` only after you know the file is relevant and need a map of a large file before reading ranges.
+- Use \`idx ast <file>\` after you know a large file is relevant and need a map before reading ranges; if you are about to make a second overlapping \`Read\` on that file, run \`idx ast\` first.
 - If \`idx ast\` prints \`TRUNC\`/\`NEXT\`, run \`NEXT\` only when the hidden nodes are still relevant.
 - For \`idx deps\`, start with \`--depth 1\`; increase only if first-hop impact is insufficient.
 - For \`idx explain\`, prefer \`file::symbol\` when the name may be ambiguous.
@@ -53,7 +50,7 @@ idx is **semantic** search: use it when you do **not** know the exact name and n
 Use exact text search/LSP when the target is already concrete:
 - exact identifier name → \`rg\` (preferred), \`grep\`, \`lsp_symbols\`, or references/definition tools
 - exact small file path → \`Read\`
-- exact large file path + unknown internal layout → \`idx ast <file>\`, then read the smallest ranges
+- exact large file path + unknown internal layout or nested JSX → \`idx ast <file>\`, then read the smallest ranges
 - known file + known symbol → \`idx explain file::symbol\` or LSP if exact lookup is enough
 
 Rule of thumb: avoid broad blind \`rg\`/\`grep\`/\`find\` during discovery, but if you can write an exact search pattern, use \`rg\`/LSP. Use idx for exploration, not lookup.
@@ -107,7 +104,7 @@ rg -n "MyType" src/models/
 
 ## Skip idx when
 
-- you already know the exact file to read
+- you already know the exact small file/range to read
 - you need an exact identifier lookup
 - you already know the file and want document-local symbols/usages
 - you are done discovering and are now editing or validating code
@@ -120,7 +117,14 @@ rg -n "MyType" src/models/
 - Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types|api|impl|tests|imports>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports] [--dedupe-file] [--dedupe-symbol] [--cluster] [--exclude-tests] [--include-tests]\`
 - Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>] [--signature-only]\`
 - Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>] [--show-edges] [--tests]\`
-`,
+`;
+}
+
+export const GENERATED_SKILLS: GeneratedSkill[] = [
+	{
+		name: "repo-discovery",
+		directory: "repo-discovery",
+		content: buildRepoDiscoverySkillContent(),
 	},
 ];
 
