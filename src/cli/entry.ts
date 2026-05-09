@@ -10,6 +10,7 @@ import { registerSetupCommand } from "./commands/setup.js";
 import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
 import { registerUpdateCommand } from "./commands/update.js";
+import { registerAstCommand } from "./commands/ast.js";
 import { PACKAGE_VERSION } from "../core/version.js";
 import { SKILLS_VERSION } from "../core/skills-version.js";
 import {
@@ -130,6 +131,7 @@ registerStructureCommand(program);
 registerArchitectureCommand(program);
 registerExplainCommand(program);
 registerDepsCommand(program);
+registerAstCommand(program);
 registerUpdateCommand(program);
 registerUninstallCommand(program);
 registerDoctorCommand(program);

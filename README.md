@@ -74,7 +74,7 @@ project root automatically. If a project has not been initialized yet, commands 
 stop with a clear message telling you to run `idx init` first instead of creating data in the wrong directory.
 
 After `init`, the repo contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents get one indexed discovery
-entry point that routes them toward `idx search`, `idx structure`, `idx architecture`, `idx explain`, and `idx deps`
+entry point that routes them toward `idx search`, `idx structure`, `idx ast`, `idx architecture`, `idx explain`, and `idx deps`
 before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
@@ -100,6 +100,7 @@ That skill routes repository discovery flows such as:
 ```bash
 idx search "<query>"
 idx structure --path-prefix src/<area>
+idx ast src/<large-file.ts>
 idx architecture
 ```
 
@@ -206,6 +207,32 @@ When output is capped with `--max-files`, truncation is explicit and includes a 
 ```text
 TRUNC hidden=49 cursor=5
 NEXT idx structure --path-prefix src --max-depth 2 --max-files 5 --cursor 5
+```
+
+### `idx ast <file>`
+
+Print a compact AST outline for one supported source file. Use this after `search` or `structure` has identified a large
+file, but before reading it in chunks: the output gives syntax node names, line ranges, and short first-line snippets so
+an agent can choose the smallest useful `Read` ranges.
+
+| Option                   | Default | Description                                  |
+|--------------------------|---------|----------------------------------------------|
+| `--max-depth <number>`   | 5       | Limit AST traversal depth                    |
+| `--max-nodes <number>`   | 120     | Limit number of AST nodes shown              |
+| `--cursor <number>`      | 0       | Continue from a previous `TRUNC` cursor      |
+| `--no-include-text`      | —       | Hide compact first-line snippets             |
+
+Example:
+
+```text
+AST src/cli/commands/search.ts language=typescript nodes=75 maxDepth=2
+SourceFile:1-295 — import path from "node:path";
+  ImportDeclaration:1 — import path from "node:path";
+    ImportClause:1 — path
+    StringLiteral:1 — "node:path"
+
+TRUNC hidden=67 cursor=8
+NEXT idx ast src/cli/commands/search.ts --max-depth 2 --max-nodes 8 --cursor 8
 ```
 
 ### `idx architecture`

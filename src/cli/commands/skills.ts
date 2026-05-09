@@ -10,8 +10,8 @@ export const GENERATED_SKILLS: GeneratedSkill[] = [
 		directory: "repo-discovery",
 		content: `---
 name: repo-discovery
-description: FIRST choice for repository discovery and code understanding. Use this to choose the cheapest indexed path for architecture, structure, behavior, symbol, or dependency questions before broad file reads or grep.
-allowed-tools: Bash(idx architecture:*), Bash(idx structure:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*)
+description: FIRST choice for repository discovery and code understanding. Use this to choose the cheapest indexed path for architecture, structure, behavior, symbol, AST, or dependency questions before broad file reads or grep.
+allowed-tools: Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*)
 ---
 
 # Use repo-discovery as the indexed entry point
@@ -24,6 +24,7 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 
 - \`idx architecture\` — repo shape, entry points, module boundaries, cycle causes, unresolved dependency classes
 - \`idx structure\` — file trees, exported symbols with line ranges, contents of a directory/module
+- \`idx ast <file>\` — compact syntax tree for one large file when symbol ranges are too coarse
 - \`idx search\` — conceptual behavior questions like "how does X work?"; returns ranked file ranges plus \`why=\` reason codes
 - \`idx explain\` — a known symbol when you want indexed explanation
 - \`idx deps\` — imported-by/imports or impact for a known path/module
@@ -35,6 +36,8 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 - Use \`--path-prefix\` whenever the subsystem is known, e.g. \`src/api/\`, \`src/auth/\`.
 - For \`idx structure\`, also narrow with \`--kind\` when possible.
 - If \`idx structure\` prints \`TRUNC\`/\`NEXT\`, run the \`NEXT\` command only when the hidden page is still relevant.
+- Use \`idx ast <file>\` only after you know the file is relevant and need a map of a large file before reading ranges.
+- If \`idx ast\` prints \`TRUNC\`/\`NEXT\`, run \`NEXT\` only when the hidden nodes are still relevant.
 - For \`idx deps\`, start with \`--depth 1\`; increase only if first-hop impact is insufficient.
 - For \`idx explain\`, prefer \`file::symbol\` when the name may be ambiguous.
 - \`--include-content\` is expensive. Use it only when you need implementation detail *without* planning to \`Read\`; if you'll read files anyway, skip it.
@@ -49,7 +52,8 @@ idx is **semantic** search: use it when you do **not** know the exact name and n
 
 Use \`grep\`/LSP when the target is already concrete:
 - exact identifier name → \`grep\`, \`lsp_symbols\`, or references/definition tools
-- exact file path → \`Read\`
+- exact small file path → \`Read\`
+- exact large file path + unknown internal layout → \`idx ast <file>\`, then read the smallest ranges
 - known file + known symbol → \`idx explain file::symbol\` or LSP if exact lookup is enough
 
 Rule of thumb: if you can write an exact search pattern, use \`grep\`/LSP. Use idx for exploration, not lookup.
@@ -82,6 +86,9 @@ idx search "payment processor interface" --chunk-types api --mode hybrid
 # Good: continue a capped structure page only if more files are needed
 idx structure --path-prefix src --max-depth 2 --max-files 20 --cursor 20
 
+# Good: map one large file before choosing exact Read ranges
+idx ast src/api/client.ts --max-depth 4 --max-nodes 80
+
 # Good: explain a known symbol, scoped to a file
 idx explain src/api/client.ts::createClient
 
@@ -109,6 +116,7 @@ grep "MyType" src/models/
 
 - Architecture: \`idx architecture [--path-prefix <area>] [--include-fixtures]\`
 - Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--cursor <n>] [--include-internal] [--include-fixtures] [--no-tests] [--include-tests-summary]\`
+- AST: \`idx ast <file> [--max-depth <n>] [--max-nodes <n>] [--cursor <n>] [--no-include-text]\`
 - Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types|api|impl|tests|imports>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports] [--dedupe-file] [--dedupe-symbol] [--cluster] [--exclude-tests] [--include-tests]\`
 - Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>] [--signature-only]\`
 - Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>] [--show-edges] [--tests]\`

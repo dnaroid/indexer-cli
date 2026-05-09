@@ -347,14 +347,6 @@ describe.sequential("CLI e2e Python", () => {
 				["search", "logger debug event context json", "--max-files", "3"],
 				{ cwd: TEMP_DIR },
 			);
-			const withContentLines = withContent.stdout
-				.split("\n")
-				.filter((line) => line.trim() !== "" && line.trim() !== "---");
-			const withoutContentLines = withoutContent.stdout
-				.split("\n")
-				.filter((line) => line.trim() !== "" && line.trim() !== "---");
-			const withoutContentResults = parseSearchResults(withoutContent.stdout);
-
 			expect(withContent.exitCode).toBe(0);
 			expect(withoutContent.exitCode).toBe(0);
 			expect(parseSearchResults(withContent.stdout).length).toBeGreaterThan(0);
@@ -495,6 +487,67 @@ describe.sequential("CLI e2e Python", () => {
 			});
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout.match(/handler\.py/g)?.length).toBe(2);
+		});
+	});
+
+	describe("ast", () => {
+		it("prints a compact AST outline for a supported source file", () => {
+			const result = runCLI(
+				[
+					"ast",
+					"src/services/user.py",
+					"--max-depth",
+					"3",
+					"--max-nodes",
+					"30",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"AST src/services/user.py language=python",
+			);
+			expect(result.stdout).toContain("module:1-41");
+			expect(result.stdout).toContain(
+				"class_definition:9-23 — class UserValidator:",
+			);
+			expect(result.stdout).toContain("identifier:9 — UserValidator");
+		});
+
+		it("caps output and prints a continuation command", () => {
+			const result = runCLI(
+				["ast", "src/services/user.py", "--max-depth", "2", "--max-nodes", "8"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain("TRUNC hidden=");
+			expect(result.stdout).toContain("cursor=8");
+			expect(result.stdout).toContain(
+				"NEXT idx ast src/services/user.py --max-depth 2 --max-nodes 8 --cursor 8",
+			);
+		});
+
+		it("rejects unsupported file types", () => {
+			const result = runCLI(["ast", "README.md"], { cwd: TEMP_DIR });
+
+			expect(result.exitCode).toBe(1);
+			expect(result.stderr).toContain(
+				"AST command failed: No supported parser for 'README.md'.",
+			);
+		});
+
+		it("rejects invalid numeric options", () => {
+			const result = runCLI(
+				["ast", "src/services/user.py", "--max-depth", "nope"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(1);
+			expect(result.stderr).toContain(
+				"AST command failed: --max-depth must be a non-negative integer",
+			);
 		});
 	});
 
