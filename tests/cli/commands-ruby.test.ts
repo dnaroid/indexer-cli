@@ -669,6 +669,33 @@ describe.sequential("CLI e2e Ruby", () => {
 			expect(result.stdout).not.toContain("Callees");
 		});
 
+		it("supports AST call graph mode for Ruby callables", () => {
+			const result = runCLI(
+				[
+					"deps",
+					"lib/services/auth.rb::authenticate",
+					"--mode",
+					"calls",
+					"--show-edges",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"M lib/services/auth.rb::authenticate mode=call-graph",
+			);
+			expect(result.stdout).toContain(
+				"<- lib/core/engine.rb::Core::Engine.boot via=authenticate() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> lib/auth/session.rb::Auth::Session.create_session via=create_session() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> lib/utils/helpers.rb::Helpers.normalize_name via=normalize_name() kind=call",
+			);
+		});
+
 		it("resolves builtin and external dependencies in indexed metadata", async () => {
 			const healthCheckDependencies = await listIndexedDependencies(
 				"lib/core/health_check.rb",

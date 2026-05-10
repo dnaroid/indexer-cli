@@ -24,7 +24,7 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 - \`idx ast <file>\` — compact syntax tree for one large file; use before repeated reads when ranges are coarse or JSX/parent structure matters
 - \`idx search\` — conceptual behavior questions like "how does X work?"; returns ranked file ranges plus \`why=\` reason codes
 - \`idx explain\` — a known symbol when you want indexed explanation
-- \`idx deps\` — imported-by/imports or impact for a known path/module
+- \`idx deps\` — imported-by/imports for a known path/module, or callers/callees for a known callable symbol with \`--mode calls\`
 
 ## Operating rules
 
@@ -35,7 +35,7 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 - If \`idx structure\` prints \`TRUNC\`/\`NEXT\`, run the \`NEXT\` command only when the hidden page is still relevant.
 - Use \`idx ast <file>\` after you know a large file is relevant and need a map before reading ranges; if you are about to make a second overlapping \`Read\` on that file, run \`idx ast\` first.
 - If \`idx ast\` prints \`TRUNC\`/\`NEXT\`, run \`NEXT\` only when the hidden nodes are still relevant.
-- For \`idx deps\`, start with \`--depth 1\`; increase only if first-hop impact is insufficient.
+- For \`idx deps\`, start with \`--depth 1\`; use \`--mode calls path::symbol\` when module imports are too coarse; increase depth only if first-hop impact is insufficient.
 - For \`idx explain\`, prefer \`file::symbol\` when the name may be ambiguous.
 - \`--include-content\` is expensive. Use it only when you need implementation detail *without* planning to \`Read\`; if you'll read files anyway, skip it.
 - After \`idx search\`, read the returned files/ranges. Do **not** follow search with \`idx explain\` on the same results.
@@ -95,6 +95,9 @@ idx deps src/api/client.ts --direction callers --depth 1
 # Good: inspect the import specifier behind dependency edges
 idx deps src/api/client.ts --show-edges
 
+# Good: trace symbol-level callers/callees when module deps are too coarse
+idx deps src/api/client.ts::createClient --mode calls --direction both --depth 1
+
 # Bad: semantic search for an exact identifier
 idx search "MyType" --path-prefix src/models/
 
@@ -116,7 +119,7 @@ rg -n "MyType" src/models/
 - AST: \`idx ast <file> [--max-depth <n>] [--max-nodes <n>] [--cursor <n>] [--no-include-text]\`
 - Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types|api|impl|tests|imports>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports] [--dedupe-file] [--dedupe-symbol] [--cluster] [--exclude-tests] [--include-tests]\`
 - Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>] [--signature-only]\`
-- Deps: \`idx deps <path> [--direction callers|callees|both] [--depth <n>] [--show-edges] [--tests]\`
+- Deps: \`idx deps <path|path::symbol> [--mode modules|calls] [--direction callers|callees|both] [--depth <n>] [--show-edges] [--tests]\`
 `;
 }
 

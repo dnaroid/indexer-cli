@@ -129,4 +129,20 @@ describe.sequential("CLI e2e Rust", () => {
 			}),
 		);
 	});
+
+	it("supports AST call graph mode for Rust callables", () => {
+		const result = runCLI(
+			["deps", "src/main.rs::main", "--mode", "calls", "--show-edges"],
+			{ cwd: TEMP_DIR },
+		);
+
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout).toContain("M src/main.rs::main mode=call-graph");
+		expect(result.stdout).toContain(
+			"-> src/services/auth.rs::AuthService.new via=new() kind=call",
+		);
+		expect(result.stdout).toContain(
+			"-> src/services/auth.rs::AuthService.verify via=verify() kind=call",
+		);
+	});
 });

@@ -716,6 +716,33 @@ describe.sequential("CLI e2e Python", () => {
 			expect(result.stdout).toContain("Callees");
 		});
 
+		it("supports AST call graph mode for Python callables", () => {
+			const result = runCLI(
+				[
+					"deps",
+					"src/services/order.py::create_order",
+					"--mode",
+					"calls",
+					"--show-edges",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"M src/services/order.py::create_order mode=call-graph",
+			);
+			expect(result.stdout).toContain(
+				"<- src/__main__.py::bootstrap via=create_order() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> src/services/order.py::validate_order via=validate_order() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> src/payments/processor.py::process_payment via=process_payment() kind=call",
+			);
+		});
+
 		it("resolves internal Python module imports for core engine callees", async () => {
 			const result = runCLI(
 				["deps", "src/core/engine.py", "--direction", "callees"],

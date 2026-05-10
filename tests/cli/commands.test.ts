@@ -1233,6 +1233,62 @@ describe.sequential("CLI e2e", () => {
 			);
 		});
 
+		it("supports call graph mode for a callable symbol", () => {
+			const result = runCLI(
+				[
+					"deps",
+					"src/services/user.ts::createUser",
+					"--mode",
+					"calls",
+					"--show-edges",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"M src/services/user.ts::createUser mode=call-graph",
+			);
+			expect(result.stdout).toContain(
+				"<- src/services/user.ts::UserService.register via=createUser() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> src/auth/session.ts::createSession via=createSession() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> src/services/user.ts::validateUser via=validateUser() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"Risk: low called-by=1 calls=3 mode=call-graph",
+			);
+		});
+
+		it("supports transitive call graph traversal", () => {
+			const result = runCLI(
+				[
+					"deps",
+					"src/index.ts::bootstrapApp",
+					"--mode",
+					"call-graph",
+					"--direction",
+					"callees",
+					"--depth",
+					"2",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"M src/index.ts::bootstrapApp mode=call-graph",
+			);
+			expect(result.stdout).not.toContain("called-by (Callers)");
+			expect(result.stdout).toContain(
+				"src/services/user.ts::UserService.register",
+			);
+			expect(result.stdout).toContain("src/services/user.ts::createUser d=2");
+		});
+
 		it("keeps default deps output compact with IDX header", () => {
 			const result = runCLI(["deps", "src/services/user.ts"], {
 				cwd: TEMP_DIR,

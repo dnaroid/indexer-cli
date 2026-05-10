@@ -659,6 +659,27 @@ describe.sequential("CLI e2e GDScript", () => {
 			);
 		});
 
+		it("supports AST call graph mode for GDScript callables", () => {
+			const result = runCLI(
+				["deps", "scripts/main.gd::_ready", "--mode", "calls", "--show-edges"],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"M scripts/main.gd::_ready mode=call-graph",
+			);
+			expect(result.stdout).toContain(
+				"-> scripts/game/game_manager.gd::boot_campaign via=boot_campaign() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> scripts/game/game_manager.gd::get_combat_manager via=get_combat_manager() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> scripts/ui/hud.gd::bind_combat via=bind_combat() kind=call",
+			);
+		});
+
 		it("follows multi-hop preload chains across resources, core, and game", () => {
 			const result = runCLI(
 				[

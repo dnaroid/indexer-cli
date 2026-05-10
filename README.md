@@ -268,16 +268,20 @@ relative to the project root, not the subdirectory where you ran the command.
 
 ### `idx deps <path>`
 
-Show module import dependencies for a path. The default text output labels imported-by/imports first and keeps
-`Callers`/`Callees` aliases for compatibility. Useful for tracing impact of changes and understanding dependency chains.
+Show module import dependencies for a path, or symbol-level call dependencies with `--mode calls`. The default text output
+labels imported-by/imports first and keeps `Callers`/`Callees` aliases for compatibility. Useful for tracing impact of
+changes and understanding dependency chains.
 
 Path arguments stay project-root-relative even when you invoke the command from a nested subdirectory.
+Use `path::symbol` with `--mode calls` to focus on one callable symbol, for example
+`idx deps src/services/user.ts::createUser --mode calls --direction both`.
 
 | Option           | Default | Description                                                |
 |------------------|---------|------------------------------------------------------------|
+| `--mode <mode>`  | modules | `modules`/`module-imports` or `calls`/`call-graph`         |
 | `--direction <dir>` | both | `callers`/imported-by, `callees`/imports, or `both`        |
 | `--depth <n>`    | 1       | Traversal depth, with transitive edges marked as `d=<n>`   |
-| `--show-edges`   | —       | Show the import specifier/kind that created each edge      |
+| `--show-edges`   | —       | Show the import specifier or call name/kind that created each edge |
 | `--tests`        | —       | Show nearest/impacted tests and a suggested verification command |
 
 ### `idx uninstall`

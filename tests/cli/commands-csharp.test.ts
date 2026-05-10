@@ -727,6 +727,30 @@ describe.sequential("CLI e2e CSharp", () => {
 			expect(result.stdout).not.toContain("Callees");
 		});
 
+		it("supports AST call graph mode for C# callables", () => {
+			const result = runCLI(
+				[
+					"deps",
+					"Assets/Scripts/Core/EngineManager.cs::StartEngine",
+					"--mode",
+					"calls",
+					"--show-edges",
+				],
+				{ cwd: TEMP_DIR },
+			);
+
+			expect(result.exitCode).toBe(0);
+			expect(result.stdout).toContain(
+				"M Assets/Scripts/Core/EngineManager.cs::StartEngine mode=call-graph",
+			);
+			expect(result.stdout).toContain(
+				"<- Assets/Scripts/Core/EngineManager.cs::EngineManager.Start via=StartEngine() kind=call",
+			);
+			expect(result.stdout).toContain(
+				"-> Assets/Scripts/Config/AppSettings.cs::AppSettings.CreateReadyResponse via=CreateReadyResponse() kind=call",
+			);
+		});
+
 		it("handles circular worker namespace references without infinite loop", () => {
 			const result = runCLI(
 				[
