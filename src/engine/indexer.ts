@@ -1164,7 +1164,7 @@ export class IndexerEngine {
 							join(options.repoRoot, filePath),
 							"utf8",
 						);
-						return this.prepareFileRecords({
+						return await this.prepareFileRecords({
 							snapshotId: options.snapshotId,
 							projectId: options.projectId,
 							filePath,
@@ -1430,46 +1430,66 @@ export class IndexerEngine {
 		let parsed: unknown;
 
 		if (languagePlugin) {
-			parsed = languagePlugin.parse({
-				path: filePath,
-				content,
-				languageHint: languagePlugin.id,
-				projectRoot: this.repoRoot,
-			});
-			languageId = (parsed as { languageId: string }).languageId;
+			try {
+				parsed = languagePlugin.parse({
+					path: filePath,
+					content,
+					languageHint: languagePlugin.id,
+					projectRoot: this.repoRoot,
+				});
+				languageId = (parsed as { languageId: string }).languageId;
 
-			const symbols = languagePlugin.extractSymbols(parsed as any);
-			symbolRecords = symbols.map((symbol: LanguageSymbol) => ({
-				snapshotId,
-				id: symbol.id,
-				filePath,
-				kind: symbol.kind,
-				name: symbol.name,
-				containerName: symbol.containerName,
-				exported: symbol.exported,
-				range: {
-					start: {
-						line: symbol.range.startLine,
-						character: symbol.range.startCol,
+				const symbols = languagePlugin.extractSymbols(parsed as any);
+				symbolRecords = symbols.map((symbol: LanguageSymbol) => ({
+					snapshotId,
+					id: symbol.id,
+					filePath,
+					kind: symbol.kind,
+					name: symbol.name,
+					containerName: symbol.containerName,
+					exported: symbol.exported,
+					range: {
+						start: {
+							line: symbol.range.startLine,
+							character: symbol.range.startCol,
+						},
+						end: { line: symbol.range.endLine, character: symbol.range.endCol },
 					},
-					end: { line: symbol.range.endLine, character: symbol.range.endCol },
-				},
-				signature: symbol.signature,
-				docComment: symbol.docComment,
-				metadata: symbol.metadata,
-			}));
+					signature: symbol.signature,
+					docComment: symbol.docComment,
+					metadata: symbol.metadata,
+				}));
 
-			const imports = languagePlugin.extractImports(
-				parsed as any,
-			) as ImportInfo[];
-			dependencyRecords = imports.map((dependency) => ({
-				...resolveDependency(dependency.spec, filePath, knownFiles, languageId),
-				snapshotId,
-				id: dependency.id,
-				fromPath: filePath,
-				toSpecifier: dependency.spec,
-				kind: normalizeImportKind(dependency.kind),
-			}));
+				const imports = languagePlugin.extractImports(
+					parsed as any,
+				) as ImportInfo[];
+				dependencyRecords = imports.map((dependency) => ({
+					...resolveDependency(
+						dependency.spec,
+						filePath,
+						knownFiles,
+						languageId,
+					),
+					snapshotId,
+					id: dependency.id,
+					fromPath: filePath,
+					toSpecifier: dependency.spec,
+					kind: normalizeImportKind(dependency.kind),
+				}));
+			} catch (error) {
+				logger.warn(
+					`Language parser failed for ${filePath}; using heuristic chunks`,
+					{
+						filePath,
+						languagePlugin: languagePlugin.id,
+						message: error instanceof Error ? error.message : String(error),
+					},
+				);
+				parsed = undefined;
+				symbolRecords = [];
+				dependencyRecords = [];
+				languageId = this.getLanguageIdFromPath(filePath);
+			}
 		}
 
 		const chunks = this.deriveLanguageChunks(

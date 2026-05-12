@@ -752,6 +752,37 @@ describe("IndexerEngine internals", () => {
 			expect(result.metrics.churn).toBe(7);
 		});
 
+		it("falls back to heuristic chunks when a language parser rejects a file", async () => {
+			const plugin = createMockLanguagePlugin({
+				parse: vi.fn(() => {
+					throw new Error("Invalid argument");
+				}),
+			});
+			const engine = new IndexerEngine(
+				createMockOptions({
+					repoRoot: "/repo",
+					languagePlugins: [plugin],
+				}),
+			);
+
+			const result = await (engine as any).prepareFileRecords({
+				snapshotId: "snapshot-1",
+				projectId: "project-id",
+				filePath: "src/file.ts",
+				content: "import { dep } from './dep';\nexport function runTask() {}",
+				gitRef: "head-commit",
+				knownFiles: new Set(["src/dep.ts"]),
+			});
+
+			expect(result.fileRecord.path).toBe("src/file.ts");
+			expect(result.fileRecord.languageId).toBe("typescript");
+			expect(result.symbolRecords).toEqual([]);
+			expect(result.dependencyRecords).toEqual([]);
+			expect(
+				result.chunkRecords.map((chunk: ChunkRecord) => chunk.chunkType),
+			).toEqual(["imports", "impl"]);
+		});
+
 		it("falls back to generic chunking for unknown file extensions", async () => {
 			const engine = new IndexerEngine(createMockOptions());
 			setPrivateField(engine, "chunker", {
@@ -1317,6 +1348,50 @@ describe("IndexerEngine internals", () => {
 				0,
 				2,
 			);
+		});
+
+		it("records parser failures without aborting the whole batch", async () => {
+			mockConfig({ indexBatchSize: 2 });
+			const repoRoot = createTempRepo();
+			writeFileSync(
+				join(repoRoot, "good.ts"),
+				"export const good = 1;",
+				"utf8",
+			);
+			writeFileSync(join(repoRoot, "bad.ts"), "export const bad = 1;", "utf8");
+
+			const options = createMockOptions({ repoRoot });
+			options.embedder.embed.mockResolvedValue([[0.1, 0.2, 0.3]]);
+			const engine = new IndexerEngine(options as any);
+			vi.spyOn(engine as any, "prepareFileRecords").mockImplementation(
+				async (...args: any[]) => {
+					if (args[0].filePath === "bad.ts") {
+						throw new Error("Invalid argument");
+					}
+					return createPreparedFileData(args[0].filePath);
+				},
+			);
+			const errors: string[] = [];
+
+			await (engine as any).indexPreparedFiles({
+				projectId: "project-id",
+				repoRoot,
+				gitRef: "head-commit",
+				snapshotId: "snapshot-1",
+				filesToIndex: ["good.ts", "bad.ts"],
+				knownFiles: new Set(["good.ts", "bad.ts"]),
+				totalFiles: 2,
+				errors,
+				operation: "batch indexing",
+			});
+
+			expect(options.metadata.transaction).toHaveBeenCalledOnce();
+			expect(options.metadata.upsertFile).toHaveBeenCalledOnce();
+			expect(options.metadata.upsertFile.mock.calls[0]?.[1].path).toBe(
+				"good.ts",
+			);
+			expect(options.vectors.upsert).toHaveBeenCalledOnce();
+			expect(errors).toEqual(["Failed to prepare bad.ts: Invalid argument"]);
 		});
 
 		it("reports each file as it starts indexing", async () => {
