@@ -7,7 +7,7 @@ export type GeneratedSkill = {
 function buildRepoDiscoverySkillContent(): string {
 	return `---
 name: repo-discovery
-description: FIRST choice for repository discovery and code understanding. Use this to choose the cheapest indexed path for architecture, structure, behavior, symbol, AST, or dependency questions before broad file reads or blind text search.
+description: FIRST choice for repository discovery before editing code. Use when investigating, refactoring, fixing, or changing behavior in an unfamiliar subsystem and the exact file/range is not already known. Start here before broad rg/find/grep searches or reading many files. Covers architecture, behavior tracing, symbols, dependencies, workflows, transports, sessions, APIs, UI flows, and cross-file logic. Skip only for exact small file/range or exact identifier lookups.
 allowed-tools: Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*), Bash(rg:*), Bash(grep:*)
 ---
 
