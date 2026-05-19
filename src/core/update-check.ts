@@ -1,13 +1,14 @@
 import { execFileSync } from "node:child_process";
 import {
 	readFileSync,
+	realpathSync,
 	existsSync,
 	writeFileSync,
 	mkdirSync,
 	rmSync,
 	statSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { homedir } from "node:os";
 import { PACKAGE_VERSION } from "./version.js";
 
@@ -108,20 +109,59 @@ function tryGetNpmGlobalRoot(): string | null {
 	}
 }
 
+function sameOrInsidePath(candidate: string, root: string): boolean {
+	const normalizedRoot = root.endsWith(sep) ? root : `${root}${sep}`;
+	return candidate === root || candidate.startsWith(normalizedRoot);
+}
+
+function getExecutionPathCandidates(execPath: string): string[] {
+	const candidates = [execPath];
+	try {
+		const realPath = realpathSync(execPath);
+		if (!candidates.includes(realPath)) candidates.push(realPath);
+	} catch {
+		// Keep the original argv path when it cannot be resolved.
+	}
+	return candidates;
+}
+
 export function detectInstallMethod(): InstallMethod {
 	try {
 		const execPath = process.argv[1];
 		if (!execPath) return "unknown";
-		const resolved = execPath;
-		if (resolved.includes("/.npm/_npx")) return "npx";
-		if (resolved.includes("/.pnpm/global")) return "pnpm-global";
-		if (resolved.includes("/.yarn/global")) return "yarn-global";
+		const candidates = getExecutionPathCandidates(execPath);
+		if (candidates.some((candidate) => candidate.includes("/.npm/_npx"))) {
+			return "npx";
+		}
+		if (candidates.some((candidate) => candidate.includes("/.pnpm/global"))) {
+			return "pnpm-global";
+		}
+		if (candidates.some((candidate) => candidate.includes("/.yarn/global"))) {
+			return "yarn-global";
+		}
 
 		const npmPrefix = tryGetNpmGlobalPrefix();
 		if (npmPrefix) {
 			const expectedBinPath = join(npmPrefix, "bin");
-			if (resolved.startsWith(expectedBinPath)) return "npm-global";
-			return "unknown";
+			if (
+				candidates.some((candidate) =>
+					sameOrInsidePath(candidate, expectedBinPath),
+				)
+			) {
+				return "npm-global";
+			}
+		}
+
+		const npmRoot = tryGetNpmGlobalRoot();
+		if (npmRoot) {
+			const expectedPackagePath = join(npmRoot, "indexer-cli");
+			if (
+				candidates.some((candidate) =>
+					sameOrInsidePath(candidate, expectedPackagePath),
+				)
+			) {
+				return "npm-global";
+			}
 		}
 
 		return "unknown";

@@ -163,6 +163,29 @@ describe("detectInstallMethod", () => {
 		expect(detectInstallMethod()).toBe("npm-global");
 	});
 
+	it("detects npm-global when argv points inside the global package root", () => {
+		process.argv = [
+			process.argv[0],
+			"/opt/homebrew/lib/node_modules/indexer-cli/bin/indexer-cli.js",
+		];
+		execFileSyncMock.mockImplementation((cmd: string, args: string[]) => {
+			if (
+				cmd === "npm" &&
+				args[0] === "config" &&
+				args[1] === "get" &&
+				args[2] === "prefix"
+			) {
+				return "/opt/homebrew\n";
+			}
+			if (cmd === "npm" && args[0] === "root" && args[1] === "-g") {
+				return "/opt/homebrew/lib/node_modules\n";
+			}
+			throw new Error(`Unexpected command: ${cmd} ${args.join(" ")}`);
+		});
+
+		expect(detectInstallMethod()).toBe("npm-global");
+	});
+
 	it("returns unknown when npm prefix shows path is not global bin", () => {
 		process.argv = [process.argv[0], "/some/random/path/indexer-cli"];
 		execFileSyncMock.mockImplementation((cmd: string, args: string[]) => {
@@ -422,7 +445,7 @@ describe("performAutoUpdateAfterCommand", () => {
 			.mockImplementation(() => {
 				throw new Error("npm install failed");
 			});
-		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
 
 		const result = await performAutoUpdateAfterCommand();
 
@@ -445,7 +468,7 @@ describe("performAutoUpdateAfterCommand", () => {
 		setStdoutIsTTY(true);
 		mockSuccessfulUpdateFlow("1.0.0");
 		execFileSyncMock.mockImplementation(() => "/usr/local\n");
-		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.spyOn(console, "error").mockImplementation(() => {});
 
 		const result = await performAutoUpdateAfterCommand();
 
@@ -484,7 +507,7 @@ describe("performAutoUpdateAfterCommand", () => {
 		});
 		statSyncMock.mockImplementation(() => ({ mtimeMs: Date.now() }));
 
-		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+		vi.spyOn(globalThis, "fetch").mockResolvedValue({
 			json: () => Promise.resolve({ version: "1.1.0" }),
 		} as Response);
 
@@ -519,7 +542,7 @@ describe("performAutoUpdateAfterCommand", () => {
 			lockCreated = true;
 		});
 
-		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+		vi.spyOn(globalThis, "fetch").mockResolvedValue({
 			json: () => Promise.resolve({ version: "1.1.0" }),
 		} as Response);
 
