@@ -6,7 +6,6 @@ import { performInit } from "../cli/commands/init.js";
 import { SKILLS_VERSION } from "./skills-version.js";
 import { refreshClaudeSkills } from "../cli/commands/init.js";
 import { ensureIdxBinary } from "./idx-binary.js";
-import { ensurePiSkillsSymlink } from "./pi-skills.js";
 import { resolveInitializedProjectRoot } from "../cli/project-root.js";
 import { addProject, cleanStaleEntries, getRegisteredProjects } from "./registry.js";
 
@@ -128,8 +127,6 @@ async function refreshSkillsIfNeededForProject(
 		return false;
 	}
 
-	await ensurePiSkillsSymlink(projectRoot, { silent: true });
-
 	if (storedSkillsVersion === SKILLS_VERSION) {
 		return false;
 	}
@@ -149,7 +146,6 @@ async function refreshSkillsIfNeededForProject(
 	} finally {
 		console.log = originalConsoleLog;
 	}
-	await ensurePiSkillsSymlink(projectRoot, { silent: true });
 	ensureIdxBinary();
 
 	const raw = readFileSync(configPath, "utf8");
@@ -179,7 +175,6 @@ export async function forceRefreshProjectSkills(
 	} finally {
 		console.log = originalConsoleLog;
 	}
-	await ensurePiSkillsSymlink(projectRoot, { silent: true });
 	ensureIdxBinary();
 
 	const raw = readFileSync(configPath, "utf8");

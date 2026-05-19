@@ -10,14 +10,12 @@ const {
 	initMock,
 	refreshSkillsMock,
 	ensureIdxBinaryMock,
-	ensurePiSkillsSymlinkMock,
 	mockSkillsVersion,
 } = vi.hoisted(() => ({
 	uninstallMock: vi.fn(),
 	initMock: vi.fn(),
 	refreshSkillsMock: vi.fn(),
 	ensureIdxBinaryMock: vi.fn(),
-	ensurePiSkillsSymlinkMock: vi.fn(),
 	mockSkillsVersion: 999999,
 }));
 
@@ -32,10 +30,6 @@ vi.mock("../../../src/cli/commands/init.js", () => ({
 
 vi.mock("../../../src/core/idx-binary.js", () => ({
 	ensureIdxBinary: ensureIdxBinaryMock,
-}));
-
-vi.mock("../../../src/core/pi-skills.js", () => ({
-	ensurePiSkillsSymlink: ensurePiSkillsSymlinkMock,
 }));
 
 vi.mock("../../../src/core/version.js", () => ({
@@ -67,7 +61,6 @@ afterEach(async () => {
 	initMock.mockReset();
 	refreshSkillsMock.mockReset();
 	ensureIdxBinaryMock.mockReset();
-	ensurePiSkillsSymlinkMock.mockReset();
 	process.exitCode = undefined;
 	if (originalIndexerCliHome === undefined) {
 		delete process.env.INDEXER_CLI_HOME;
@@ -306,9 +299,6 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 		});
 		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
 		expect(refreshSkillsMock).toHaveBeenCalledWith(staleProject);
-		expect(ensurePiSkillsSymlinkMock).toHaveBeenCalledWith(staleProject, {
-			silent: true,
-		});
 		expect(ensureIdxBinaryMock).toHaveBeenCalledTimes(1);
 
 		const updatedConfig = JSON.parse(
@@ -372,9 +362,6 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 
 		expect(result).toBe(false);
 		expect(refreshSkillsMock).not.toHaveBeenCalled();
-		expect(ensurePiSkillsSymlinkMock).toHaveBeenCalledWith(tempDir, {
-			silent: true,
-		});
 		expect(ensureIdxBinaryMock).not.toHaveBeenCalled();
 	});
 
@@ -394,9 +381,6 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 		expect(result).toBe(true);
 		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
 		expect(refreshSkillsMock).toHaveBeenCalledWith(tempDir);
-		expect(ensurePiSkillsSymlinkMock).toHaveBeenCalledWith(tempDir, {
-			silent: true,
-		});
 		expect(ensureIdxBinaryMock).toHaveBeenCalledTimes(1);
 
 		const updated = JSON.parse(

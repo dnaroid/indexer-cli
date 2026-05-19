@@ -18,7 +18,6 @@ import { ensureIndexed } from "./ensure-indexed.js";
 import { GENERATED_SKILL_DIRECTORIES, GENERATED_SKILLS } from "./skills.js";
 import { SKILLS_VERSION } from "../../core/skills-version.js";
 import { addProject } from "../../core/registry.js";
-import { ensurePiSkillsSymlink } from "../../core/pi-skills.js";
 import { resolveInitProjectRoot } from "../project-root.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
@@ -179,7 +178,6 @@ export async function performInit(
 		await ensureGitignoreEntries(projectRoot, [
 			".indexer-cli/",
 			".claude/",
-			".pi/",
 		]);
 		await ensurePostCommitHook(projectRoot);
 
@@ -190,7 +188,6 @@ export async function performInit(
 		} else {
 			await refreshClaudeSkills(projectRoot, [], GENERATED_SKILLS);
 		}
-		await ensurePiSkillsSymlink(projectRoot);
 		console.log("  Restart OpenCode, Claude Code, or pi to pick up skill changes.");
 		console.log(`  SQLite: ${path.relative(projectRoot, dbPath)}`);
 		console.log(`  Config: ${path.relative(projectRoot, configPath)}`);

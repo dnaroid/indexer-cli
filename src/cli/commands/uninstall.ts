@@ -15,7 +15,6 @@ import {
 	DEPRECATED_SKILL_DIRECTORIES,
 	GENERATED_SKILL_DIRECTORIES,
 } from "./skills.js";
-import { removePiSkillsSymlink } from "../../core/pi-skills.js";
 import { removeProject } from "../../core/registry.js";
 import { resolveInitProjectRoot } from "../project-root.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
@@ -56,8 +55,6 @@ async function removeClaudeSkill(projectRoot: string): Promise<boolean> {
 			removedAny = true;
 		}
 	}
-
-	removedAny = (await removePiSkillsSymlink(projectRoot)) || removedAny;
 
 	const skillsDir = path.join(projectRoot, ".claude", "skills");
 	if (await pathExists(skillsDir)) {
@@ -152,7 +149,6 @@ export async function performUninstall(projectRoot: string): Promise<void> {
 		(await removeFromGitignore(projectRoot, [
 			".indexer-cli/",
 			".claude/",
-			".pi/",
 		])) ||
 		removedAny;
 	removedAny = (await removePostCommitHook(projectRoot)) || removedAny;
