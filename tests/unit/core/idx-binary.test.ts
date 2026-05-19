@@ -14,6 +14,19 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const REPAIR_WRAPPER_CONTENT = `#!/bin/sh
+if command -v npm >/dev/null 2>&1; then
+	prefix="$(npm config get prefix 2>/dev/null)"
+	if [ -n "$prefix" ]; then
+		global_bin="$prefix/bin/indexer-cli"
+		if [ -x "$global_bin" ]; then
+			exec "$global_bin" "$@"
+		fi
+	fi
+	if [ "$1" = "setup" ]; then
+		shift
+		exec npm exec --yes --package=indexer-cli@latest -- indexer-cli setup "$@"
+	fi
+fi
 echo "idx: global indexer-cli installation was not found or is not executable." >&2
 echo "Run: idx setup" >&2
 echo "Or: npm install -g indexer-cli" >&2
