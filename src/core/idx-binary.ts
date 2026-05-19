@@ -13,10 +13,6 @@ import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 
-function shellQuote(value: string): string {
-	return `'${value.replace(/'/g, `'\"'\"'`)}'`;
-}
-
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -47,11 +43,7 @@ function isSelfRecursiveShellLauncher(
 	});
 }
 
-function thinWrapperContent(binaryPath: string): string {
-	return `#!/bin/sh\nexec ${shellQuote(binaryPath)} "$@"\n`;
-}
-
-function repairWrapperContent(): string {
+function idxWrapperContent(): string {
 	return `#!/bin/sh
 if command -v npm >/dev/null 2>&1; then
 	prefix="$(npm config get prefix 2>/dev/null)"
@@ -143,9 +135,7 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 	const globalPath = getNpmGlobalBinPath();
 
 	const launchMode = globalPath ? "global-wrapper" : "repair-wrapper";
-	const expectedContent = globalPath
-		? thinWrapperContent(globalPath)
-		: repairWrapperContent();
+	const expectedContent = idxWrapperContent();
 
 	let scriptStatus: EnsureIdxBinaryResult["scriptStatus"] = "installed";
 

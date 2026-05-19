@@ -13,7 +13,7 @@ import path from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const REPAIR_WRAPPER_CONTENT = `#!/bin/sh
+const IDX_WRAPPER_CONTENT = `#!/bin/sh
 if command -v npm >/dev/null 2>&1; then
 	prefix="$(npm config get prefix 2>/dev/null)"
 	if [ -n "$prefix" ]; then
@@ -32,14 +32,6 @@ echo "Run: idx setup" >&2
 echo "Or: npm install -g indexer-cli" >&2
 exit 1
 `;
-
-function shellQuote(value: string): string {
-	return `'${value.replace(/'/g, `'\"'\"'`)}'`;
-}
-
-function thinWrapperContent(binaryPath: string): string {
-	return `#!/bin/sh\nexec ${shellQuote(binaryPath)} "$@"\n`;
-}
 
 const EXPORT_LINE = 'export PATH="$HOME/.local/bin:$PATH"';
 
@@ -131,7 +123,7 @@ describe("ensureIdxBinary", () => {
 		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
-		expect(readFileSync(scriptPath, "utf8")).toBe(REPAIR_WRAPPER_CONTENT);
+		expect(readFileSync(scriptPath, "utf8")).toBe(IDX_WRAPPER_CONTENT);
 		expect(statSync(scriptPath).mode & 0o111).not.toBe(0);
 		expect(result).toEqual({
 			scriptStatus: "installed",
@@ -150,7 +142,7 @@ describe("ensureIdxBinary", () => {
 		process.env.SHELL = "/bin/zsh";
 
 		mkdirSync(localBinDir, { recursive: true });
-		writeFileSync(scriptPath, REPAIR_WRAPPER_CONTENT, "utf8");
+		writeFileSync(scriptPath, IDX_WRAPPER_CONTENT, "utf8");
 		chmodSync(scriptPath, 0o755);
 		writeFileSyncMock.mockClear();
 
@@ -163,7 +155,7 @@ describe("ensureIdxBinary", () => {
 			`${EXPORT_LINE}\n`,
 			"utf8",
 		);
-		expect(readFileSync(scriptPath, "utf8")).toBe(REPAIR_WRAPPER_CONTENT);
+		expect(readFileSync(scriptPath, "utf8")).toBe(IDX_WRAPPER_CONTENT);
 		expect(result).toEqual({
 			scriptStatus: "unchanged",
 			pathUpdated: true,
@@ -188,10 +180,10 @@ describe("ensureIdxBinary", () => {
 
 		expect(writeFileSyncMock).toHaveBeenCalledWith(
 			scriptPath,
-			REPAIR_WRAPPER_CONTENT,
+			IDX_WRAPPER_CONTENT,
 			"utf8",
 		);
-		expect(readFileSync(scriptPath, "utf8")).toBe(REPAIR_WRAPPER_CONTENT);
+		expect(readFileSync(scriptPath, "utf8")).toBe(IDX_WRAPPER_CONTENT);
 		expect(result).toEqual({
 			scriptStatus: "repaired",
 			pathUpdated: false,
@@ -208,14 +200,14 @@ describe("ensureIdxBinary", () => {
 		process.env.PATH = localBinDir;
 
 		mkdirSync(localBinDir, { recursive: true });
-		writeFileSync(scriptPath, REPAIR_WRAPPER_CONTENT, "utf8");
+		writeFileSync(scriptPath, IDX_WRAPPER_CONTENT, "utf8");
 		chmodSync(scriptPath, 0o644);
 		writeFileSyncMock.mockClear();
 
 		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
-		expect(readFileSync(scriptPath, "utf8")).toBe(REPAIR_WRAPPER_CONTENT);
+		expect(readFileSync(scriptPath, "utf8")).toBe(IDX_WRAPPER_CONTENT);
 		expect(statSync(scriptPath).mode & 0o111).not.toBe(0);
 		expect(result).toEqual({
 			scriptStatus: "repaired",
@@ -290,7 +282,7 @@ describe("ensureIdxBinary", () => {
 		expect(writeFileSyncMock).toHaveBeenCalledTimes(1);
 		expect(writeFileSyncMock).toHaveBeenCalledWith(
 			path.join(localBinDir, "idx"),
-			REPAIR_WRAPPER_CONTENT,
+			IDX_WRAPPER_CONTENT,
 			"utf8",
 		);
 	});
@@ -349,7 +341,7 @@ describe("ensureIdxBinary", () => {
 		expect(result.pathUpdated).toBe(true);
 	});
 
-	it("prefers a thin wrapper with quoted path when a global binary exists", async () => {
+	it("uses the dynamic wrapper when a global binary exists", async () => {
 		const homeDir = createTempDir();
 		const prefix = createTempDir();
 		const localBinDir = path.join(homeDir, ".local", "bin");
@@ -367,9 +359,7 @@ describe("ensureIdxBinary", () => {
 		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
-		expect(readFileSync(scriptPath, "utf8")).toBe(
-			thinWrapperContent(realBinaryPath),
-		);
+		expect(readFileSync(scriptPath, "utf8")).toBe(IDX_WRAPPER_CONTENT);
 		expect(result).toEqual({
 			scriptStatus: "installed",
 			pathUpdated: false,
@@ -401,9 +391,7 @@ describe("ensureIdxBinary", () => {
 		const { ensureIdxBinary } = await loadIdxBinaryModule();
 		const result = ensureIdxBinary();
 
-		expect(readFileSync(scriptPath, "utf8")).toBe(
-			thinWrapperContent(realBinaryPath),
-		);
+		expect(readFileSync(scriptPath, "utf8")).toBe(IDX_WRAPPER_CONTENT);
 		expect(result).toEqual({
 			scriptStatus: "repaired",
 			pathUpdated: false,
@@ -434,9 +422,7 @@ describe("ensureIdxBinary", () => {
 		const result = ensureIdxBinary();
 
 		expect(lstatSync(scriptPath).isSymbolicLink()).toBe(false);
-		expect(readFileSync(scriptPath, "utf8")).toBe(
-			thinWrapperContent(realBinaryPath),
-		);
+		expect(readFileSync(scriptPath, "utf8")).toBe(IDX_WRAPPER_CONTENT);
 		expect(result).toEqual({
 			scriptStatus: "repaired",
 			pathUpdated: false,
@@ -445,7 +431,7 @@ describe("ensureIdxBinary", () => {
 		});
 	});
 
-	it("handles binary paths with spaces using shell quoting", async () => {
+	it("writes a dynamic wrapper instead of hardcoding the current global binary path", async () => {
 		const homeDir = createTempDir();
 		const prefix = createTempDir();
 		const localBinDir = path.join(homeDir, ".local", "bin");
@@ -470,8 +456,9 @@ describe("ensureIdxBinary", () => {
 		ensureIdxBinary();
 
 		const content = readFileSync(scriptPath, "utf8");
-		expect(content).toBe(thinWrapperContent(binaryPath));
-		expect(content).toContain(shellQuote(binaryPath));
+		expect(content).toBe(IDX_WRAPPER_CONTENT);
+		expect(content).not.toContain(binaryPath);
+		expect(content).toContain('global_bin="$prefix/bin/indexer-cli"');
 	});
 });
 
