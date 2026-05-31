@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { scanProjectFiles } from "../../../src/engine/scanner.js";
@@ -97,6 +97,40 @@ describe("scanProjectFiles", () => {
 		});
 
 		expect(files).toEqual(["generated/keep.ts", "src/app.ts"]);
+	});
+
+	it("follows symlinked directories when they match include paths", async () => {
+		const rootDir = await createTempProject();
+		const externalDir = await createTempProject();
+
+		await writeProjectFile(rootDir, "src/app.ts", "export const app = 1;\n");
+		await writeProjectFile(
+			externalDir,
+			"src/tool.ts",
+			"export const tool = 1;\n",
+		);
+		await writeProjectFile(
+			externalDir,
+			"node_modules/pkg/index.ts",
+			"export const ignored = 1;\n",
+		);
+		await mkdir(path.join(rootDir, "external"), { recursive: true });
+		await symlink(
+			externalDir,
+			path.join(rootDir, "external", "tool-suite"),
+			"dir",
+		);
+
+		const withoutInclude = await scanProjectFiles(rootDir, [".ts"]);
+		const withInclude = await scanProjectFiles(rootDir, [".ts"], {
+			includePaths: ["external/*"],
+		});
+
+		expect(withoutInclude).toEqual(["src/app.ts"]);
+		expect(withInclude).toEqual([
+			"external/tool-suite/src/tool.ts",
+			"src/app.ts",
+		]);
 	});
 
 	it("skips a falsy directory popped from the traversal stack", async () => {

@@ -1,4 +1,4 @@
-import { readdir } from "node:fs/promises";
+import { readdir, realpath, stat } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import { parseGitignore } from "../utils/gitignore.js";
 import {
@@ -36,7 +36,12 @@ async function safeReaddir(
 	rootPath: string,
 	onWarning?: (warning: ScanWarning) => void,
 ): Promise<
-	Array<{ name: string; isDirectory: () => boolean; isFile: () => boolean }>
+	Array<{
+		name: string;
+		isDirectory: () => boolean;
+		isFile: () => boolean;
+		isSymbolicLink?: () => boolean;
+	}>
 > {
 	try {
 		return await readdir(dir, { withFileTypes: true });
@@ -55,6 +60,36 @@ async function safeReaddir(
 	}
 }
 
+async function safeStat(
+	path: string,
+	rootPath: string,
+	onWarning?: (warning: ScanWarning) => void,
+) {
+	try {
+		return await stat(path);
+	} catch (error: unknown) {
+		const code = getErrorCode(error);
+		if (code && SKIP_READDIR_CODES.has(code)) {
+			const relativePath = relative(rootPath, path).replace(/\\/g, "/");
+			onWarning?.({
+				path: relativePath || path,
+				code,
+				message: error instanceof Error ? error.message : String(error),
+			});
+			return undefined;
+		}
+		throw error;
+	}
+}
+
+async function safeRealpath(path: string): Promise<string | undefined> {
+	try {
+		return await realpath(path);
+	} catch {
+		return undefined;
+	}
+}
+
 export type { ScanWarning };
 
 export async function scanProjectFiles(
@@ -70,6 +105,7 @@ export async function scanProjectFiles(
 	const includePaths = sanitizePathPatterns(options?.includePaths ?? []);
 	const files: string[] = [];
 	const directories = [rootPath];
+	const visitedSymlinkDirectories = new Set<string>();
 
 	while (directories.length > 0) {
 		const currentDir = directories.pop();
@@ -95,6 +131,56 @@ export async function scanProjectFiles(
 					continue;
 				}
 				directories.push(fullPath);
+				continue;
+			}
+
+			if (entry.isSymbolicLink?.()) {
+				const mayMatchIncludePath =
+					matchesPathPatterns(relativePath, includePaths) ||
+					mayContainPathPatternMatch(relativePath, includePaths);
+
+				if (!mayMatchIncludePath) {
+					continue;
+				}
+
+				const targetStats = await safeStat(
+					fullPath,
+					rootPath,
+					options?.onWarning,
+				);
+				if (!targetStats) {
+					continue;
+				}
+
+				if (targetStats.isDirectory()) {
+					if (
+						gitignore.ignores(relativePath) &&
+						!matchesPathPatterns(relativePath, includePaths) &&
+						!mayContainPathPatternMatch(relativePath, includePaths)
+					) {
+						continue;
+					}
+
+					const resolvedPath = await safeRealpath(fullPath);
+					if (resolvedPath) {
+						if (visitedSymlinkDirectories.has(resolvedPath)) {
+							continue;
+						}
+						visitedSymlinkDirectories.add(resolvedPath);
+					}
+
+					directories.push(fullPath);
+					continue;
+				}
+
+				if (
+					targetStats.isFile() &&
+					allowed.has(extname(relativePath).toLowerCase()) &&
+					(!gitignore.ignores(relativePath) ||
+						matchesPathPatterns(relativePath, includePaths))
+				) {
+					files.push(relativePath);
+				}
 				continue;
 			}
 
