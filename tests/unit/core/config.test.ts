@@ -15,6 +15,7 @@ const DEFAULT_CONFIG = {
 	indexConcurrency: 2,
 	indexBatchSize: 8,
 	logLevel: "error",
+	indexIncludePaths: [],
 	excludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
 	searchMinScore: 0.55,
 };
@@ -92,6 +93,7 @@ describe("ConfigManager", () => {
 			indexConcurrency: 4,
 			indexBatchSize: 16,
 			logLevel: "debug",
+			indexIncludePaths: ["generated/keep/**"],
 			excludePaths: ["examples/**", "generated/**"],
 		});
 
@@ -108,6 +110,7 @@ describe("ConfigManager", () => {
 			indexConcurrency: 4,
 			indexBatchSize: 16,
 			logLevel: "debug",
+			indexIncludePaths: ["generated/keep/**"],
 			excludePaths: ["examples/**", "generated/**"],
 		});
 	});
@@ -126,6 +129,7 @@ describe("ConfigManager", () => {
 		writeConfig(dir, {
 			embeddingModel: "nomic-embed-text",
 			indexConcurrency: 6,
+			indexIncludePaths: ["ignored-but-needed/**"],
 			excludePaths: ["sandbox/**"],
 		});
 
@@ -135,6 +139,7 @@ describe("ConfigManager", () => {
 			...DEFAULT_CONFIG,
 			embeddingModel: "nomic-embed-text",
 			indexConcurrency: 6,
+			indexIncludePaths: ["ignored-but-needed/**"],
 			excludePaths: ["sandbox/**"],
 		});
 	});
@@ -151,6 +156,7 @@ describe("ConfigManager", () => {
 			indexConcurrency: "4",
 			indexBatchSize: null,
 			logLevel: { level: "debug" },
+			indexIncludePaths: [123, null],
 			excludePaths: [123, null],
 		});
 

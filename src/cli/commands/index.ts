@@ -1,3 +1,4 @@
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
@@ -14,7 +15,96 @@ import {
 import { scanProjectFiles } from "../../engine/scanner.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
+import { sanitizePathPatterns } from "../../utils/path-patterns.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
+
+function collectPathOption(value: string, previous: string[]): string[] {
+	return [...previous, value];
+}
+
+function pathPatternsFromConfigValue(
+	value: unknown,
+	fallback: string[],
+): string[] {
+	if (!Array.isArray(value)) return [...fallback];
+	if (!value.every((item): item is string => typeof item === "string")) {
+		return [...fallback];
+	}
+	return sanitizePathPatterns(value);
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+	return (
+		left.length === right.length && left.every((value, i) => value === right[i])
+	);
+}
+
+function addUnique(values: string[], additions: string[]): string[] {
+	const result = [...values];
+	const seen = new Set(result);
+	for (const addition of additions) {
+		if (!seen.has(addition)) {
+			seen.add(addition);
+			result.push(addition);
+		}
+	}
+	return result;
+}
+
+async function updateIndexPathConfig(
+	configPath: string,
+	includePaths: string[],
+	removeIncludePaths: string[],
+): Promise<boolean> {
+	const additionsInclude = sanitizePathPatterns(includePaths);
+	const removalsInclude = sanitizePathPatterns(removeIncludePaths);
+	if (additionsInclude.length === 0 && removalsInclude.length === 0) {
+		return false;
+	}
+
+	let existing: Record<string, unknown> = {};
+	try {
+		existing = JSON.parse(await readFile(configPath, "utf8")) as Record<
+			string,
+			unknown
+		>;
+	} catch {
+		existing = {};
+	}
+
+	const previousInclude = pathPatternsFromConfigValue(
+		existing.indexIncludePaths,
+		config.get("indexIncludePaths"),
+	);
+
+	let nextInclude = addUnique(previousInclude, additionsInclude).filter(
+		(value) => !removalsInclude.includes(value),
+	);
+	nextInclude = sanitizePathPatterns(nextInclude);
+
+	if (sameStringArray(previousInclude, nextInclude)) {
+		return false;
+	}
+
+	const existingConfig = { ...existing };
+	delete existingConfig.indexExcludePaths;
+
+	await writeFile(
+		configPath,
+		`${JSON.stringify(
+			{
+				...config.getAll(),
+				...existingConfig,
+				indexIncludePaths: nextInclude,
+			},
+			null,
+			2,
+		)}\n`,
+		"utf8",
+	);
+
+	return true;
+}
 
 function countChangedFiles(diff: GitDiff): number {
 	return diff.added.length + diff.modified.length + diff.deleted.length;
@@ -68,6 +158,18 @@ export function registerIndexCommand(program: Command): void {
 		.option("--status", "show indexing status for the current project")
 		.option("--tree", "show indexed file tree (use with --status)")
 		.option(
+			"--include <path>",
+			"persist a path/glob mask to index even when .gitignore ignores it",
+			collectPathOption,
+			[],
+		)
+		.option(
+			"--exclude <path>",
+			"remove a path/glob mask from the persisted index include list",
+			collectPathOption,
+			[],
+		)
+		.option(
 			"--skip-if-locked",
 			"exit immediately if another index is in progress",
 		)
@@ -77,6 +179,8 @@ export function registerIndexCommand(program: Command): void {
 				dryRun?: boolean;
 				status?: boolean;
 				tree?: boolean;
+				include?: string[];
+				exclude?: string[];
 				skipIfLocked?: boolean;
 			}) => {
 				let resolvedProjectPath: string;
@@ -98,6 +202,15 @@ export function registerIndexCommand(program: Command): void {
 
 				initLogger(dataDir);
 				config.load(dataDir);
+				const pathMaskConfigChanged = await updateIndexPathConfig(
+					path.join(dataDir, "config.json"),
+					options?.include ?? [],
+					options?.exclude ?? [],
+				);
+				if (pathMaskConfigChanged) {
+					config.load(dataDir);
+					console.log("Updated index include masks in .indexer-cli/config.json.");
+				}
 
 				const metadata = new SqliteMetadataStore(dbPath);
 
@@ -236,6 +349,7 @@ export function registerIndexCommand(program: Command): void {
 							if (
 								latestSnapshot &&
 								headCommit === latestSnapshot.meta.headCommit &&
+								!pathMaskConfigChanged &&
 								!options?.dryRun
 							) {
 								console.log("Index is already up to date.");
@@ -258,6 +372,7 @@ export function registerIndexCommand(program: Command): void {
 								: undefined;
 						const effectiveFullReindex =
 							Boolean(options?.full) ||
+							pathMaskConfigChanged ||
 							!latestSnapshot ||
 							!changedFiles ||
 							countChangedFiles(changedFiles) > 20_000;
@@ -279,7 +394,12 @@ export function registerIndexCommand(program: Command): void {
 										".pyi",
 										".cs",
 										".gd",
+										".rb",
+										".rs",
 									],
+									{
+										includePaths: config.get("indexIncludePaths"),
+									},
 								);
 								console.log("Dry run complete.");
 								console.log("Mode: full reindex");

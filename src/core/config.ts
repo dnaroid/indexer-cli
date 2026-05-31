@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { sanitizePathPatterns } from "../utils/path-patterns.js";
 
 export interface IndexerConfig {
 	version: string;
@@ -12,6 +13,7 @@ export interface IndexerConfig {
 	indexConcurrency: number;
 	indexBatchSize: number;
 	logLevel: string;
+	indexIncludePaths: string[];
 	excludePaths: string[];
 	searchMinScore: number;
 }
@@ -27,9 +29,18 @@ export const DEFAULT_CONFIG: IndexerConfig = {
 	indexConcurrency: 2,
 	indexBatchSize: 8,
 	logLevel: "error",
+	indexIncludePaths: [],
 	excludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
 	searchMinScore: 0.55,
 };
+
+function loadPathPatterns(value: unknown): string[] | null {
+	if (!Array.isArray(value)) return null;
+	if (!value.every((item): item is string => typeof item === "string")) {
+		return null;
+	}
+	return sanitizePathPatterns(value);
+}
 
 export class ConfigManager {
 	private config: IndexerConfig;
@@ -75,15 +86,10 @@ export class ConfigManager {
 				this.config.indexBatchSize = parsed.indexBatchSize;
 			if (typeof parsed.logLevel === "string")
 				this.config.logLevel = parsed.logLevel;
-			if (Array.isArray(parsed.excludePaths)) {
-				const excludePaths = parsed.excludePaths
-					.filter((value): value is string => typeof value === "string")
-					.map((value) => value.trim())
-					.filter((value) => value.length > 0);
-				if (excludePaths.length === parsed.excludePaths.length) {
-					this.config.excludePaths = excludePaths;
-				}
-			}
+			const indexIncludePaths = loadPathPatterns(parsed.indexIncludePaths);
+			if (indexIncludePaths) this.config.indexIncludePaths = indexIncludePaths;
+			const excludePaths = loadPathPatterns(parsed.excludePaths);
+			if (excludePaths) this.config.excludePaths = excludePaths;
 			if (
 				typeof parsed.searchMinScore === "number" &&
 				parsed.searchMinScore >= 0 &&

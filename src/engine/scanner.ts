@@ -1,6 +1,11 @@
 import { readdir } from "node:fs/promises";
 import { extname, join, relative } from "node:path";
 import { parseGitignore } from "../utils/gitignore.js";
+import {
+	matchesPathPatterns,
+	mayContainPathPatternMatch,
+	sanitizePathPatterns,
+} from "../utils/path-patterns.js";
 
 const SKIP_READDIR_CODES: ReadonlySet<string> = new Set([
 	"EINVAL",
@@ -57,10 +62,12 @@ export async function scanProjectFiles(
 	codeExtensions: string[],
 	options?: {
 		onWarning?: (warning: ScanWarning) => void;
+		includePaths?: string[];
 	},
 ): Promise<string[]> {
 	const gitignore = parseGitignore(rootPath);
 	const allowed = new Set(codeExtensions.map((ext) => ext.toLowerCase()));
+	const includePaths = sanitizePathPatterns(options?.includePaths ?? []);
 	const files: string[] = [];
 	const directories = [rootPath];
 
@@ -79,11 +86,14 @@ export async function scanProjectFiles(
 				continue;
 			}
 
-			if (gitignore.ignores(relativePath)) {
-				continue;
-			}
-
 			if (entry.isDirectory()) {
+				if (
+					gitignore.ignores(relativePath) &&
+					!matchesPathPatterns(relativePath, includePaths) &&
+					!mayContainPathPatternMatch(relativePath, includePaths)
+				) {
+					continue;
+				}
 				directories.push(fullPath);
 				continue;
 			}
@@ -92,7 +102,11 @@ export async function scanProjectFiles(
 				continue;
 			}
 
-			if (allowed.has(extname(relativePath).toLowerCase())) {
+			if (
+				allowed.has(extname(relativePath).toLowerCase()) &&
+				(!gitignore.ignores(relativePath) ||
+					matchesPathPatterns(relativePath, includePaths))
+			) {
 				files.push(relativePath);
 			}
 		}

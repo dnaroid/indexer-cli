@@ -210,6 +210,50 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Dry run complete.");
 		});
 
+		it("persists index include masks and removes them with exclude", () => {
+			const tempRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-index-masks-"),
+			);
+			removeTempProject(tempRoot);
+			createTempProject(tempRoot);
+			gitInit(tempRoot);
+			mkdirSync(path.join(tempRoot, ".indexer-cli"), { recursive: true });
+			writeFileSync(
+				path.join(tempRoot, ".indexer-cli", "config.json"),
+				`${JSON.stringify({ indexIncludePaths: ["tmp/**"] }, null, 2)}\n`,
+				"utf8",
+			);
+
+			try {
+				const result = runCLI(
+					[
+						"index",
+						"--include",
+						"generated/keep.ts",
+						"--exclude",
+						"tmp/**",
+						"--dry-run",
+					],
+					{ cwd: tempRoot },
+				);
+
+				expect(result.exitCode).toBe(0);
+				expect(result.stdout).toContain(
+					"Updated index include masks in .indexer-cli/config.json.",
+				);
+				expect(result.stdout).toContain("Mode: full reindex");
+
+				const config = JSON.parse(
+					readTextFile(path.join(tempRoot, ".indexer-cli", "config.json")),
+				) as { indexIncludePaths: string[]; indexExcludePaths?: string[] };
+				expect(config.indexIncludePaths).toContain("generated/keep.ts");
+				expect(config.indexIncludePaths).not.toContain("tmp/**");
+				expect(config.indexExcludePaths).toBeUndefined();
+			} finally {
+				removeTempProject(tempRoot);
+			}
+		});
+
 		it("shows project-root-relative file paths for implicit full reindex from a subdirectory", () => {
 			const tempRoot = mkdtempSync(
 				path.join(os.tmpdir(), "indexer-cli-e2e-implicit-full-"),

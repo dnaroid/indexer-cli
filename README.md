@@ -136,15 +136,26 @@ When run from a subdirectory of a Git project, `idx init` automatically initiali
 
 Index all supported source files in the current working directory.
 
+Indexing respects the project root `.gitignore` plus built-in excludes such as `node_modules`, `.git`, `dist`, and
+`coverage`. If the root `.gitignore` changes, the next incremental run falls back to a full reindex so newly ignored
+files are removed from the index.
+
+You can persist index path masks in `.indexer-cli/config.json` with `idx index --include <path>` and
+remove them again with `idx index --exclude <path>`. `indexIncludePaths` are additive: matching files are indexed even
+when `.gitignore` would hide them. Masks accept project-root-relative paths or globs such as `generated/keep.ts`,
+`generated/**`, or `vendor/**`; changing masks forces a full reindex on that run.
+
 If you run `idx index` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
 
 | Option      | Description                                                |
 |-------------|------------------------------------------------------------|
 | `--full`    | Force a full reindex instead of incremental                |
-| `--dry-run` | Preview what would be indexed without writing anything     |
+| `--dry-run` | Preview what would be indexed without writing index data   |
 | `--status`  | Show indexing status for the current project               |
 | `--tree`    | Show indexed file tree (use with `--status`)               |
+| `--include <path>` | Add a path/glob mask to index even when matched by `.gitignore` |
+| `--exclude <path>` | Remove a path/glob mask from the persisted include list |
 
 ### `idx search <query>`
 

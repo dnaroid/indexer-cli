@@ -21,4 +21,5 @@ target/
 .indexer-cli/
 .claude/
 .pi/
+.omo/
 .pi

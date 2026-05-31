@@ -114,6 +114,7 @@ rg -n "MyType" src/models/
 
 ## CLI reference
 
+- Index: \`idx index [--full] [--dry-run] [--status] [--tree]\`
 - Architecture: \`idx architecture [--path-prefix <area>] [--include-fixtures]\`
 - Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--cursor <n>] [--include-internal] [--include-fixtures] [--no-tests] [--include-tests-summary]\`
 - AST: \`idx ast <file> [--max-depth <n>] [--max-nodes <n>] [--cursor <n>] [--no-include-text]\`

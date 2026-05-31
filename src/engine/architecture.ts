@@ -7,6 +7,8 @@ import type {
 	SnapshotId,
 } from "../core/types.js";
 import type { LanguagePlugin } from "../languages/plugin.js";
+export { matchesPathPatterns } from "../utils/path-patterns.js";
+import { matchesPathPatterns } from "../utils/path-patterns.js";
 
 export interface DirectoryNode {
 	name: string;
@@ -47,42 +49,6 @@ export interface ArchitectureSnapshot {
 
 function normalizePath(value: string): string {
 	return value.replace(/\\/g, "/");
-}
-
-function escapeRegExp(value: string): string {
-	return value.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
-}
-
-function pathPatternToRegExp(pattern: string): RegExp {
-	const normalized = normalizePath(pattern.trim()).replace(/^\.\//, "");
-	const doubleWildcardToken = "__INDEXER_DOUBLE_WILDCARD__";
-	const regexSource = escapeRegExp(normalized)
-		.replace(/\*\*/g, doubleWildcardToken)
-		.replace(/\*/g, "[^/]*")
-		.replace(/\?/g, "[^/]")
-		.replace(new RegExp(doubleWildcardToken, "g"), ".*");
-	return new RegExp(`^${regexSource}$`);
-}
-
-export function matchesPathPatterns(
-	filePath: string,
-	patterns: string[],
-): boolean {
-	const normalizedPath = normalizePath(filePath);
-
-	for (const pattern of patterns) {
-		const trimmedPattern = pattern.trim();
-		if (!trimmedPattern) {
-			continue;
-		}
-
-		const regex = pathPatternToRegExp(trimmedPattern);
-		if (regex.test(normalizedPath)) {
-			return true;
-		}
-	}
-
-	return false;
 }
 
 function calculateFileStatsFromSummary(

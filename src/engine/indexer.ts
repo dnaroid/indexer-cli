@@ -31,6 +31,8 @@ import { SystemLogger } from "../core/logger.js";
 import { config } from "../core/config.js";
 import { TokenEstimator } from "../utils/token-estimator.js";
 import { computeHash } from "../utils/hash.js";
+import { parseGitignore } from "../utils/gitignore.js";
+import { matchesPathPatterns } from "../utils/path-patterns.js";
 import { AdaptiveChunker } from "../chunking/adaptive.js";
 import { ArchitectureGenerator } from "./architecture.js";
 import { resolveDependency } from "./dependency-resolver.js";
@@ -68,6 +70,30 @@ type PreparedFileData = {
 		testCoverage?: number;
 	};
 };
+
+function countDiffFiles(diff: GitDiff): number {
+	return diff.deleted.length + diff.modified.length + diff.added.length;
+}
+
+function touchesRootGitignore(diff: GitDiff): boolean {
+	return [...diff.added, ...diff.modified, ...diff.deleted].some(
+		(filePath) => filePath.replace(/\\/g, "/") === ".gitignore",
+	);
+}
+
+function shouldIndexPathWithIgnore(
+	filePath: string,
+	gitignore: { ignores(path: string): boolean },
+): boolean {
+	if (
+		gitignore.ignores(filePath) &&
+		!matchesPathPatterns(filePath, config.get("indexIncludePaths"))
+	) {
+		return false;
+	}
+
+	return true;
+}
 
 interface ImportInfo {
 	id: string;
@@ -956,10 +982,8 @@ export class IndexerEngine {
 			options.isFullReindex ||
 			!latestSnapshot ||
 			!options.changedFiles ||
-			options.changedFiles.deleted.length +
-				options.changedFiles.modified.length +
-				options.changedFiles.added.length >
-				20000;
+			touchesRootGitignore(options.changedFiles) ||
+			countDiffFiles(options.changedFiles) > 20000;
 
 		if (shouldDoFullReindex) {
 			return this.performFullReindex(
@@ -986,13 +1010,16 @@ export class IndexerEngine {
 				diff: options.changedFiles,
 			});
 
+			const gitignore = parseGitignore(repoRoot);
 			const filesToIndex = [
 				...options.changedFiles.modified,
 				...options.changedFiles.added,
-			].filter((filePath) =>
-				this.indexingOptions.codeExtensions.includes(
-					extname(filePath).toLowerCase(),
-				),
+			].filter(
+				(filePath) =>
+					shouldIndexPathWithIgnore(filePath, gitignore) &&
+					this.indexingOptions.codeExtensions.includes(
+						extname(filePath).toLowerCase(),
+					),
 			);
 
 			const totalFiles = (await this.metadata.listFiles(projectId, snapshotId))
@@ -1416,6 +1443,7 @@ export class IndexerEngine {
 	): Promise<string[]> {
 		return scanProjectFiles(rootPath, this.indexingOptions.codeExtensions, {
 			onWarning,
+			includePaths: config.get("indexIncludePaths"),
 		});
 	}
 

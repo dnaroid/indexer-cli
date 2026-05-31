@@ -76,6 +76,29 @@ describe("scanProjectFiles", () => {
 		expect(files).toEqual(["a/deep/middle.ts", "a/first.ts", "z-last.ts"]);
 	});
 
+	it("can include paths ignored by .gitignore", async () => {
+		const rootDir = await createTempProject();
+
+		await writeProjectFile(rootDir, ".gitignore", "generated/\n");
+		await writeProjectFile(rootDir, "src/app.ts", "export const app = 1;\n");
+		await writeProjectFile(
+			rootDir,
+			"generated/keep.ts",
+			"export const keep = 1;\n",
+		);
+		await writeProjectFile(
+			rootDir,
+			"generated/skip.ts",
+			"export const skip = 1;\n",
+		);
+
+		const files = await scanProjectFiles(rootDir, [".ts"], {
+			includePaths: ["generated/keep.ts"],
+		});
+
+		expect(files).toEqual(["generated/keep.ts", "src/app.ts"]);
+	});
+
 	it("skips a falsy directory popped from the traversal stack", async () => {
 		const originalPop = Array.prototype.pop;
 		const popSpy = vi

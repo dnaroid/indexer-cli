@@ -1694,6 +1694,117 @@ describe("IndexerEngine internals", () => {
 			);
 		});
 
+		it("skips changed files ignored by .gitignore during incremental indexing", async () => {
+			const repoRoot = createTempRepo();
+			writeFileSync(join(repoRoot, ".gitignore"), "secrets\n", "utf8");
+			const options = createMockOptions({ repoRoot });
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
+				id: "snapshot-prev",
+			});
+			options.metadata.listFiles
+				.mockResolvedValueOnce([
+					{ path: "src/existing.ts" },
+					{ path: "secrets/app.ts" },
+				])
+				.mockResolvedValueOnce([{ path: "src/existing.ts" }])
+				.mockResolvedValueOnce([{ path: "src/existing.ts" }]);
+			const engine = new IndexerEngine(options as any);
+			const indexPreparedFilesSpy = vi
+				.spyOn(engine as any, "indexPreparedFiles")
+				.mockResolvedValue(undefined);
+			vi.spyOn(
+				(engine as any).architectureGenerator,
+				"generate",
+			).mockResolvedValue(undefined);
+
+			const result = await engine.indexProject({
+				isFullReindex: false,
+				changedFiles: { added: [], modified: ["secrets/app.ts"], deleted: [] },
+			});
+
+			expect(result).toEqual({
+				snapshotId: "snapshot-1",
+				filesIndexed: 1,
+				errors: [],
+			});
+			expect(options.metadata.copyUnchangedFileData).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-prev",
+				"snapshot-1",
+				["src/existing.ts"],
+			);
+			expect(indexPreparedFilesSpy).not.toHaveBeenCalled();
+		});
+
+		it("indexes changed gitignored files that match configured include paths", async () => {
+			const repoRoot = createTempRepo();
+			writeFileSync(join(repoRoot, ".gitignore"), "secrets\n", "utf8");
+			const originalGet = config.get.bind(config) as typeof config.get;
+			vi.spyOn(config, "get").mockImplementation(((key: any) => {
+				if (key === "indexIncludePaths") return ["secrets/**"];
+				return originalGet(key);
+			}) as typeof config.get);
+
+			const options = createMockOptions({ repoRoot });
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
+				id: "snapshot-prev",
+			});
+			options.metadata.listFiles.mockResolvedValue([
+				{ path: "src/existing.ts" },
+				{ path: "secrets/app.ts" },
+			]);
+			const engine = new IndexerEngine(options as any);
+			vi.spyOn(engine as any, "prepareIncrementalSnapshot").mockResolvedValue(
+				undefined,
+			);
+			const indexPreparedFilesSpy = vi
+				.spyOn(engine as any, "indexPreparedFiles")
+				.mockResolvedValue(undefined);
+			vi.spyOn(
+				(engine as any).architectureGenerator,
+				"generate",
+			).mockResolvedValue(undefined);
+
+			await engine.indexProject({
+				isFullReindex: false,
+				changedFiles: { added: [], modified: ["secrets/app.ts"], deleted: [] },
+			});
+
+			expect(indexPreparedFilesSpy).toHaveBeenCalledWith(
+				expect.objectContaining({
+					filesToIndex: ["secrets/app.ts"],
+					operation: "incremental batch indexing",
+				}),
+			);
+		});
+
+		it("runs a full reindex when root .gitignore changes", async () => {
+			const options = createMockOptions();
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
+				id: "snapshot-prev",
+			});
+			const engine = new IndexerEngine(options as any);
+			const scanFilesSpy = vi
+				.spyOn(engine as any, "scanFiles")
+				.mockResolvedValue([]);
+			vi.spyOn(
+				(engine as any).architectureGenerator,
+				"generate",
+			).mockResolvedValue(undefined);
+
+			await engine.indexProject({
+				isFullReindex: false,
+				changedFiles: { added: [], modified: [".gitignore"], deleted: [] },
+			});
+
+			expect(scanFilesSpy).toHaveBeenCalledWith("/repo", expect.any(Function));
+			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-1",
+			);
+			expect(options.metadata.copyUnchangedFileData).not.toHaveBeenCalled();
+		});
+
 		it("prunes older snapshots after successful incremental indexing", async () => {
 			const options = createMockOptions();
 			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
