@@ -468,9 +468,8 @@ export function registerArchitectureCommand(program: Command): void {
 			"--path-prefix <string>",
 			"limit output to files under a path prefix",
 		)
-		.option("--include-fixtures", "include fixture/vendor paths in output")
 		.action(
-			async (options?: { includeFixtures?: boolean; pathPrefix?: string }) => {
+			async (options?: { pathPrefix?: string }) => {
 				let resolvedProjectPath: string;
 				try {
 					const resolved = resolveInitializedProjectRoot();
@@ -527,12 +526,10 @@ export function registerArchitectureCommand(program: Command): void {
 					const architecture = JSON.parse(
 						artifact.dataJson,
 					) as ArchitectureSnapshot;
-					let visibleArchitecture = options?.includeFixtures
-						? architecture
-						: filterArchitectureSnapshot(
-								architecture,
-								config.get("excludePaths"),
-							);
+					let visibleArchitecture = filterArchitectureSnapshot(
+						architecture,
+						config.get("visibilityExcludePaths"),
+					);
 
 					const pathPrefix = normalizePathPrefix(options?.pathPrefix);
 					if (pathPrefix) {

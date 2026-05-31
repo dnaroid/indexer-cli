@@ -32,6 +32,7 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 - Prefer the cheapest route that fits the question. Only run a second idx command if the first clearly failed or left a specific gap.
 - Use \`--path-prefix\` whenever the subsystem is known, e.g. \`src/api/\`, \`src/auth/\`.
 - For \`idx structure\`, also narrow with \`--kind\` when possible.
+- \`idx architecture\` and \`idx structure\` hide paths matching configured \`visibilityExcludePaths\` (fixtures/vendor by default); this affects discovery output, not indexing.
 - If \`idx structure\` prints \`TRUNC\`/\`NEXT\`, run the \`NEXT\` command only when the hidden page is still relevant.
 - Use \`idx ast <file>\` after you know a large file is relevant and need a map before reading ranges; if you are about to make a second overlapping \`Read\` on that file, run \`idx ast\` first.
 - If \`idx ast\` prints \`TRUNC\`/\`NEXT\`, run \`NEXT\` only when the hidden nodes are still relevant.
@@ -115,11 +116,11 @@ rg -n "MyType" src/models/
 ## CLI reference
 
 - Index: \`idx index [--full] [--dry-run] [--status] [--tree]\`
-- Architecture: \`idx architecture [--path-prefix <area>] [--include-fixtures]\`
-- Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--cursor <n>] [--include-internal] [--include-fixtures] [--no-tests] [--include-tests-summary]\`
+- Architecture: \`idx architecture [--path-prefix <area>]\`
+- Structure: \`idx structure [--path-prefix <area>] [--kind <kind>] [--max-depth <n>] [--max-files <n>] [--cursor <n>] [--include-internal] [--no-tests] [--include-tests-summary]\`
 - AST: \`idx ast <file> [--max-depth <n>] [--max-nodes <n>] [--cursor <n>] [--no-include-text]\`
 - Search: \`idx search <query> [--max-files <n>] [--path-prefix <area>] [--chunk-types <types|api|impl|tests|imports>] [--mode hybrid|semantic|lexical|symbol] [--min-score <score>] [--include-content] [--include-imports] [--dedupe-file] [--dedupe-symbol] [--cluster] [--exclude-tests] [--include-tests]\`
-- Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-fixtures] [--include-body] [--body-lines <n>] [--signature-only]\`
+- Explain: \`idx explain <symbol|file::symbol> [--path-prefix <area>] [--include-body] [--body-lines <n>] [--signature-only]\`
 - Deps: \`idx deps <path|path::symbol> [--mode modules|calls] [--direction callers|callees|both] [--depth <n>] [--show-edges] [--tests]\`
 `;
 }

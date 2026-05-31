@@ -16,7 +16,7 @@ const DEFAULT_CONFIG = {
 	indexBatchSize: 8,
 	logLevel: "error",
 	indexIncludePaths: [],
-	excludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
+	visibilityExcludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
 	searchMinScore: 0.55,
 };
 
@@ -94,7 +94,7 @@ describe("ConfigManager", () => {
 			indexBatchSize: 16,
 			logLevel: "debug",
 			indexIncludePaths: ["generated/keep/**"],
-			excludePaths: ["examples/**", "generated/**"],
+			visibilityExcludePaths: ["examples/**", "generated/**"],
 		});
 
 		manager.load(dir);
@@ -111,7 +111,7 @@ describe("ConfigManager", () => {
 			indexBatchSize: 16,
 			logLevel: "debug",
 			indexIncludePaths: ["generated/keep/**"],
-			excludePaths: ["examples/**", "generated/**"],
+			visibilityExcludePaths: ["examples/**", "generated/**"],
 		});
 	});
 
@@ -130,7 +130,7 @@ describe("ConfigManager", () => {
 			embeddingModel: "nomic-embed-text",
 			indexConcurrency: 6,
 			indexIncludePaths: ["ignored-but-needed/**"],
-			excludePaths: ["sandbox/**"],
+			visibilityExcludePaths: ["sandbox/**"],
 		});
 
 		manager.load(dir);
@@ -140,7 +140,7 @@ describe("ConfigManager", () => {
 			embeddingModel: "nomic-embed-text",
 			indexConcurrency: 6,
 			indexIncludePaths: ["ignored-but-needed/**"],
-			excludePaths: ["sandbox/**"],
+			visibilityExcludePaths: ["sandbox/**"],
 		});
 	});
 
@@ -157,7 +157,7 @@ describe("ConfigManager", () => {
 			indexBatchSize: null,
 			logLevel: { level: "debug" },
 			indexIncludePaths: [123, null],
-			excludePaths: [123, null],
+			visibilityExcludePaths: [123, null],
 		});
 
 		manager.load(dir);

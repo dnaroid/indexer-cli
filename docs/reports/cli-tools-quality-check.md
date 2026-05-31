@@ -70,7 +70,7 @@ None found.
 
 ### SKILL.md ↔ CLI consistency
 
-Consistent. `--path-prefix`, `--include-fixtures` described accurately. ✅
+Consistent. `--path-prefix` described accurately. ✅
 
 ---
 
@@ -120,7 +120,7 @@ None found.
 
 ### SKILL.md ↔ CLI consistency
 
-Fully consistent. `<file>::<symbol>` syntax, `--path-prefix`, `--include-fixtures` all documented and working. ✅
+Fully consistent. `<file>::<symbol>` syntax and `--path-prefix` are documented and working. ✅
 
 ---
 

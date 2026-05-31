@@ -145,6 +145,9 @@ remove them again with `idx index --exclude <path>`. `indexIncludePaths` are add
 when `.gitignore` would hide them. Masks accept project-root-relative paths or globs such as `generated/keep.ts`,
 `generated/**`, or `vendor/**`; changing masks forces a full reindex on that run.
 
+`.indexer-cli/config.json` also contains `visibilityExcludePaths` (fixtures/vendor by default). These masks hide
+matching files from discovery output such as `idx architecture` and `idx structure`; they do not change what is indexed.
+
 If you run `idx index` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
 
@@ -203,7 +206,6 @@ files if needed.
 | `--max-files <number>`   | Limit number of files shown in output                                                                     |
 | `--cursor <number>`      | Continue from a previous `TRUNC` cursor                                                                   |
 | `--include-internal`     | Include non-exported/internal symbols                                                                     |
-| `--include-fixtures`     | Include fixture/vendor paths in output                                                                    |
 | `--no-tests`             | Exclude test files from output                                                                            |
 | `--include-tests-summary` | Show nearest tests for listed source files                                                                |
 
@@ -254,7 +256,6 @@ graph, actionable cycle causes, classified unresolved dependencies, and up to th
 | Option                   | Description                            |
 |--------------------------|----------------------------------------|
 | `--path-prefix <string>` | Limit output to files under this path  |
-| `--include-fixtures`     | Include fixture/vendor paths in output |
 
 When `--path-prefix` is used with `search`, `structure`, or `architecture` and the path does not match any indexed
 files, the CLI prints a warning and automatically runs the command for the entire project instead of returning empty
@@ -272,7 +273,6 @@ relative to the project root, not the subdirectory where you ran the command.
 | Option                   | Default | Description                                  |
 |--------------------------|---------|----------------------------------------------|
 | `--path-prefix <string>` | —       | Limit symbol lookup to files under this path |
-| `--include-fixtures`     | —       | Include fixture/vendor paths in lookup       |
 | `--include-body`         | —       | Include a compact body preview               |
 | `--body-lines <number>`  | 40      | Number of body preview lines, from 1 to 200  |
 | `--signature-only`       | —       | Omit dependency context, tests, and body hints |

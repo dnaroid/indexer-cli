@@ -338,7 +338,6 @@ export function registerStructureCommand(program: Command): void {
 		)
 		.option("--max-files <number>", "limit number of files shown in output")
 		.option("--cursor <number>", "continue output from a previous TRUNC cursor")
-		.option("--include-fixtures", "include fixture/vendor paths in output")
 		.option(
 			"--include-internal",
 			"include non-exported symbols (methods, private members)",
@@ -352,7 +351,6 @@ export function registerStructureCommand(program: Command): void {
 				maxDepth?: string;
 				maxFiles?: string;
 				cursor?: string;
-				includeFixtures?: boolean;
 				includeInternal?: boolean;
 				tests?: boolean;
 				includeTestsSummary?: boolean;
@@ -425,9 +423,7 @@ export function registerStructureCommand(program: Command): void {
 						}
 					}
 
-					const excludePatterns = options?.includeFixtures
-						? []
-						: config.get("excludePaths");
+					const excludePatterns = config.get("visibilityExcludePaths");
 					const visibleFiles =
 						excludePatterns.length === 0
 							? files
@@ -524,9 +520,6 @@ export function registerStructureCommand(program: Command): void {
 						}
 						if (options?.includeInternal) {
 							nextParts.push("--include-internal");
-						}
-						if (options?.includeFixtures) {
-							nextParts.push("--include-fixtures");
 						}
 						if (options?.tests === false) {
 							nextParts.push("--no-tests");

@@ -14,7 +14,7 @@ export interface IndexerConfig {
 	indexBatchSize: number;
 	logLevel: string;
 	indexIncludePaths: string[];
-	excludePaths: string[];
+	visibilityExcludePaths: string[];
 	searchMinScore: number;
 }
 
@@ -30,9 +30,11 @@ export const DEFAULT_CONFIG: IndexerConfig = {
 	indexBatchSize: 8,
 	logLevel: "error",
 	indexIncludePaths: [],
-	excludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
+	visibilityExcludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
 	searchMinScore: 0.55,
 };
+
+type RawConfig = Partial<IndexerConfig>;
 
 function loadPathPatterns(value: unknown): string[] | null {
 	if (!Array.isArray(value)) return null;
@@ -55,7 +57,7 @@ export class ConfigManager {
 
 		try {
 			const raw = fs.readFileSync(configPath, "utf-8");
-			const parsed = JSON.parse(raw) as Partial<IndexerConfig>;
+			const parsed = JSON.parse(raw) as RawConfig;
 
 			if (typeof parsed.version === "string")
 				this.config.version = parsed.version;
@@ -88,8 +90,12 @@ export class ConfigManager {
 				this.config.logLevel = parsed.logLevel;
 			const indexIncludePaths = loadPathPatterns(parsed.indexIncludePaths);
 			if (indexIncludePaths) this.config.indexIncludePaths = indexIncludePaths;
-			const excludePaths = loadPathPatterns(parsed.excludePaths);
-			if (excludePaths) this.config.excludePaths = excludePaths;
+			const visibilityExcludePaths = loadPathPatterns(
+				parsed.visibilityExcludePaths,
+			);
+			if (visibilityExcludePaths) {
+				this.config.visibilityExcludePaths = visibilityExcludePaths;
+			}
 			if (
 				typeof parsed.searchMinScore === "number" &&
 				parsed.searchMinScore >= 0 &&

@@ -97,10 +97,16 @@ describe.sequential("CLI e2e", () => {
 			const config = JSON.parse(readTextFile(configPath)) as {
 				embeddingModel: string;
 				vectorSize: number;
+				visibilityExcludePaths?: string[];
 				skillsVersion: number;
 			};
 			expect(config.embeddingModel).toBe("jina-8k");
 			expect(config.vectorSize).toBe(768);
+			expect(config.visibilityExcludePaths).toEqual([
+				"fixtures/**",
+				"**/fixtures/**",
+				"vendor/**",
+			]);
 			expect(config.skillsVersion).toBeTypeOf("number");
 			expect(
 				readdirSync(path.join(TEMP_DIR, ".claude", "skills")).sort(),
@@ -795,7 +801,7 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("PaymentProcessor");
 		});
 
-		it("excludes fixtures by default and includes them with --include-fixtures", () => {
+		it("excludes fixtures from structure output", () => {
 			const fixturesDir = path.join(TEMP_DIR, "fixtures", "support");
 			const fixtureFile = path.join(fixturesDir, "structure-fixture.ts");
 			mkdirSync(fixturesDir, { recursive: true });
@@ -810,20 +816,16 @@ describe.sequential("CLI e2e", () => {
 					["structure", "--path-prefix", "fixtures"],
 					{ cwd: TEMP_DIR },
 				);
-				const includedResult = runCLI(
-					["structure", "--path-prefix", "fixtures", "--include-fixtures"],
-					{ cwd: TEMP_DIR },
-				);
+				const removedOptionResult = runCLI(["structure", "--include-fixtures"], {
+					cwd: TEMP_DIR,
+				});
 
 				expect(defaultResult.exitCode).toBe(0);
 				expect(defaultResult.stdout).toContain(
 					"No indexed files found for the requested filters.",
 				);
-				expect(includedResult.exitCode).toBe(0);
-				expect(includedResult.stdout).toContain("support/");
-				expect(includedResult.stdout).toContain(
-					"structure-fixture.ts — function: createFixtureValue",
-				);
+				expect(removedOptionResult.exitCode).not.toBe(0);
+				expect(removedOptionResult.stderr).toContain("unknown option '--include-fixtures'");
 			} finally {
 				rmSync(path.join(TEMP_DIR, "fixtures"), {
 					recursive: true,

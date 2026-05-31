@@ -46,7 +46,6 @@ export function registerExplainCommand(program: Command): void {
 			"--path-prefix <string>",
 			"limit results to symbols in files under this path",
 		)
-		.option("--include-fixtures", "include fixture/test files in results")
 		.option("--include-body", "include a compact body preview")
 		.option("--body-lines <number>", "number of body preview lines", "40")
 		.option("--signature-only", "omit dependency context and body hints")
@@ -55,7 +54,6 @@ export function registerExplainCommand(program: Command): void {
 				symbolArg: string,
 				options?: {
 					pathPrefix?: string;
-					includeFixtures?: boolean;
 					includeBody?: boolean;
 					bodyLines?: string;
 					signatureOnly?: boolean;
@@ -199,19 +197,13 @@ export function registerExplainCommand(program: Command): void {
 						symbolName,
 					);
 
-					// Filter out fixtures/tests/vendor by default
-					const excludePrefixes = options?.includeFixtures
-						? []
-						: ["tests/", "fixtures/", "vendor/"];
+					// Filter out fixtures/tests/vendor paths from symbol lookup.
+					const excludePrefixes = ["tests/", "fixtures/", "vendor/"];
 					const pathPrefix = normalizePathPrefix(options?.pathPrefix);
 
 					symbols = symbols.filter((s) => {
-						if (!options?.includeFixtures) {
-							if (
-								excludePrefixes.some((prefix) => s.filePath.startsWith(prefix))
-							) {
-								return false;
-							}
+						if (excludePrefixes.some((prefix) => s.filePath.startsWith(prefix))) {
+							return false;
 						}
 						if (
 							pathPrefix &&
@@ -237,14 +229,10 @@ export function registerExplainCommand(program: Command): void {
 							);
 
 							symbols = symbols.filter((s) => {
-								if (!options?.includeFixtures) {
-									if (
-										excludePrefixes.some((prefix) =>
-											s.filePath.startsWith(prefix),
-										)
-									) {
-										return false;
-									}
+								if (
+									excludePrefixes.some((prefix) => s.filePath.startsWith(prefix))
+								) {
+									return false;
 								}
 								if (
 									pathPrefix &&
