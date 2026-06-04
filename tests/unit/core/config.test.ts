@@ -16,6 +16,7 @@ const DEFAULT_CONFIG = {
 	indexBatchSize: 8,
 	logLevel: "error",
 	indexIncludePaths: [],
+	indexExcludePaths: [],
 	visibilityExcludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
 	searchMinScore: 0.55,
 };
@@ -94,6 +95,7 @@ describe("ConfigManager", () => {
 			indexBatchSize: 16,
 			logLevel: "debug",
 			indexIncludePaths: ["generated/keep/**"],
+			indexExcludePaths: ["generated/drop/**"],
 			visibilityExcludePaths: ["examples/**", "generated/**"],
 		});
 
@@ -111,6 +113,7 @@ describe("ConfigManager", () => {
 			indexBatchSize: 16,
 			logLevel: "debug",
 			indexIncludePaths: ["generated/keep/**"],
+			indexExcludePaths: ["generated/drop/**"],
 			visibilityExcludePaths: ["examples/**", "generated/**"],
 		});
 	});
@@ -157,6 +160,7 @@ describe("ConfigManager", () => {
 			indexBatchSize: null,
 			logLevel: { level: "debug" },
 			indexIncludePaths: [123, null],
+			indexExcludePaths: [123, null],
 			visibilityExcludePaths: [123, null],
 		});
 

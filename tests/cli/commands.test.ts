@@ -97,11 +97,15 @@ describe.sequential("CLI e2e", () => {
 			const config = JSON.parse(readTextFile(configPath)) as {
 				embeddingModel: string;
 				vectorSize: number;
+				indexIncludePaths?: string[];
+				indexExcludePaths?: string[];
 				visibilityExcludePaths?: string[];
 				skillsVersion: number;
 			};
 			expect(config.embeddingModel).toBe("jina-8k");
 			expect(config.vectorSize).toBe(768);
+			expect(config.indexIncludePaths).toEqual([]);
+			expect(config.indexExcludePaths).toEqual([]);
 			expect(config.visibilityExcludePaths).toEqual([
 				"fixtures/**",
 				"**/fixtures/**",
@@ -254,7 +258,7 @@ describe.sequential("CLI e2e", () => {
 				) as { indexIncludePaths: string[]; indexExcludePaths?: string[] };
 				expect(config.indexIncludePaths).toContain("generated/keep.ts");
 				expect(config.indexIncludePaths).not.toContain("tmp/**");
-				expect(config.indexExcludePaths).toBeUndefined();
+				expect(config.indexExcludePaths).toEqual([]);
 			} finally {
 				removeTempProject(tempRoot);
 			}

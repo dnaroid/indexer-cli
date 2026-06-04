@@ -145,6 +145,7 @@ remove them again with `idx index --exclude <path>`. `indexIncludePaths` are add
 when `.gitignore` would hide them. Masks accept project-root-relative paths or globs such as `generated/keep.ts`,
 `generated/**`, or `vendor/**`; changing masks forces a full reindex on that run.
 Symlinked directories are skipped by default and followed only when the symlink path matches an include mask.
+New configs also include an empty `indexExcludePaths` list so the available index path-mask fields are visible.
 
 `.indexer-cli/config.json` also contains `visibilityExcludePaths` (fixtures/vendor by default). These masks hide
 matching files from discovery output such as `idx architecture` and `idx structure`; they do not change what is indexed.

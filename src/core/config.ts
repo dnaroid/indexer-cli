@@ -14,6 +14,7 @@ export interface IndexerConfig {
 	indexBatchSize: number;
 	logLevel: string;
 	indexIncludePaths: string[];
+	indexExcludePaths: string[];
 	visibilityExcludePaths: string[];
 	searchMinScore: number;
 }
@@ -30,6 +31,7 @@ export const DEFAULT_CONFIG: IndexerConfig = {
 	indexBatchSize: 8,
 	logLevel: "error",
 	indexIncludePaths: [],
+	indexExcludePaths: [],
 	visibilityExcludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
 	searchMinScore: 0.55,
 };
@@ -90,6 +92,8 @@ export class ConfigManager {
 				this.config.logLevel = parsed.logLevel;
 			const indexIncludePaths = loadPathPatterns(parsed.indexIncludePaths);
 			if (indexIncludePaths) this.config.indexIncludePaths = indexIncludePaths;
+			const indexExcludePaths = loadPathPatterns(parsed.indexExcludePaths);
+			if (indexExcludePaths) this.config.indexExcludePaths = indexExcludePaths;
 			const visibilityExcludePaths = loadPathPatterns(
 				parsed.visibilityExcludePaths,
 			);
