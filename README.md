@@ -137,8 +137,8 @@ When run from a subdirectory of a Git project, `idx init` automatically initiali
 Index all supported source files in the current working directory.
 
 Indexing respects the project root `.gitignore` plus built-in excludes such as `node_modules`, `.git`, `dist`, and
-`coverage`. If the root `.gitignore` changes, the next incremental run falls back to a full reindex so newly ignored
-files are removed from the index.
+`coverage`. If the root `.gitignore` changes, the next incremental run rescans the indexable file set, removes newly
+ignored files from the snapshot, and indexes only files that became visible or otherwise changed.
 
 You can persist index path masks in `.indexer-cli/config.json` with `idx index --include <path>` and
 remove them again with `idx index --exclude <path>`. `indexIncludePaths` are additive: matching files are indexed even

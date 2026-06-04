@@ -1778,15 +1778,36 @@ describe("IndexerEngine internals", () => {
 			);
 		});
 
-		it("runs a full reindex when root .gitignore changes", async () => {
-			const options = createMockOptions();
+		it("handles root .gitignore changes incrementally by removing newly ignored files", async () => {
+			const repoRoot = createTempRepo();
+			mkdirSync(join(repoRoot, "src"), { recursive: true });
+			mkdirSync(join(repoRoot, "secrets"), { recursive: true });
+			writeFileSync(join(repoRoot, ".gitignore"), "secrets/\n", "utf8");
+			writeFileSync(
+				join(repoRoot, "src", "existing.ts"),
+				"export const existing = 1;\n",
+				"utf8",
+			);
+			writeFileSync(
+				join(repoRoot, "secrets", "app.ts"),
+				"export const secret = 1;\n",
+				"utf8",
+			);
+			const options = createMockOptions({ repoRoot });
 			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
 				id: "snapshot-prev",
 			});
+			options.metadata.listFiles
+				.mockResolvedValueOnce([
+					{ path: "src/existing.ts" },
+					{ path: "secrets/app.ts" },
+				])
+				.mockResolvedValueOnce([{ path: "src/existing.ts" }])
+				.mockResolvedValueOnce([{ path: "src/existing.ts" }]);
 			const engine = new IndexerEngine(options as any);
-			const scanFilesSpy = vi
-				.spyOn(engine as any, "scanFiles")
-				.mockResolvedValue([]);
+			const indexPreparedFilesSpy = vi
+				.spyOn(engine as any, "indexPreparedFiles")
+				.mockResolvedValue(undefined);
 			vi.spyOn(
 				(engine as any).architectureGenerator,
 				"generate",
@@ -1797,12 +1818,78 @@ describe("IndexerEngine internals", () => {
 				changedFiles: { added: [], modified: [".gitignore"], deleted: [] },
 			});
 
-			expect(scanFilesSpy).toHaveBeenCalledWith("/repo", expect.any(Function));
-			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
+			expect(options.metadata.copyUnchangedFileData).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-prev",
+				"snapshot-1",
+				["src/existing.ts"],
+			);
+			expect(options.vectors.copyVectors).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-prev",
+				"snapshot-1",
+				["secrets/app.ts"],
+			);
+			expect(indexPreparedFilesSpy).not.toHaveBeenCalled();
+			expect(options.metadata.clearProjectMetadata).not.toHaveBeenCalledWith(
 				"project-id",
 				"snapshot-1",
 			);
-			expect(options.metadata.copyUnchangedFileData).not.toHaveBeenCalled();
+		});
+
+		it("handles root .gitignore changes incrementally by indexing newly visible files", async () => {
+			const repoRoot = createTempRepo();
+			mkdirSync(join(repoRoot, "src"), { recursive: true });
+			mkdirSync(join(repoRoot, "generated"), { recursive: true });
+			writeFileSync(join(repoRoot, ".gitignore"), "# no generated ignore\n", "utf8");
+			writeFileSync(
+				join(repoRoot, "src", "existing.ts"),
+				"export const existing = 1;\n",
+				"utf8",
+			);
+			writeFileSync(
+				join(repoRoot, "generated", "new.ts"),
+				"export const generated = 1;\n",
+				"utf8",
+			);
+			const options = createMockOptions({ repoRoot });
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
+				id: "snapshot-prev",
+			});
+			options.metadata.listFiles
+				.mockResolvedValueOnce([{ path: "src/existing.ts" }])
+				.mockResolvedValueOnce([{ path: "src/existing.ts" }])
+				.mockResolvedValueOnce([{ path: "src/existing.ts" }]);
+			const engine = new IndexerEngine(options as any);
+			const indexPreparedFilesSpy = vi
+				.spyOn(engine as any, "indexPreparedFiles")
+				.mockResolvedValue(undefined);
+			vi.spyOn(
+				(engine as any).architectureGenerator,
+				"generate",
+			).mockResolvedValue(undefined);
+
+			await engine.indexProject({
+				isFullReindex: false,
+				changedFiles: { added: [], modified: [".gitignore"], deleted: [] },
+			});
+
+			expect(options.metadata.copyUnchangedFileData).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-prev",
+				"snapshot-1",
+				["src/existing.ts"],
+			);
+			expect(indexPreparedFilesSpy).toHaveBeenCalledWith(
+				expect.objectContaining({
+					filesToIndex: ["generated/new.ts"],
+					operation: "incremental batch indexing",
+				}),
+			);
+			expect(options.metadata.clearProjectMetadata).not.toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-1",
+			);
 		});
 
 		it("prunes older snapshots after successful incremental indexing", async () => {

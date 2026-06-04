@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
@@ -24,11 +24,34 @@ async function loadEnsureIndexedInternals<T>(): Promise<T> {
 	const transpiled = ts.transpileModule(
 		`import path, { extname } from "node:path";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 const DEFAULT_PROJECT_ID = "default";
+const config = { get: (key) => key === "indexIncludePaths" ? [] : undefined };
 function computeHash(text) {
 	const normalized = text.replace(/\\r\\n/g, "\\n").replace(/\\uFEFF/g, "").trimEnd();
 	return createHash("sha256").update(normalized, "utf-8").digest("hex");
+}
+async function scanProjectFiles(rootPath, codeExtensions) {
+	const allowed = new Set(codeExtensions.map((ext) => ext.toLowerCase()));
+	let ignored = [];
+	try {
+		ignored = (await readFile(path.join(rootPath, ".gitignore"), "utf8"))
+			.split(/\\r?\\n/)
+			.map((line) => line.trim().replace(/\\\/$/, ""))
+			.filter((line) => line && !line.startsWith("#") && !line.startsWith("!"));
+	} catch {}
+	const files = [];
+	async function walk(dir) {
+		for (const entry of await readdir(dir, { withFileTypes: true })) {
+			const fullPath = path.join(dir, entry.name);
+			const relativePath = path.relative(rootPath, fullPath).replace(/\\\\/g, "/");
+			if (ignored.some((pattern) => relativePath === pattern || relativePath.startsWith(pattern + "/"))) continue;
+			if (entry.isDirectory()) await walk(fullPath);
+			if (entry.isFile() && allowed.has(extname(relativePath).toLowerCase())) files.push(relativePath);
+		}
+	}
+	await walk(rootPath);
+	return files.sort();
 }
 ${match[0]}
 export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles, workspaceAlreadyIndexed };`,
@@ -64,6 +87,10 @@ const ensureIndexedInternals = await loadEnsureIndexedInternals<{
 	}) => number | undefined;
 	workspaceAlreadyIndexed: (
 		metadata: {
+			listFiles: (
+				projectId: string,
+				snapshotId: string,
+			) => Promise<Array<{ path: string }>>;
 			getFile: (
 				projectId: string,
 				snapshotId: string,
@@ -90,6 +117,8 @@ function computeTestHash(text: string): string {
 
 function metadataFromRecords(records = new Map<string, { sha256: string }>()) {
 	return {
+		listFiles: async () =>
+			Array.from(records.keys()).map((filePath) => ({ path: filePath })),
 		getFile: async (
 			_projectId: string,
 			_snapshotId: string,
@@ -217,6 +246,64 @@ describe("ensureIndexed error formatting", () => {
 					},
 				),
 			).resolves.toBe(true);
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("treats .gitignore workspace changes as already indexed when the snapshot file set matches", async () => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-indexed-"));
+		try {
+			await writeFile(path.join(repoRoot, ".gitignore"), "# comment only\n");
+			await writeFile(path.join(repoRoot, "kept.ts"), "export const kept = 1;\n");
+			const records = new Map<string, { sha256: string }>([
+				["kept.ts", { sha256: computeTestHash("export const kept = 1;\n") }],
+			]);
+
+			await expect(
+				ensureIndexedInternals.workspaceAlreadyIndexed(
+					metadataFromRecords(records),
+					repoRoot,
+					{ id: "snapshot-1" },
+					{
+						added: [],
+						modified: [".gitignore"],
+						deleted: [],
+					},
+				),
+			).resolves.toBe(true);
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("keeps reindexing .gitignore workspace changes until the snapshot file set matches", async () => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-indexed-"));
+		try {
+			await mkdir(path.join(repoRoot, "ignored"));
+			await writeFile(path.join(repoRoot, ".gitignore"), "ignored/\n");
+			await writeFile(path.join(repoRoot, "kept.ts"), "export const kept = 1;\n");
+			await writeFile(
+				path.join(repoRoot, "ignored", "old.ts"),
+				"export const old = 1;\n",
+			);
+			const records = new Map<string, { sha256: string }>([
+				["kept.ts", { sha256: computeTestHash("export const kept = 1;\n") }],
+				["ignored/old.ts", { sha256: computeTestHash("export const old = 1;\n") }],
+			]);
+
+			await expect(
+				ensureIndexedInternals.workspaceAlreadyIndexed(
+					metadataFromRecords(records),
+					repoRoot,
+					{ id: "snapshot-1" },
+					{
+						added: [],
+						modified: [".gitignore"],
+						deleted: [],
+					},
+				),
+			).resolves.toBe(false);
 		} finally {
 			await rm(repoRoot, { recursive: true, force: true });
 		}

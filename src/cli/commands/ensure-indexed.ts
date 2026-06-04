@@ -12,6 +12,7 @@ import {
 	IndexerEngine,
 	createDefaultLanguagePlugins,
 } from "../../engine/indexer.js";
+import { scanProjectFiles } from "../../engine/scanner.js";
 import { computeHash } from "../../utils/hash.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import type { SqliteMetadataStore } from "../../storage/sqlite.js";
@@ -141,10 +142,47 @@ function countRemovedFiles(changedFiles: GitDiff | undefined): number | undefine
 	return changedFiles?.deleted.length;
 }
 
+function touchesRootGitignore(changedFiles: GitDiff): boolean {
+	return [
+		...changedFiles.added,
+		...changedFiles.modified,
+		...changedFiles.deleted,
+	].some((filePath) => filePath.replace(/\\/g, "/") === ".gitignore");
+}
+
+async function snapshotMatchesCurrentIndexedFiles(
+	metadata: SqliteMetadataStore,
+	repoRoot: string,
+	snapshot: Snapshot,
+): Promise<boolean> {
+	const [snapshotFiles, currentFiles] = await Promise.all([
+		metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id),
+		scanProjectFiles(repoRoot, Array.from(INDEXED_EXTENSIONS), {
+			includePaths: config.get("indexIncludePaths"),
+		}),
+	]);
+
+	const snapshotPaths = new Set(
+		snapshotFiles.map((file) => file.path.replace(/\\/g, "/")),
+	);
+	const currentPaths = new Set(
+		currentFiles.map((filePath) => filePath.replace(/\\/g, "/")),
+	);
+
+	if (snapshotPaths.size !== currentPaths.size) return false;
+
+	for (const filePath of snapshotPaths) {
+		if (!currentPaths.has(filePath)) return false;
+	}
+
+	return true;
+}
+
 /**
  * Returns true if every workspace change is already captured in `snapshot`:
  * modified/added files have the same sha256 as on disk, and deleted files are
- * already absent from the snapshot.
+ * already absent from the snapshot. When the root .gitignore changed, the
+ * snapshot file set must also match the current scanner output.
  * This prevents repeated reindexing of persistent uncommitted changes.
  */
 async function workspaceAlreadyIndexed(
@@ -153,6 +191,15 @@ async function workspaceAlreadyIndexed(
 	snapshot: Snapshot,
 	workspaceChanges: GitDiff,
 ): Promise<boolean> {
+	if (touchesRootGitignore(workspaceChanges)) {
+		const fileSetAlreadyCaptured = await snapshotMatchesCurrentIndexedFiles(
+			metadata,
+			repoRoot,
+			snapshot,
+		);
+		if (!fileSetAlreadyCaptured) return false;
+	}
+
 	for (const filePath of workspaceChanges.deleted) {
 		if (!INDEXED_EXTENSIONS.has(extname(filePath).toLowerCase())) {
 			continue; // Non-code file — not indexed, irrelevant for re-index decision

@@ -6,6 +6,7 @@ import type {
 	ChunkOverlapSymbol,
 	DependencyRecord,
 	EmbeddingProvider,
+	FileRecord,
 	GitDiff,
 	GitOperations,
 	MetadataStore,
@@ -75,10 +76,72 @@ function countDiffFiles(diff: GitDiff): number {
 	return diff.deleted.length + diff.modified.length + diff.added.length;
 }
 
+function normalizeFilePath(filePath: string): string {
+	return filePath.replace(/\\/g, "/");
+}
+
 function touchesRootGitignore(diff: GitDiff): boolean {
 	return [...diff.added, ...diff.modified, ...diff.deleted].some(
-		(filePath) => filePath.replace(/\\/g, "/") === ".gitignore",
+		(filePath) => normalizeFilePath(filePath) === ".gitignore",
 	);
+}
+
+function isRootGitignore(filePath: string): boolean {
+	return normalizeFilePath(filePath) === ".gitignore";
+}
+
+function expandDiffForRootGitignoreChange(
+	diff: GitDiff,
+	previousFilePaths: string[],
+	currentFilePaths: string[],
+): GitDiff {
+	const previousSet = new Set(previousFilePaths.map(normalizeFilePath));
+	const currentSet = new Set(currentFilePaths.map(normalizeFilePath));
+	const states = new Map<string, "added" | "modified" | "deleted">();
+
+	const setState = (
+		filePath: string,
+		state: "added" | "modified" | "deleted",
+	) => {
+		const normalized = normalizeFilePath(filePath);
+		if (!normalized || isRootGitignore(normalized)) return;
+
+		if (state === "modified" && states.get(normalized) === "added") {
+			return;
+		}
+
+		states.set(normalized, state);
+	};
+
+	for (const filePath of diff.deleted) setState(filePath, "deleted");
+	for (const filePath of diff.added) setState(filePath, "added");
+	for (const filePath of diff.modified) setState(filePath, "modified");
+
+	for (const filePath of previousSet) {
+		if (!currentSet.has(filePath)) setState(filePath, "deleted");
+	}
+
+	for (const filePath of currentSet) {
+		if (!previousSet.has(filePath) && states.get(filePath) !== "deleted") {
+			setState(filePath, "added");
+		}
+	}
+
+	const added: string[] = [];
+	const modified: string[] = [];
+	const deleted: string[] = [];
+
+	for (const [filePath, state] of states) {
+		if (state === "added") added.push(filePath);
+		if (state === "modified") modified.push(filePath);
+		if (state === "deleted") deleted.push(filePath);
+	}
+
+	return {
+		added: added.sort(),
+		modified: modified.sort(),
+		deleted: deleted.sort(),
+	};
 }
 
 function shouldIndexPathWithIgnore(
@@ -982,7 +1045,6 @@ export class IndexerEngine {
 			options.isFullReindex ||
 			!latestSnapshot ||
 			!options.changedFiles ||
-			touchesRootGitignore(options.changedFiles) ||
 			countDiffFiles(options.changedFiles) > 20000;
 
 		if (shouldDoFullReindex) {
@@ -999,6 +1061,22 @@ export class IndexerEngine {
 			throw new Error("Latest snapshot not found for incremental indexing");
 		}
 
+		let changedFiles = options.changedFiles;
+		let previousFilesForSnapshot: FileRecord[] | undefined;
+
+		if (touchesRootGitignore(changedFiles)) {
+			previousFilesForSnapshot = await this.metadata.listFiles(
+				projectId,
+				latestSnapshot.id,
+			);
+			const currentFilePaths = await this.scanFiles(repoRoot);
+			changedFiles = expandDiffForRootGitignoreChange(
+				changedFiles,
+				previousFilesForSnapshot.map((file) => file.path),
+				currentFilePaths,
+			);
+		}
+
 		const snapshot = await this.createSnapshot(projectId, gitRef, "indexing");
 		const snapshotId = snapshot.id;
 
@@ -1007,14 +1085,15 @@ export class IndexerEngine {
 				projectId,
 				prevSnapshotId: latestSnapshot.id,
 				newSnapshotId: snapshotId,
-				diff: options.changedFiles,
+				diff: changedFiles,
+				previousFiles: previousFilesForSnapshot,
 			});
 
 			const gitignore = parseGitignore(repoRoot);
-			const filesToIndex = [
-				...options.changedFiles.modified,
-				...options.changedFiles.added,
-			].filter(
+			const filesToIndex = [...new Set([
+				...changedFiles.modified,
+				...changedFiles.added,
+			])].filter(
 				(filePath) =>
 					shouldIndexPathWithIgnore(filePath, gitignore) &&
 					this.indexingOptions.codeExtensions.includes(
@@ -1593,11 +1672,14 @@ export class IndexerEngine {
 		prevSnapshotId: SnapshotId;
 		newSnapshotId: SnapshotId;
 		diff: GitDiff;
+		previousFiles?: Array<Pick<FileRecord, "path">>;
 	}): Promise<void> {
-		const prevFiles = await this.metadata.listFiles(
-			options.projectId,
-			options.prevSnapshotId,
-		);
+		const prevFiles =
+			options.previousFiles ??
+			(await this.metadata.listFiles(
+				options.projectId,
+				options.prevSnapshotId,
+			));
 		const modifiedSet = new Set(options.diff.modified);
 		const deletedSet = new Set(options.diff.deleted);
 		const unchangedFiles = prevFiles
