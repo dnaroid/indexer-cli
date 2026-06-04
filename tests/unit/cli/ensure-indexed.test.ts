@@ -1,5 +1,8 @@
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
 
@@ -10,7 +13,7 @@ async function loadEnsureIndexedInternals<T>(): Promise<T> {
 	);
 	const source = readFileSync(filePath, "utf8");
 	const match = source.match(
-		/function getErrorMessage[\s\S]*?(?=\/\*\*\n \* Returns true if every workspace-modified\/added file)/,
+		/const INDEXED_EXTENSIONS[\s\S]*?(?=\nasync function getIndexPlan\()/,
 	);
 	if (!match) {
 		throw new Error(
@@ -19,7 +22,16 @@ async function loadEnsureIndexedInternals<T>(): Promise<T> {
 	}
 
 	const transpiled = ts.transpileModule(
-		`${match[0]}\nexport { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles };`,
+		`import path, { extname } from "node:path";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+const DEFAULT_PROJECT_ID = "default";
+function computeHash(text) {
+	const normalized = text.replace(/\\r\\n/g, "\\n").replace(/\\uFEFF/g, "").trimEnd();
+	return createHash("sha256").update(normalized, "utf-8").digest("hex");
+}
+${match[0]}
+export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles, workspaceAlreadyIndexed };`,
 		{
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
@@ -50,7 +62,41 @@ const ensureIndexedInternals = await loadEnsureIndexedInternals<{
 		modified: string[];
 		deleted: string[];
 	}) => number | undefined;
+	workspaceAlreadyIndexed: (
+		metadata: {
+			getFile: (
+				projectId: string,
+				snapshotId: string,
+				filePath: string,
+			) => Promise<{ sha256: string } | undefined>;
+		},
+		repoRoot: string,
+		snapshot: { id: string },
+		workspaceChanges: {
+			added: string[];
+			modified: string[];
+			deleted: string[];
+		},
+	) => Promise<boolean>;
 }>();
+
+function computeTestHash(text: string): string {
+	const normalized = text
+		.replace(/\r\n/g, "\n")
+		.replace(/\uFEFF/g, "")
+		.trimEnd();
+	return createHash("sha256").update(normalized, "utf-8").digest("hex");
+}
+
+function metadataFromRecords(records = new Map<string, { sha256: string }>()) {
+	return {
+		getFile: async (
+			_projectId: string,
+			_snapshotId: string,
+			filePath: string,
+		) => records.get(filePath),
+	};
+}
 
 describe("ensureIndexed error formatting", () => {
 	it("collects system error details from structured errors", () => {
@@ -115,5 +161,64 @@ describe("ensureIndexed error formatting", () => {
 
 		expect(ensureIndexedInternals.countChangedFiles(changedFiles)).toBe(3);
 		expect(ensureIndexedInternals.countRemovedFiles(changedFiles)).toBe(1);
+	});
+
+	it("treats workspace deletions as already indexed when absent from the snapshot", async () => {
+		await expect(
+			ensureIndexedInternals.workspaceAlreadyIndexed(
+				metadataFromRecords(),
+				"/repo",
+				{ id: "snapshot-1" },
+				{
+					added: [],
+					modified: [],
+					deleted: ["src/old.ts"],
+				},
+			),
+		).resolves.toBe(true);
+	});
+
+	it("keeps reindexing a workspace deletion until it is absent from the snapshot", async () => {
+		const records = new Map<string, { sha256: string }>([
+			["src/old.ts", { sha256: "previous" }],
+		]);
+
+		await expect(
+			ensureIndexedInternals.workspaceAlreadyIndexed(
+				metadataFromRecords(records),
+				"/repo",
+				{ id: "snapshot-1" },
+				{
+					added: [],
+					modified: [],
+					deleted: ["src/old.ts"],
+				},
+			),
+		).resolves.toBe(false);
+	});
+
+	it("handles already indexed mixed workspace changes including deletions", async () => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-indexed-"));
+		try {
+			await writeFile(path.join(repoRoot, "kept.ts"), "export const kept = 1;\n");
+			const records = new Map<string, { sha256: string }>([
+				["kept.ts", { sha256: computeTestHash("export const kept = 1;\n") }],
+			]);
+
+			await expect(
+				ensureIndexedInternals.workspaceAlreadyIndexed(
+					metadataFromRecords(records),
+					repoRoot,
+					{ id: "snapshot-1" },
+					{
+						added: [],
+						modified: ["kept.ts"],
+						deleted: ["deleted.ts"],
+					},
+				),
+			).resolves.toBe(true);
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
 	});
 });

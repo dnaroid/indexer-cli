@@ -142,8 +142,9 @@ function countRemovedFiles(changedFiles: GitDiff | undefined): number | undefine
 }
 
 /**
- * Returns true if every workspace-modified/added file in workspaceChanges
- * is already captured in `snapshot` with the same sha256 as on disk.
+ * Returns true if every workspace change is already captured in `snapshot`:
+ * modified/added files have the same sha256 as on disk, and deleted files are
+ * already absent from the snapshot.
  * This prevents repeated reindexing of persistent uncommitted changes.
  */
 async function workspaceAlreadyIndexed(
@@ -152,8 +153,18 @@ async function workspaceAlreadyIndexed(
 	snapshot: Snapshot,
 	workspaceChanges: GitDiff,
 ): Promise<boolean> {
-	// Deleted files can't be verified as "already indexed"
-	if (workspaceChanges.deleted.length > 0) return false;
+	for (const filePath of workspaceChanges.deleted) {
+		if (!INDEXED_EXTENSIONS.has(extname(filePath).toLowerCase())) {
+			continue; // Non-code file — not indexed, irrelevant for re-index decision
+		}
+
+		const record = await metadata.getFile(
+			DEFAULT_PROJECT_ID,
+			snapshot.id,
+			filePath,
+		);
+		if (record) return false; // Code file still present in snapshot
+	}
 
 	const filesToCheck = [
 		...workspaceChanges.modified,
