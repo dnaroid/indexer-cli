@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { extname } from "node:path";
 import { config } from "../../core/config.js";
-import { acquireIndexLock } from "../../core/lock.js";
+import { acquireIndexLock, getIndexLockStatus } from "../../core/lock.js";
 import type { Snapshot } from "../../core/types.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
@@ -37,6 +37,9 @@ const INDEXED_EXTENSIONS = new Set([
 	".rb",
 ]);
 
+const READ_COMMAND_LOCK_WAIT_MS = 10_000;
+const READ_COMMAND_LOCK_RETRY_MS = 500;
+
 type IndexPlan =
 	| { isFullReindex: true; changedFiles: undefined }
 	| { isFullReindex: false; changedFiles: GitDiff }
@@ -51,6 +54,7 @@ export type AutoIndexResult =
 			errors?: number;
 			ms: number;
 	  }
+	| { status: "stale"; reason: string; action?: string; ms: number }
 	| { status: "failed"; reason: string; action?: string; ms: number };
 
 function getErrorMessage(error: unknown): string {
@@ -140,6 +144,51 @@ function countChangedFiles(changedFiles: GitDiff | undefined): number | undefine
 
 function countRemovedFiles(changedFiles: GitDiff | undefined): number | undefined {
 	return changedFiles?.deleted.length;
+}
+
+async function useExistingIndexOnLockHeld(
+	metadata: SqliteMetadataStore,
+	repoRoot: string,
+	options: {
+		silent: boolean;
+		startedAt: number;
+		getLockStatus?: typeof getIndexLockStatus;
+	},
+): Promise<AutoIndexResult> {
+	const completedSnapshot =
+		await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+	const getLockStatus = options.getLockStatus ?? getIndexLockStatus;
+	const lockStatus = await getLockStatus(repoRoot);
+	const reason = lockStatus.status === "stale" ? "stale-lock" : "lock-held";
+
+	if (completedSnapshot) {
+		if (!options.silent) {
+			const detail =
+				reason === "stale-lock"
+					? "stale index lock detected"
+					: "another process is still indexing";
+			console.error(`Using existing completed index: ${detail}.`);
+		}
+
+		return {
+			status: "stale",
+			reason,
+			action: "using-existing-index",
+			ms: Date.now() - options.startedAt,
+		};
+	}
+
+	if (!options.silent) {
+		console.error(
+			"Cannot use existing index: another process is indexing and no completed snapshot exists.",
+		);
+	}
+	return {
+		status: "failed",
+		reason,
+		action: "run-idx-index",
+		ms: Date.now() - options.startedAt,
+	};
 }
 
 function touchesRootGitignore(changedFiles: GitDiff): boolean {
@@ -297,6 +346,8 @@ export async function ensureIndexed(
 	repoRoot: string,
 	options?: {
 		silent?: boolean;
+		lockWaitMs?: number;
+		lockRetryIntervalMs?: number;
 	},
 ): Promise<AutoIndexResult> {
 	const ensureStartedAt = Date.now();
@@ -314,21 +365,17 @@ export async function ensureIndexed(
 	let release: (() => Promise<void>) | null = null;
 	try {
 		release = await acquireIndexLock(repoRoot, {
-			waitMs: 30_000,
-			retryIntervalMs: 500,
+			waitMs: options?.lockWaitMs ?? READ_COMMAND_LOCK_WAIT_MS,
+			retryIntervalMs:
+				options?.lockRetryIntervalMs ?? READ_COMMAND_LOCK_RETRY_MS,
 		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (message.includes("already in progress")) {
-			if (!silent) {
-				console.error("Skipping auto-index: another process holds the lock.");
-			}
-			return {
-				status: "failed",
-				reason: "lock-held",
-				action: "retry",
-				ms: Date.now() - ensureStartedAt,
-			};
+			return useExistingIndexOnLockHeld(metadata, repoRoot, {
+				silent,
+				startedAt: ensureStartedAt,
+			});
 		}
 		throw error;
 	}

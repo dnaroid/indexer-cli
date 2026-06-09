@@ -1,10 +1,11 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	acquireIndexLock,
 	getActiveIndexingInfo,
+	getIndexLockStatus,
 } from "../../../src/core/lock.js";
 
 describe("acquireIndexLock", () => {
@@ -58,6 +59,41 @@ describe("acquireIndexLock", () => {
 	it("uses custom staleMs", async () => {
 		const release = await acquireIndexLock(tempDir, { staleMs: 60_000 });
 		await release();
+	});
+
+	it("reports active lock status without taking ownership", async () => {
+		const release = await acquireIndexLock(tempDir);
+
+		try {
+			const status = await getIndexLockStatus(tempDir);
+
+			expect(status.status).toBe("locked");
+			if (status.status === "locked") {
+				expect(status.lockPath).toBe(path.join(tempDir, ".indexer-cli", "indexer.lock"));
+				expect(status.ageMs).toBeGreaterThanOrEqual(0);
+			}
+		} finally {
+			await release();
+		}
+
+		await expect(getIndexLockStatus(tempDir)).resolves.toEqual({
+			status: "unlocked",
+		});
+	});
+
+	it("reports stale lock status from lock mtime", async () => {
+		const lockPath = path.join(tempDir, ".indexer-cli", "indexer.lock");
+		mkdirSync(lockPath, { recursive: true });
+		const oldDate = new Date(Date.now() - 10_000);
+		utimesSync(lockPath, oldDate, oldDate);
+
+		const status = await getIndexLockStatus(tempDir, { staleMs: 2_000 });
+
+		expect(status.status).toBe("stale");
+		if (status.status === "stale") {
+			expect(status.lockPath).toBe(lockPath);
+			expect(status.ageMs).toBeGreaterThanOrEqual(2_000);
+		}
 	});
 });
 

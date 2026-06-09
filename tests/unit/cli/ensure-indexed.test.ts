@@ -27,6 +27,7 @@ import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 const DEFAULT_PROJECT_ID = "default";
 const config = { get: (key) => key === "indexIncludePaths" ? [] : undefined };
+async function getIndexLockStatus() { return { status: "locked" }; }
 function computeHash(text) {
 	const normalized = text.replace(/\\r\\n/g, "\\n").replace(/\\uFEFF/g, "").trimEnd();
 	return createHash("sha256").update(normalized, "utf-8").digest("hex");
@@ -54,7 +55,7 @@ async function scanProjectFiles(rootPath, codeExtensions) {
 	return files.sort();
 }
 ${match[0]}
-export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles, workspaceAlreadyIndexed };`,
+export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles, useExistingIndexOnLockHeld, workspaceAlreadyIndexed };`,
 		{
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
@@ -85,6 +86,24 @@ const ensureIndexedInternals = await loadEnsureIndexedInternals<{
 		modified: string[];
 		deleted: string[];
 	}) => number | undefined;
+	useExistingIndexOnLockHeld: (
+		metadata: {
+			getLatestCompletedSnapshot: (projectId: string) => Promise<unknown>;
+		},
+		repoRoot: string,
+		options: {
+			silent: boolean;
+			startedAt: number;
+			getLockStatus?: (
+				repoRoot: string,
+			) => Promise<{ status: "unlocked" | "locked" | "stale" }>;
+		},
+	) => Promise<{
+		status: "stale" | "failed";
+		reason: string;
+		action?: string;
+		ms: number;
+	}>;
 	workspaceAlreadyIndexed: (
 		metadata: {
 			listFiles: (
@@ -190,6 +209,67 @@ describe("ensureIndexed error formatting", () => {
 
 		expect(ensureIndexedInternals.countChangedFiles(changedFiles)).toBe(3);
 		expect(ensureIndexedInternals.countRemovedFiles(changedFiles)).toBe(1);
+	});
+
+	it("uses an existing completed snapshot when the auto-index lock remains held", async () => {
+		const result = await ensureIndexedInternals.useExistingIndexOnLockHeld(
+			{
+				getLatestCompletedSnapshot: async () => ({ id: "snapshot-completed" }),
+			},
+			"/repo",
+			{
+				silent: true,
+				startedAt: Date.now(),
+				getLockStatus: async () => ({ status: "locked" }),
+			},
+		);
+
+		expect(result).toMatchObject({
+			status: "stale",
+			reason: "lock-held",
+			action: "using-existing-index",
+		});
+		expect(result.ms).toBeGreaterThanOrEqual(0);
+	});
+
+	it("reports stale locks while falling back to an existing completed snapshot", async () => {
+		const result = await ensureIndexedInternals.useExistingIndexOnLockHeld(
+			{
+				getLatestCompletedSnapshot: async () => ({ id: "snapshot-completed" }),
+			},
+			"/repo",
+			{
+				silent: true,
+				startedAt: Date.now(),
+				getLockStatus: async () => ({ status: "stale" }),
+			},
+		);
+
+		expect(result).toMatchObject({
+			status: "stale",
+			reason: "stale-lock",
+			action: "using-existing-index",
+		});
+	});
+
+	it("fails clearly when the auto-index lock remains held and no completed snapshot exists", async () => {
+		const result = await ensureIndexedInternals.useExistingIndexOnLockHeld(
+			{
+				getLatestCompletedSnapshot: async () => null,
+			},
+			"/repo",
+			{
+				silent: true,
+				startedAt: Date.now(),
+				getLockStatus: async () => ({ status: "locked" }),
+			},
+		);
+
+		expect(result).toMatchObject({
+			status: "failed",
+			reason: "lock-held",
+			action: "run-idx-index",
+		});
 	});
 
 	it("treats workspace deletions as already indexed when absent from the snapshot", async () => {

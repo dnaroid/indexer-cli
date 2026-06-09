@@ -20,6 +20,13 @@ export function formatAutoIndexResult(result: AutoIndexResult): string {
 		}
 	}
 
+	if (result.status === "stale") {
+		parts.push(`reason=${sanitizeValue(result.reason)}`);
+		if (result.action) {
+			parts.push(`action=${sanitizeValue(result.action)}`);
+		}
+	}
+
 	if (result.status === "failed") {
 		parts.push(`reason=${sanitizeValue(result.reason)}`);
 		if (result.action) {

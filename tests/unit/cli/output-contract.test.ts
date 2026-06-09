@@ -32,6 +32,7 @@ describe("CLI text-only output contract", () => {
 		expect(source).toContain('`IDX ${result.status}`');
 		expect(source).toContain('files=${result.files}');
 		expect(source).toContain('removed=${result.removed}');
+		expect(source).toContain('result.status === "stale"');
 		expect(source).toContain('reason=${sanitizeValue(result.reason)}');
 		expect(source).not.toContain("JSON.stringify");
 	});

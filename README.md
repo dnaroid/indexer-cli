@@ -153,6 +153,13 @@ matching files from discovery output such as `idx architecture` and `idx structu
 If you run `idx index` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
 
+Only one indexing process writes at a time. Discovery commands that auto-index, such as `idx search`, `idx structure`,
+`idx architecture`, `idx explain`, and `idx deps`, wait up to 10 seconds when another process holds the index lock. If
+the lock is still held and a completed snapshot already exists, they continue with that existing index and print an
+`IDX stale reason=lock-held action=using-existing-index` diagnostic. If the lock file itself is older than the stale
+threshold, the diagnostic uses `reason=stale-lock`; read commands still do not remove or recover the lock. Run
+`idx index` to recover or rebuild when there is no completed snapshot to fall back to.
+
 | Option      | Description                                                |
 |-------------|------------------------------------------------------------|
 | `--full`    | Force a full reindex instead of incremental                |

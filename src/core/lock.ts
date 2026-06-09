@@ -1,3 +1,4 @@
+import { stat } from "node:fs/promises";
 import path from "node:path";
 import * as lockfile from "proper-lockfile";
 import type { SqliteMetadataStore } from "../storage/sqlite.js";
@@ -10,6 +11,14 @@ const LOCK_FILE = "indexer.lock";
 
 const DEFAULT_STALE_MS = 10 * 60 * 1000;
 
+function getLockDir(projectRoot: string): string {
+	return path.join(projectRoot, LOCK_DIR);
+}
+
+function getLockFilePath(projectRoot: string): string {
+	return path.join(getLockDir(projectRoot), LOCK_FILE);
+}
+
 export async function acquireIndexLock(
 	projectRoot: string,
 	options?: {
@@ -18,7 +27,7 @@ export async function acquireIndexLock(
 		staleMs?: number;
 	},
 ): Promise<() => Promise<void>> {
-	const lockDir = path.join(projectRoot, LOCK_DIR);
+	const lockDir = getLockDir(projectRoot);
 	const staleMs = options?.staleMs ?? DEFAULT_STALE_MS;
 
 	const lockOptions: lockfile.LockOptions = {
@@ -47,7 +56,7 @@ export async function acquireIndexLock(
 	try {
 		const release = await lockfile.lock(lockDir, {
 			...lockOptions,
-			lockfilePath: path.join(lockDir, LOCK_FILE),
+			lockfilePath: getLockFilePath(projectRoot),
 		});
 		logger.info("[lock] Acquired index lock");
 		return release;
@@ -60,6 +69,45 @@ export async function acquireIndexLock(
 		);
 	}
 }
+
+export async function getIndexLockStatus(
+	projectRoot: string,
+	options?: { staleMs?: number },
+): Promise<
+	| { status: "unlocked" }
+	| { status: "locked"; lockPath: string; ageMs: number }
+	| { status: "stale"; lockPath: string; ageMs: number }
+> {
+	const staleMs = options?.staleMs ?? DEFAULT_STALE_MS;
+	const lockDir = getLockDir(projectRoot);
+	const lockPath = getLockFilePath(projectRoot);
+
+	let ageMs: number;
+	try {
+		const lockStat = await stat(lockPath);
+		ageMs = Math.max(0, Date.now() - lockStat.mtimeMs);
+	} catch {
+		return { status: "unlocked" };
+	}
+
+	if (ageMs > staleMs) {
+		return { status: "stale", lockPath, ageMs };
+	}
+
+	try {
+		const locked = await lockfile.check(lockDir, {
+			stale: staleMs,
+			lockfilePath: lockPath,
+		});
+
+		return locked
+			? { status: "locked", lockPath, ageMs }
+			: { status: "unlocked" };
+	} catch {
+		return { status: "locked", lockPath, ageMs };
+	}
+}
+
 export async function getActiveIndexingInfo(
 	metadata: SqliteMetadataStore,
 	projectId: string,
