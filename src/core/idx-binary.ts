@@ -48,9 +48,13 @@ function idxWrapperContent(): string {
 if command -v npm >/dev/null 2>&1; then
 	prefix="$(npm config get prefix 2>/dev/null)"
 	if [ -n "$prefix" ]; then
-		global_bin="$prefix/bin/indexer-cli"
-		if [ -x "$global_bin" ]; then
-			exec "$global_bin" "$@"
+		global_idx="$prefix/bin/idx"
+		global_legacy_bin="$prefix/bin/indexer-cli"
+		if [ -x "$global_idx" ]; then
+			exec "$global_idx" "$@"
+		fi
+		if [ -x "$global_legacy_bin" ]; then
+			exec "$global_legacy_bin" "$@"
 		fi
 	fi
 	if [ "$1" = "setup" ]; then
@@ -65,6 +69,27 @@ exit 1
 `;
 }
 
+function resolveExistingGlobalBin(prefix: string): string | null {
+	for (const binaryName of ["idx", "indexer-cli"]) {
+		const binPath = path.join(prefix, "bin", binaryName);
+		try {
+			accessSync(binPath, fsConstants.F_OK | fsConstants.X_OK);
+			const realBinPath = realpathSync(binPath);
+			const launcherContent = readFileSync(binPath, "utf8");
+			if (
+				isSelfRecursiveShellLauncher(launcherContent, [binPath, realBinPath])
+			) {
+				continue;
+			}
+			return binPath;
+		} catch {
+			// try next candidate
+		}
+	}
+
+	return null;
+}
+
 export type EnsureIdxBinaryResult = {
 	scriptStatus: "unchanged" | "installed" | "repaired";
 	pathUpdated: boolean;
@@ -77,16 +102,7 @@ export function getNpmGlobalBinPath(): string | null {
 		const prefix = execSync("npm config get prefix", {
 			encoding: "utf8",
 		}).trim();
-		const binPath = path.join(prefix, "bin", "indexer-cli");
-		accessSync(binPath, fsConstants.F_OK | fsConstants.X_OK);
-		const realBinPath = realpathSync(binPath);
-		const launcherContent = readFileSync(binPath, "utf8");
-		if (isSelfRecursiveShellLauncher(launcherContent, [binPath, realBinPath])) {
-			return null;
-		}
-		// Return the symlink, not its realpath — realpath may point into an
-		// ephemeral temp dir (/var/folders/…/T/) that macOS periodically cleans.
-		return binPath;
+		return resolveExistingGlobalBin(prefix);
 	} catch {
 		return null;
 	}

@@ -45,27 +45,48 @@ The `setup` command handles global installation automatically: it installs index
 ```bash
 # Recommended: global install
 npm install -g indexer-cli@latest
+idx --version
+
+# First-time dependency/bootstrap setup
 idx setup
 
 # Alternative: run via npx (no install needed)
 npx indexer-cli@latest setup
 ```
 
+On Linux, `npm install -g indexer-cli@latest` now installs both `idx` and `indexer-cli`
+into your npm global `bin` directory immediately. If `idx` is still not found, verify your
+npm global bin path is on `PATH`:
+
+```bash
+npm config get prefix
+echo "$PATH"
+which idx || true
+which indexer-cli || true
+```
+
+For user-local npm prefixes such as `~/.npm-global`, ensure `<prefix>/bin` is exported in your shell profile.
+`idx setup`/`idx doctor` may also repair the compatibility wrapper in `~/.local/bin/idx`, but the primary
+global npm install should no longer depend on that wrapper.
+
 ### Usage
 
 ```bash
-# 1. Install globally and set up
+# 1. Install globally and confirm the main CLI is available
 npm install -g indexer-cli@latest
+idx --version
+
+# 2. Run dependency setup (may start Ollama and prepare the embedding model)
 idx setup
 
-# 2. Initialize indexing and install the discovery skill
+# 3. Initialize indexing and install the discovery skill
 cd /path/to/your/project
 idx init
 
-# 3. Index the codebase
+# 4. Index the codebase
 idx index
 
-# 4. Search semantically yourself
+# 5. Search semantically yourself
 idx search "authentication middleware"
 ```
 
@@ -125,6 +146,7 @@ After running `setup`, restart your shell to ensure `idx` is on `PATH`.
 Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-vec vector store, and add `.indexer-cli/`
 to `.gitignore` in the current working directory. Also writes the `repo-discovery` skill under `.claude/skills/`,
 adds `.claude/` to `.gitignore`, and installs a Git post-commit hook that automatically re-indexes changed files.
+The first run may also start Ollama and download/create the `jina-8k` embedding model, so initial setup can take time.
 
 When run from a subdirectory of a Git project, `idx init` automatically initializes the Git project root.
 
@@ -326,6 +348,22 @@ subdirectories for `.indexer-cli/`, auto-registers found projects, and operates 
 
 The global registry is maintained automatically: `idx init` registers a project, `idx uninstall` unregisters it.
 `idx doctor <dir>` also registers discovered projects.
+
+## Troubleshooting Linux installs
+
+If a fresh global install does not behave as expected:
+
+```bash
+npm install -g indexer-cli@latest
+which idx || true
+which indexer-cli || true
+idx --version
+idx --no-auto-update doctor /path/to/project
+```
+
+- If `which idx` is empty, add your npm global `<prefix>/bin` to `PATH`.
+- If first-run setup is slow, Ollama may be starting or the `jina-8k` model may be downloading/being created.
+- Use `idx --no-auto-update doctor <projectPath>` to troubleshoot dependencies without also attempting auto-update.
 
 ## Auto-update behavior
 

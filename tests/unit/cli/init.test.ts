@@ -153,4 +153,15 @@ describe("init command hook", () => {
 		expect(source).toContain("idx index --skip-if-locked");
 		expect(source).not.toContain("npx -y indexer-cli index");
 	});
+
+	it("documents first-run indexing progress and troubleshooting in the command output", () => {
+		const source = readFileSync(
+			path.resolve(import.meta.dirname, "../../../src/cli/commands/init.ts"),
+			"utf8",
+		);
+		expect(source).toContain("Starting initial index.");
+		expect(source).toContain("download/create the jina-8k embedding model");
+		expect(source).toContain("idx --no-auto-update doctor .");
+		expect(source).toContain("Initialization may need Ollama");
+	});
 });

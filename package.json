@@ -5,6 +5,7 @@
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"bin": {
+		"idx": "./bin/indexer-cli.js",
 		"indexer-cli": "./bin/indexer-cli.js"
 	},
 	"files": [

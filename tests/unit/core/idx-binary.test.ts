@@ -17,9 +17,13 @@ const IDX_WRAPPER_CONTENT = `#!/bin/sh
 if command -v npm >/dev/null 2>&1; then
 	prefix="$(npm config get prefix 2>/dev/null)"
 	if [ -n "$prefix" ]; then
-		global_bin="$prefix/bin/indexer-cli"
-		if [ -x "$global_bin" ]; then
-			exec "$global_bin" "$@"
+		global_idx="$prefix/bin/idx"
+		global_legacy_bin="$prefix/bin/indexer-cli"
+		if [ -x "$global_idx" ]; then
+			exec "$global_idx" "$@"
+		fi
+		if [ -x "$global_legacy_bin" ]; then
+			exec "$global_legacy_bin" "$@"
 		fi
 	fi
 	if [ "$1" = "setup" ]; then
@@ -458,7 +462,8 @@ describe("ensureIdxBinary", () => {
 		const content = readFileSync(scriptPath, "utf8");
 		expect(content).toBe(IDX_WRAPPER_CONTENT);
 		expect(content).not.toContain(binaryPath);
-		expect(content).toContain('global_bin="$prefix/bin/indexer-cli"');
+		expect(content).toContain('global_idx="$prefix/bin/idx"');
+		expect(content).toContain('global_legacy_bin="$prefix/bin/indexer-cli"');
 	});
 });
 

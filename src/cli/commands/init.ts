@@ -193,6 +193,12 @@ export async function performInit(
 		console.log(`  Config: ${path.relative(projectRoot, configPath)}`);
 
 		if (!options?.skipIndexing) {
+			console.log(
+				"Starting initial index. This may start Ollama and download/create the jina-8k embedding model on first run.",
+			);
+			console.log(
+				"Tip: run `idx --no-auto-update doctor <projectPath>` if you need to verify dependencies separately.",
+			);
 			await ensureIndexed(metadata, projectRoot);
 		}
 	} finally {
@@ -231,6 +237,9 @@ export function registerInitCommand(program: Command): void {
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Failed to initialize project: ${message}`);
+				console.error(
+					"Initialization may need Ollama, the jina-8k model, or a longer first-run setup. Try `idx --no-auto-update doctor .` for a guided dependency check.",
+				);
 				process.exitCode = 1;
 			}
 		});
