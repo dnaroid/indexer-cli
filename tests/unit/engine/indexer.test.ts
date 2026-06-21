@@ -307,7 +307,7 @@ describe("IndexerEngine internals", () => {
 		it("creates all default plugins when no ids are provided", () => {
 			const plugins = createDefaultLanguagePlugins();
 
-			expect(plugins).toHaveLength(6);
+			expect(plugins).toHaveLength(7);
 			expect(plugins.map((plugin) => plugin.id)).toEqual([
 				...DEFAULT_LANGUAGE_PLUGIN_IDS,
 			]);
@@ -359,6 +359,14 @@ describe("IndexerEngine internals", () => {
 				".gd",
 				".rb",
 				".rs",
+				".c",
+				".cc",
+				".cpp",
+				".cxx",
+				".h",
+				".hh",
+				".hpp",
+				".hxx",
 			]);
 		});
 
@@ -416,6 +424,8 @@ describe("IndexerEngine internals", () => {
 			["file.gd", "gdscript"],
 			["file.rb", "ruby"],
 			["file.rs", "rust"],
+			["file.cpp", "cpp"],
+			["file.h", "cpp"],
 			["file.txt", "plaintext"],
 		])("maps %s to %s", (filePath, expected) => {
 			expect((engine as any).getLanguageIdFromPath(filePath)).toBe(expected);

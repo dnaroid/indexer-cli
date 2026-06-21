@@ -197,6 +197,30 @@ const RUST_BUILTIN_CRATES = new Set([
 	"test",
 ]);
 
+const CPP_SYSTEM_HEADERS = new Set([
+	"algorithm",
+	"array",
+	"atomic",
+	"chrono",
+	"cmath",
+	"cstdint",
+	"cstdio",
+	"cstdlib",
+	"cstring",
+	"functional",
+	"iostream",
+	"map",
+	"memory",
+	"optional",
+	"set",
+	"string",
+	"string_view",
+	"tuple",
+	"unordered_map",
+	"utility",
+	"vector",
+]);
+
 const IMPORT_SPECIFIER_EXTENSION = /\.(?:jsx?|mjs|cjs)$/i;
 const TS_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
 const TS_INDEX_CANDIDATES = ["/index.ts", "/index.tsx"];
@@ -227,9 +251,46 @@ export function resolveDependency(
 			return resolveRubyDependency(importSpecifier, fromFilePath, knownFiles);
 		case "rust":
 			return resolveRustDependency(importSpecifier, fromFilePath, knownFiles);
+		case "cpp":
+			return resolveCppDependency(importSpecifier, fromFilePath, knownFiles);
 		default:
 			return resolveTSDependency(importSpecifier, fromFilePath, knownFiles);
 	}
+}
+
+function resolveCppDependency(
+	importSpecifier: string,
+	fromFilePath: string,
+	knownFiles: Set<string>,
+): ResolveResult {
+	if (CPP_SYSTEM_HEADERS.has(importSpecifier) || !importSpecifier.includes("/")) {
+		const matchingKnownHeader = [...knownFiles].find(
+			(file) => file.endsWith(`/${importSpecifier}`) || file === importSpecifier,
+		);
+		if (!matchingKnownHeader) {
+			return { dependencyType: "builtin" };
+		}
+	}
+
+	const normalizedFrom = normalizePath(fromFilePath);
+	const candidates = new Set<string>();
+	const addCandidate = (candidate: string) => {
+		const normalized = normalizePath(normalize(candidate));
+		candidates.add(normalized.startsWith("./") ? normalized.slice(2) : normalized);
+	};
+
+	addCandidate(join(dirname(normalizedFrom), importSpecifier));
+	addCandidate(importSpecifier);
+	addCandidate(join("include", importSpecifier));
+	addCandidate(join("src", importSpecifier));
+
+	for (const candidate of candidates) {
+		if (knownFiles.has(candidate)) {
+			return { dependencyType: "internal", toPath: candidate };
+		}
+	}
+
+	return { dependencyType: "external" };
 }
 
 function resolveTSDependency(

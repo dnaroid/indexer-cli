@@ -164,6 +164,12 @@ const TEST_FILE_PATTERNS_BY_EXTENSION: Record<string, RegExp> = {
 	".cs": /(?:tests?|specs?)\.cs$/i,
 	".rb": /(?:^|\/)(?:_test\.rb$|_spec\.rb$)/i,
 	".gd": /\.test\.gd$/i,
+	".c": /(?:^|\/)(?:test_|.*(?:_test|_spec)\.c$)/i,
+	".cc": /(?:^|\/)(?:test_|.*(?:_test|_spec)\.cc$)/i,
+	".cpp": /(?:^|\/)(?:test_|.*(?:_test|_spec)\.cpp$)/i,
+	".cxx": /(?:^|\/)(?:test_|.*(?:_test|_spec)\.cxx$)/i,
+	".h": /(?:^|\/)(?:test_|.*(?:_test|_spec)\.h$)/i,
+	".hpp": /(?:^|\/)(?:test_|.*(?:_test|_spec)\.hpp$)/i,
 };
 
 export function isTestFile(filePath: string): boolean {

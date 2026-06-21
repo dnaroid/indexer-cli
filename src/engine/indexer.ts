@@ -28,6 +28,7 @@ import { CSharpPlugin } from "../languages/csharp.js";
 import { GDScriptPlugin } from "../languages/gdscript.js";
 import { RubyPlugin } from "../languages/ruby.js";
 import { RustPlugin } from "../languages/rust.js";
+import { CppPlugin } from "../languages/cpp.js";
 import { SystemLogger } from "../core/logger.js";
 import { config } from "../core/config.js";
 import { TokenEstimator } from "../utils/token-estimator.js";
@@ -212,7 +213,8 @@ export type BuiltinLanguagePluginId =
 	| "csharp"
 	| "gdscript"
 	| "ruby"
-	| "rust";
+	| "rust"
+	| "cpp";
 
 export const DEFAULT_LANGUAGE_PLUGIN_IDS: readonly BuiltinLanguagePluginId[] = [
 	"typescript",
@@ -221,6 +223,7 @@ export const DEFAULT_LANGUAGE_PLUGIN_IDS: readonly BuiltinLanguagePluginId[] = [
 	"gdscript",
 	"ruby",
 	"rust",
+	"cpp",
 ];
 
 const BUILTIN_LANGUAGE_PLUGIN_FACTORIES: Record<
@@ -233,6 +236,7 @@ const BUILTIN_LANGUAGE_PLUGIN_FACTORIES: Record<
 	gdscript: () => new GDScriptPlugin(),
 	ruby: () => new RubyPlugin(),
 	rust: () => new RustPlugin(),
+	cpp: () => new CppPlugin(),
 };
 
 function normalizeImportKind(
@@ -1483,6 +1487,15 @@ export class IndexerEngine {
 				return "ruby";
 			case ".rs":
 				return "rust";
+			case ".c":
+			case ".cc":
+			case ".cpp":
+			case ".cxx":
+			case ".h":
+			case ".hh":
+			case ".hpp":
+			case ".hxx":
+				return "cpp";
 			default:
 				return "plaintext";
 		}
