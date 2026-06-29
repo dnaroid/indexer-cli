@@ -353,6 +353,8 @@ describe("IndexerEngine internals", () => {
 				".cts",
 				".js",
 				".jsx",
+				".mjs",
+				".cjs",
 				".py",
 				".pyi",
 				".cs",

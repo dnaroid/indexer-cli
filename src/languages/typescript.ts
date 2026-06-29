@@ -92,6 +92,8 @@ export class TypeScriptPlugin implements LanguagePlugin {
 		".cts",
 		".js",
 		".jsx",
+		".mjs",
+		".cjs",
 	];
 
 	private project: Project;

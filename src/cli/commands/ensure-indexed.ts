@@ -35,6 +35,15 @@ const INDEXED_EXTENSIONS = new Set([
 	".cs",
 	".gd",
 	".rb",
+	".rs",
+	".c",
+	".cc",
+	".cpp",
+	".cxx",
+	".h",
+	".hh",
+	".hpp",
+	".hxx",
 ]);
 
 const READ_COMMAND_LOCK_WAIT_MS = 10_000;
