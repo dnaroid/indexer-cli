@@ -1,7 +1,26 @@
 {
 	"name": "indexer-cli",
 	"version": "0.12.32",
-	"description": "Lightweight CLI project indexer with semantic search via Ollama",
+	"description": "Local-first semantic code search and repository discovery for AI coding agents",
+	"keywords": [
+		"ai",
+		"coding-agents",
+		"code-search",
+		"semantic-search",
+		"repository-indexer",
+		"ollama",
+		"cli"
+	],
+	"homepage": "https://github.com/dnaroid/indexer-cli#readme",
+	"bugs": {
+		"url": "https://github.com/dnaroid/indexer-cli/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/dnaroid/indexer-cli.git"
+	},
+	"license": "MIT",
+	"author": "dnaroid",
 	"main": "dist/index.js",
 	"types": "dist/index.d.ts",
 	"bin": {

@@ -1,7 +1,36 @@
+<div align="center">
+
 # indexer-cli
 
-Project indexer that installs a focused discovery skill for coding agents and helps them spend fewer tokens finding the
-right code.
+**Local-first semantic code search and repository discovery for coding agents.**
+
+Index once. Give Claude, OpenCode, and other coding agents the right context without burning tokens on blind searches.
+
+[![npm version](https://img.shields.io/npm/v/indexer-cli?logo=npm&color=cb3837)](https://www.npmjs.com/package/indexer-cli)
+[![npm downloads](https://img.shields.io/npm/dm/indexer-cli?logo=npm)](https://www.npmjs.com/package/indexer-cli)
+[![Node.js](https://img.shields.io/node/v/indexer-cli?logo=node.js)](https://www.npmjs.com/package/indexer-cli)
+[![License: MIT](https://img.shields.io/npm/l/indexer-cli)](https://github.com/dnaroid/indexer-cli/blob/master/LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/dnaroid/indexer-cli?style=flat&logo=github)](https://github.com/dnaroid/indexer-cli)
+
+[npm](https://www.npmjs.com/package/indexer-cli) · [GitHub](https://github.com/dnaroid/indexer-cli) · [Issues](https://github.com/dnaroid/indexer-cli/issues)
+
+</div>
+
+```bash
+npm install -g indexer-cli@latest
+idx setup
+```
+
+Then, inside any Git repository:
+
+```bash
+idx init
+idx index
+idx search "authentication middleware"
+```
+
+> **Local by default:** source code and embeddings stay in your project. Embeddings are generated through your local
+> [Ollama](https://ollama.com/) instance and stored under `.indexer-cli/`.
 
 ## Overview
 
