@@ -4,12 +4,10 @@
 # =============================================================================
 #
 # Prerequisites:
-#   1. npm Granular Access Token with:
-#      - Packages: Read and write
-#      - Bypass 2FA: enabled
-#      - IP ranges: empty
-#   2. Token stored in GitHub repo secret: NPM_TOKEN
-#      gh secret set NPM_TOKEN
+#   1. Trusted Publishing (OIDC) registered on npmjs.com:
+#      - Owner: dnaroid, Repository: indexer-cli
+#      - Workflow filename: publish.yml, Environment: (empty)
+#   2. No npm token needed — CI authenticates via GitHub Actions OIDC
 #   3. All changes committed
 #
 # Usage:
