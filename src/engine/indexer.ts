@@ -29,6 +29,7 @@ import { GDScriptPlugin } from "../languages/gdscript.js";
 import { RubyPlugin } from "../languages/ruby.js";
 import { RustPlugin } from "../languages/rust.js";
 import { CppPlugin } from "../languages/cpp.js";
+import { SveltePlugin } from "../languages/svelte.js";
 import { SystemLogger } from "../core/logger.js";
 import { config } from "../core/config.js";
 import { TokenEstimator } from "../utils/token-estimator.js";
@@ -214,7 +215,8 @@ export type BuiltinLanguagePluginId =
 	| "gdscript"
 	| "ruby"
 	| "rust"
-	| "cpp";
+	| "cpp"
+	| "svelte";
 
 export const DEFAULT_LANGUAGE_PLUGIN_IDS: readonly BuiltinLanguagePluginId[] = [
 	"typescript",
@@ -224,6 +226,7 @@ export const DEFAULT_LANGUAGE_PLUGIN_IDS: readonly BuiltinLanguagePluginId[] = [
 	"ruby",
 	"rust",
 	"cpp",
+	"svelte",
 ];
 
 const BUILTIN_LANGUAGE_PLUGIN_FACTORIES: Record<
@@ -237,6 +240,7 @@ const BUILTIN_LANGUAGE_PLUGIN_FACTORIES: Record<
 	ruby: () => new RubyPlugin(),
 	rust: () => new RustPlugin(),
 	cpp: () => new CppPlugin(),
+	svelte: () => new SveltePlugin(),
 };
 
 function normalizeImportKind(
@@ -693,7 +697,9 @@ export class IndexerEngine {
 		const isRuby = languageId === "ruby";
 		const isRust = languageId === "rust";
 		const isJSImport =
-			languageId === "typescript" || languageId === "javascript";
+			languageId === "typescript" ||
+			languageId === "javascript" ||
+			languageId === "svelte";
 		if (
 			!isPython &&
 			!isCSharp &&
@@ -1496,6 +1502,8 @@ export class IndexerEngine {
 			case ".hpp":
 			case ".hxx":
 				return "cpp";
+			case ".svelte":
+				return "svelte";
 			default:
 				return "plaintext";
 		}

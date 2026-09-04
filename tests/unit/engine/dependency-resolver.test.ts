@@ -80,6 +80,34 @@ describe("resolveDependency", () => {
 		});
 	});
 
+	it("resolves extensionless Svelte component imports", () => {
+		expect(
+			resolveDependency(
+				"./Button",
+				"src/App.svelte",
+				new Set(["src/Button.svelte"]),
+				"svelte",
+			),
+		).toEqual({
+			dependencyType: "internal",
+			toPath: "src/Button.svelte",
+		});
+	});
+
+	it("resolves extensionless JavaScript imports from Svelte components", () => {
+		expect(
+			resolveDependency(
+				"./state",
+				"src/App.svelte",
+				new Set(["src/state.js"]),
+				"svelte",
+			),
+		).toEqual({
+			dependencyType: "internal",
+			toPath: "src/state.js",
+		});
+	});
+
 	it("returns internal without toPath for unknown relative imports", () => {
 		expect(resolveDependency("./missing", "src/index.ts", new Set())).toEqual({
 			dependencyType: "internal",

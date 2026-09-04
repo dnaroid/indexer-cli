@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
+import { createDefaultLanguagePlugins } from "../../../src/engine/indexer.js";
 
 async function loadEnsureIndexedInternals<T>(): Promise<T> {
 	const filePath = path.resolve(
@@ -27,6 +28,13 @@ import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 const DEFAULT_PROJECT_ID = "default";
 const config = { get: (key) => key === "indexIncludePaths" ? [] : undefined };
+function createDefaultLanguagePlugins() {
+	return ${JSON.stringify(
+		createDefaultLanguagePlugins().map((plugin) => ({
+			fileExtensions: plugin.fileExtensions,
+		})),
+	)};
+}
 async function getIndexLockStatus() { return { status: "locked" }; }
 function computeHash(text) {
 	const normalized = text.replace(/\\r\\n/g, "\\n").replace(/\\uFEFF/g, "").trimEnd();
@@ -324,6 +332,28 @@ describe("ensureIndexed error formatting", () => {
 						modified: ["kept.ts"],
 						deleted: ["deleted.ts"],
 					},
+				),
+			).resolves.toBe(true);
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("recognizes already indexed Svelte workspace changes", async () => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-indexed-"));
+		try {
+			const content = "<h1>Hello, Svelte!</h1>\n";
+			await writeFile(path.join(repoRoot, "App.svelte"), content);
+			const records = new Map<string, { sha256: string }>([
+				["App.svelte", { sha256: computeTestHash(content) }],
+			]);
+
+			await expect(
+				ensureIndexedInternals.workspaceAlreadyIndexed(
+					metadataFromRecords(records),
+					repoRoot,
+					{ id: "snapshot-1" },
+					{ added: [], modified: ["App.svelte"], deleted: [] },
 				),
 			).resolves.toBe(true);
 		} finally {

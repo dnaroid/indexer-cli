@@ -282,6 +282,13 @@ function isTreeSitterCallableNode(
 	}
 	if (languageId === "csharp") return node.type === "method_declaration";
 	if (languageId === "gdscript") return node.type === "function_definition";
+	if (languageId === "svelte") {
+		return [
+			"FunctionDeclaration",
+			"VariableDeclarator",
+			"MethodDefinition",
+		].includes(node.type);
+	}
 	return false;
 }
 
@@ -302,6 +309,9 @@ function isTreeSitterCallNode(
 	}
 	if (languageId === "gdscript") {
 		return node.type === "call" || node.type === "attribute_call";
+	}
+	if (languageId === "svelte") {
+		return node.type === "CallExpression" || node.type === "NewExpression";
 	}
 	return false;
 }

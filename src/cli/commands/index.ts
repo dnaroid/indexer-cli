@@ -331,6 +331,7 @@ export function registerIndexCommand(program: Command): void {
 					}
 
 					try {
+						const languagePlugins = createDefaultLanguagePlugins();
 						engine = new IndexerEngine({
 							projectId: DEFAULT_PROJECT_ID,
 							repoRoot: resolvedProjectPath,
@@ -338,7 +339,7 @@ export function registerIndexCommand(program: Command): void {
 							vectors,
 							embedder,
 							git,
-							languagePlugins: createDefaultLanguagePlugins(),
+							languagePlugins,
 						});
 
 						if (!options?.full) {
@@ -381,30 +382,7 @@ export function registerIndexCommand(program: Command): void {
 							if (effectiveFullReindex) {
 								const plannedFiles = await scanProjectFiles(
 									resolvedProjectPath,
-									[
-										".ts",
-										".tsx",
-										".mts",
-										".cts",
-										".js",
-										".jsx",
-										".mjs",
-										".cjs",
-									".py",
-									".pyi",
-									".cs",
-									".gd",
-									".rb",
-									".rs",
-									".c",
-									".cc",
-									".cpp",
-									".cxx",
-									".h",
-									".hh",
-									".hpp",
-									".hxx",
-								],
+									languagePlugins.flatMap((plugin) => plugin.fileExtensions),
 									{
 										includePaths: config.get("indexIncludePaths"),
 									},

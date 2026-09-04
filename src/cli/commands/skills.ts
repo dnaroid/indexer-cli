@@ -31,6 +31,7 @@ Pick the single cheapest command that answers the question, run it, and stop whe
 - Start with exactly **ONE** idx command. Each idx result is large; parallel or overlapping discovery burns tokens on duplicate context.
 - Prefer the cheapest route that fits the question. Only run a second idx command if the first clearly failed or left a specific gap.
 - Discovery commands may auto-index first. If another process is indexing, they wait briefly and then use the latest completed index when one exists.
+- Supported parsers include TypeScript/JavaScript, Python, C#, GDScript, Ruby, Rust, C/C++, and Svelte.
 - Use \`--path-prefix\` whenever the subsystem is known, e.g. \`src/api/\`, \`src/auth/\`.
 - For \`idx structure\`, also narrow with \`--kind\` when possible.
 - \`idx architecture\` and \`idx structure\` hide paths matching configured \`visibilityExcludePaths\` (fixtures/vendor by default); this affects discovery output, not indexing.

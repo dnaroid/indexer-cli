@@ -307,7 +307,7 @@ describe("IndexerEngine internals", () => {
 		it("creates all default plugins when no ids are provided", () => {
 			const plugins = createDefaultLanguagePlugins();
 
-			expect(plugins).toHaveLength(7);
+			expect(plugins).toHaveLength(8);
 			expect(plugins.map((plugin) => plugin.id)).toEqual([
 				...DEFAULT_LANGUAGE_PLUGIN_IDS,
 			]);
@@ -369,6 +369,7 @@ describe("IndexerEngine internals", () => {
 				".hh",
 				".hpp",
 				".hxx",
+				".svelte",
 			]);
 		});
 
@@ -428,6 +429,7 @@ describe("IndexerEngine internals", () => {
 			["file.rs", "rust"],
 			["file.cpp", "cpp"],
 			["file.h", "cpp"],
+			["file.svelte", "svelte"],
 			["file.txt", "plaintext"],
 		])("maps %s to %s", (filePath, expected) => {
 			expect((engine as any).getLanguageIdFromPath(filePath)).toBe(expected);
@@ -793,6 +795,24 @@ describe("IndexerEngine internals", () => {
 			expect(
 				result.chunkRecords.map((chunk: ChunkRecord) => chunk.chunkType),
 			).toEqual(["imports", "impl"]);
+		});
+
+		it("keeps the Svelte language id when malformed syntax uses fallback chunks", async () => {
+			const engine = new IndexerEngine(createMockOptions({ repoRoot: "/repo" }));
+
+			const result = await (engine as any).prepareFileRecords({
+				snapshotId: "snapshot-1",
+				projectId: "project-id",
+				filePath: "src/App.svelte",
+				content: "<script>\nconst ready = true;\n</script>\n{#if ready}<p>{/each}",
+				gitRef: "head-commit",
+				knownFiles: new Set(["src/App.svelte"]),
+			});
+
+			expect(result.fileRecord.languageId).toBe("svelte");
+			expect(result.symbolRecords).toEqual([]);
+			expect(result.dependencyRecords).toEqual([]);
+			expect(result.chunkRecords.length).toBeGreaterThan(0);
 		});
 
 		it("falls back to generic chunking for unknown file extensions", async () => {

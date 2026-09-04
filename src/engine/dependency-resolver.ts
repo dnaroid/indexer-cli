@@ -222,8 +222,20 @@ const CPP_SYSTEM_HEADERS = new Set([
 ]);
 
 const IMPORT_SPECIFIER_EXTENSION = /\.(?:jsx?|mjs|cjs)$/i;
-const TS_EXTENSIONS = [".ts", ".tsx", ".mts", ".cts"];
-const TS_INDEX_CANDIDATES = ["/index.ts", "/index.tsx"];
+const TS_EXTENSIONS = [
+	".ts",
+	".tsx",
+	".mts",
+	".cts",
+	".js",
+	".jsx",
+	".mjs",
+	".cjs",
+	".svelte",
+];
+const TS_INDEX_CANDIDATES = TS_EXTENSIONS.map(
+	(extension) => `/index${extension}`,
+);
 
 type ResolveResult = {
 	toPath?: string;

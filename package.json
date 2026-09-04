@@ -55,6 +55,7 @@
 		"test:cli:csharp": "vitest run tests/cli/commands-csharp.test.ts --testTimeout=180000 --no-file-parallelism",
 		"test:cli:ruby": "vitest run tests/cli/commands-ruby.test.ts --testTimeout=180000 --no-file-parallelism",
 		"test:cli:rust": "vitest run tests/cli/commands-rust.test.ts --testTimeout=180000 --no-file-parallelism",
+		"test:cli:svelte": "vitest run tests/cli/commands-svelte.test.ts --testTimeout=180000 --no-file-parallelism",
 		"smoke-test": "bash scripts/smoke-test-package.sh",
 		"publish-npm": "bash scripts/publish.sh"
 	},
@@ -64,6 +65,7 @@
 		"p-limit": "^4.0.0",
 		"proper-lockfile": "^4.1.2",
 		"sqlite-vec": "^0.1.9",
+		"svelte": "^5.57.0",
 		"tree-sitter": "^0.21.1",
 		"tree-sitter-c-sharp": "0.23.1",
 		"tree-sitter-gdscript": "^6.1.0",

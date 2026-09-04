@@ -38,6 +38,7 @@ describe("generated skills", () => {
 		expect(skill?.content).toContain(
 			"Pick the single cheapest command that answers the question, run it, and stop when you have enough context.",
 		);
+		expect(skill?.content).toContain("C/C++, and Svelte");
 	});
 
 	it("keeps the intro and next-step structure readable", () => {
