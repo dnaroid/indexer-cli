@@ -1,6 +1,6 @@
 {
 	"name": "indexer-cli",
-	"version": "0.12.34",
+	"version": "0.12.35",
 	"description": "Local-first semantic code search and repository discovery for AI coding agents",
 	"keywords": [
 		"ai",
