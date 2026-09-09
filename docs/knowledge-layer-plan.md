@@ -396,6 +396,11 @@ Default ranking:
 The calling agent still semantically reranks the compact candidates before using
 them as authoritative sources.
 
+When discovery has new or changed document candidates, search output also tells
+the calling agent to report that review obligation to the user and classify the
+sources before treating them as registered knowledge. JSON output carries the
+same recommendation.
+
 ## `idx wiki status` / `idx wiki audit`
 
 Report:
@@ -406,6 +411,9 @@ Report:
 - unresolved references;
 - new/changed document candidates;
 - active as-is specs with no tracked implementation inputs.
+
+When candidates exist, status/audit output includes the same explicit user-facing
+review and classification recommendation as knowledge search.
 
 ## `idx wiki impact`
 
@@ -448,6 +456,10 @@ Return one compact LLM context pack containing, in priority order:
 
 Context output must be token-budgeted and deduplicated. It should return paths
 and smallest useful ranges by default, not dump source bodies.
+
+If discovery has new or changed document candidates, context output includes an
+explicit recommendation to tell the user they remain unreviewed and to classify
+them before treating them as registered knowledge.
 
 Potential machine-readable output:
 

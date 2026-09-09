@@ -374,6 +374,10 @@ Important semantics:
   a durable relation automatically;
 - historical/superseded knowledge remains searchable but active knowledge wins ranking ties;
 - active as-is specs with no tracked code/test inputs are reported as relation gaps;
+- when `status`, `audit`, `search`, or `context` finds new or changed document candidates, the response tells the agent
+  to report the unreviewed candidates to the user, run `idx wiki discover`, read each source, and classify it with
+  `idx wiki record`; JSON output from wiki commands carries the same recommendation, and candidates are not registered
+  knowledge until reviewed;
 - legacy `.spec-wiki` state is not read, imported, or trusted.
 
 `idx wiki search` uses the existing local document embeddings plus lexical metadata/path/relation evidence, so

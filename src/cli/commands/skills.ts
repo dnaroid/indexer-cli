@@ -82,6 +82,11 @@ read the smallest returned ranges, and expand only for a named gap.
   coverage non-empty.
 - New/moved/changed document candidates must be classified. For low-signal docs
   that normal discovery may miss, use \`idx wiki discover --all-unclassified\`.
+- When \`idx wiki status\`, \`idx wiki audit\`, \`idx wiki search\`, or
+  \`idx context\` reports a candidate-review recommendation, explicitly tell the
+  user that unreviewed candidates remain, run \`idx wiki discover\`, read each
+  source, and classify it with \`idx wiki record\`. Candidates are not registered
+  knowledge until they have been reviewed.
 - When a primary spec moves, establish/classify the new path, preserve or repair
   evidence-backed code/test/spec relations, verify the new path after semantic
   review, and remove old metadata only after the new authority is established.

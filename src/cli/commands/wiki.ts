@@ -16,6 +16,7 @@ import { KnowledgeSearchEngine } from "../../knowledge/search.js";
 import { KnowledgeService } from "../../knowledge/service.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
+import { candidateReviewRecommendation } from "../format/knowledge.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
@@ -353,6 +354,9 @@ export function registerWikiCommand(program: Command): void {
 						const candidateLimit = Number.parseInt(options?.candidateLimit ?? "20", 10);
 						const payload = {
 							...audit,
+							...(audit.candidateCount > 0
+								? { recommendation: candidateReviewRecommendation(audit.candidateCount) }
+								: {}),
 							candidates: audit.candidates.slice(
 								0,
 								Number.isFinite(candidateLimit) && candidateLimit > 0 ? candidateLimit : 20,
@@ -365,6 +369,9 @@ export function registerWikiCommand(program: Command): void {
 						console.log(
 							`primary specs: ${payload.primarySpecCount} (${payload.currentPrimarySpecCount} current/proposed) | fresh: ${payload.freshCount} | unverified: ${payload.unverifiedCount} | needs review: ${payload.needsReviewCount} | unresolved refs: ${payload.unresolvedReferenceCount} | uncovered active as-is: ${payload.uncoveredActiveAsIsCount} | new/changed candidates: ${payload.candidateCount}`,
 						);
+						if (payload.recommendation) {
+							console.log(`Recommendation: ${payload.recommendation}`);
+						}
 						for (const status of payload.statuses) {
 							if (status.status === "fresh" || status.lifecycle === "historical" || status.lifecycle === "superseded") continue;
 							console.log(
@@ -448,15 +455,31 @@ export function registerWikiCommand(program: Command): void {
 							if (minScore !== undefined && !Number.isFinite(minScore)) {
 								throw new Error("--min-score must be a number.");
 							}
-							const results = await engine.search(query, {
-								limit: Number.isFinite(limitValue) && limitValue > 0 ? limitValue : 8,
-								includeSecondary: options?.includeSecondary,
-								pathPrefix: options?.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""),
-								minScore,
-							});
+							const [results, candidates] = await Promise.all([
+								engine.search(query, {
+									limit: Number.isFinite(limitValue) && limitValue > 0 ? limitValue : 8,
+									includeSecondary: options?.includeSecondary,
+									pathPrefix: options?.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""),
+									minScore,
+								}),
+								service.discover(),
+							]);
+							const recommendation =
+								candidates.length > 0
+									? candidateReviewRecommendation(candidates.length)
+									: undefined;
 							if (options?.json) {
-								console.log(JSON.stringify({ query, results }, null, 2));
+								console.log(
+									JSON.stringify(
+										{ query, ...(recommendation ? { recommendation } : {}), results },
+										null,
+										2,
+									),
+								);
 								return;
+							}
+							if (recommendation) {
+								console.log(`Recommendation: ${recommendation}`);
 							}
 							if (results.length === 0) {
 								console.log("no indexed project knowledge matched");
@@ -606,4 +629,3 @@ export function registerWikiCommand(program: Command): void {
 			},
 		);
 }
-

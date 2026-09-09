@@ -14,6 +14,7 @@ import { KnowledgeService } from "../../knowledge/service.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { formatAutoIndexResult } from "../format/compact.js";
+import { candidateReviewRecommendation } from "../format/knowledge.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 
@@ -110,6 +111,12 @@ export function registerContextCommand(program: Command): void {
 						metadata,
 						metadata,
 					);
+					const candidates = await service.discover();
+					if (candidates.length > 0) {
+						console.log(
+							`Recommendation: ${candidateReviewRecommendation(candidates.length)}`,
+						);
+					}
 					const knowledgeSearch = new KnowledgeSearchEngine(
 						DEFAULT_PROJECT_ID,
 						snapshot.id,

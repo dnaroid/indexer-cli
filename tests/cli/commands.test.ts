@@ -1581,6 +1581,44 @@ describe.sequential("CLI e2e", () => {
 			).toBe(0);
 			expect(discover.stdout).toContain("docs/session-contract.md");
 
+			const candidateStatus = runCLI(["wiki", "status"], {
+				cwd: knowledgeRoot,
+			});
+			expect(candidateStatus.exitCode).toBe(0);
+			expect(candidateStatus.stdout).toContain("Recommendation:");
+			expect(candidateStatus.stdout).toMatch(/requires? review/);
+			expect(candidateStatus.stdout).toContain("idx wiki discover");
+			expect(candidateStatus.stdout).toContain("idx wiki record");
+
+			const candidateStatusJson = runCLI(["wiki", "status", "--json"], {
+				cwd: knowledgeRoot,
+			});
+			expect(candidateStatusJson.exitCode).toBe(0);
+			expect(candidateStatusJson.stdout).toContain('"recommendation":');
+			expect(candidateStatusJson.stdout).toMatch(/requires? review/);
+
+			const candidateSearch = runCLI(["wiki", "search", "session"], {
+				cwd: knowledgeRoot,
+			});
+			expect(candidateSearch.exitCode).toBe(0);
+			expect(candidateSearch.stdout).toContain("Recommendation:");
+			expect(candidateSearch.stdout).toContain("Tell the user");
+
+			const candidateSearchJson = runCLI(
+				["wiki", "search", "session", "--json"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(candidateSearchJson.exitCode).toBe(0);
+			expect(candidateSearchJson.stdout).toContain('"recommendation":');
+			expect(candidateSearchJson.stdout).toContain("Tell the user");
+
+			const candidateContext = runCLI(["context", "session ownership"], {
+				cwd: knowledgeRoot,
+			});
+			expect(candidateContext.exitCode).toBe(0);
+			expect(candidateContext.stdout).toContain("Recommendation:");
+			expect(candidateContext.stdout).toContain("Tell the user");
+
 			const record = runCLI(
 				[
 					"wiki",
@@ -1622,6 +1660,7 @@ describe.sequential("CLI e2e", () => {
 			expect(search.exitCode).toBe(0);
 			expect(search.stdout).toContain("docs/session-contract.md");
 			expect(search.stdout).toContain('"status": "fresh"');
+			expect(search.stdout).not.toContain('"recommendation":');
 
 			const context = runCLI(
 				["context", "session authentication ownership", "--budget", "900"],
@@ -1631,6 +1670,7 @@ describe.sequential("CLI e2e", () => {
 			expect(context.stdout).toContain("Primary knowledge:");
 			expect(context.stdout).toContain("docs/session-contract.md");
 			expect(context.stdout).toContain("src/auth/session.ts");
+			expect(context.stdout).not.toContain("Recommendation:");
 
 			const impact = runCLI(
 				[
@@ -1651,6 +1691,7 @@ describe.sequential("CLI e2e", () => {
 			});
 			expect(status.exitCode).toBe(0);
 			expect(status.stdout).toContain('"freshCount": 1');
+			expect(status.stdout).not.toContain('"recommendation":');
 
 			const catalog = runCLI(["wiki", "catalog"], { cwd: knowledgeRoot });
 			expect(catalog.exitCode).toBe(0);
