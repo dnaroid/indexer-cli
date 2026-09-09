@@ -9,6 +9,7 @@ import type {
 	FileRecord,
 	GitDiff,
 	GitOperations,
+	KnowledgeStore,
 	MetadataStore,
 	ProjectId,
 	SnapshotId,
@@ -40,6 +41,10 @@ import { AdaptiveChunker } from "../chunking/adaptive.js";
 import { ArchitectureGenerator } from "./architecture.js";
 import { resolveDependency } from "./dependency-resolver.js";
 import { scanProjectFiles } from "./scanner.js";
+import {
+	DocumentIndexer,
+	type DocumentIncrementalPlan,
+} from "../knowledge/document-indexer.js";
 
 const logger = new SystemLogger("indexer-engine");
 
@@ -201,8 +206,10 @@ export interface IndexerEngineOptions {
 	projectId: ProjectId;
 	repoRoot: string;
 	metadata: MetadataStore;
+	knowledgeStore?: KnowledgeStore;
 	vectors: VectorStore;
 	embedder: EmbeddingProvider;
+	knowledgeEmbedder?: EmbeddingProvider;
 	git: GitOperations;
 	indexingOptions?: IndexingOptions;
 	languagePlugins?: LanguagePlugin[];
@@ -276,8 +283,10 @@ export class IndexerEngine {
 	private readonly projectId: ProjectId;
 	private readonly repoRoot: string;
 	private readonly metadata: MetadataStore;
+	private readonly documentIndexer?: DocumentIndexer;
 	private readonly vectors: VectorStore;
 	private readonly embedder: EmbeddingProvider;
+	private readonly knowledgeEmbedder: EmbeddingProvider;
 	private readonly git: GitOperations;
 	private readonly languagePluginRegistry = new LanguagePluginRegistry();
 	private readonly indexingOptions: Required<IndexingOptions>;
@@ -292,7 +301,17 @@ export class IndexerEngine {
 		this.metadata = options.metadata;
 		this.vectors = options.vectors;
 		this.embedder = options.embedder;
+		this.knowledgeEmbedder = options.knowledgeEmbedder ?? options.embedder;
 		this.git = options.git;
+		if (options.knowledgeStore) {
+			this.documentIndexer = new DocumentIndexer(
+				this.repoRoot,
+				options.metadata,
+				options.knowledgeStore,
+				this.vectors,
+				this.knowledgeEmbedder,
+			);
+		}
 
 		const languagePlugins =
 			options.languagePlugins ?? createDefaultLanguagePlugins();
@@ -1025,19 +1044,27 @@ export class IndexerEngine {
 	}
 
 	async initialize(): Promise<void> {
-		await Promise.all([
+		const tasks = [
 			this.metadata.initialize(),
 			this.vectors.initialize(),
 			this.embedder.initialize(),
-		]);
+		];
+		if (this.knowledgeEmbedder !== this.embedder) {
+			tasks.push(this.knowledgeEmbedder.initialize());
+		}
+		await Promise.all(tasks);
 	}
 
 	async close(): Promise<void> {
-		await Promise.all([
+		const tasks = [
 			this.metadata.close(),
 			this.vectors.close(),
 			this.embedder.close(),
-		]);
+		];
+		if (this.knowledgeEmbedder !== this.embedder) {
+			tasks.push(this.knowledgeEmbedder.close());
+		}
+		await Promise.all(tasks);
 	}
 
 	async indexProject(options: IndexProjectOptions): Promise<IndexResult> {
@@ -1087,6 +1114,16 @@ export class IndexerEngine {
 			);
 		}
 
+		let documentPlan: DocumentIncrementalPlan | undefined;
+		if (this.documentIndexer) {
+			documentPlan = await this.documentIndexer.planIncremental(
+				projectId,
+				latestSnapshot.id,
+				changedFiles,
+			);
+			changedFiles = this.mergeDocumentChanges(changedFiles, documentPlan);
+		}
+
 		const snapshot = await this.createSnapshot(projectId, gitRef, "indexing");
 		const snapshotId = snapshot.id;
 
@@ -1098,6 +1135,20 @@ export class IndexerEngine {
 				diff: changedFiles,
 				previousFiles: previousFilesForSnapshot,
 			});
+			if (this.documentIndexer && documentPlan) {
+				await this.documentIndexer.copyUnchanged(
+					projectId,
+					latestSnapshot.id,
+					snapshotId,
+					documentPlan.unchanged,
+				);
+				const documentResult = await this.documentIndexer.indexIncremental(
+					projectId,
+					snapshotId,
+					documentPlan,
+				);
+				errors.push(...documentResult.errors.map((error) => `document: ${error}`));
+			}
 
 			const gitignore = parseGitignore(repoRoot);
 			const filesToIndex = [...new Set([
@@ -1125,6 +1176,11 @@ export class IndexerEngine {
 					totalFiles,
 				);
 				await this.architectureGenerator.generate(projectId, snapshotId);
+				if (errors.length > 0) {
+					const message = `Incremental indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`;
+					await this.metadata.updateSnapshotStatus(snapshotId, "failed", message);
+					throw new Error(message);
+				}
 				await this.metadata.updateSnapshotStatus(snapshotId, "completed");
 				await this.pruneHistoricalSnapshots(projectId, snapshotId);
 				return { snapshotId, filesIndexed: totalFiles, errors: [] };
@@ -1709,16 +1765,14 @@ export class IndexerEngine {
 			)
 			.map((file) => file.path);
 
-		if (unchangedFiles.length === 0) {
-			return;
+		if (unchangedFiles.length > 0) {
+			await this.metadata.copyUnchangedFileData(
+				options.projectId,
+				options.prevSnapshotId,
+				options.newSnapshotId,
+				unchangedFiles,
+			);
 		}
-
-		await this.metadata.copyUnchangedFileData(
-			options.projectId,
-			options.prevSnapshotId,
-			options.newSnapshotId,
-			unchangedFiles,
-		);
 
 		await this.vectors.copyVectors(
 			options.projectId,
@@ -1865,8 +1919,22 @@ export class IndexerEngine {
 			);
 
 			if (filesToIndex.length === 0) {
+				if (this.documentIndexer) {
+					const documentResult = await this.documentIndexer.indexFull(
+						projectId,
+						snapshotId,
+					);
+					errors.push(
+						...documentResult.errors.map((error) => `document: ${error}`),
+					);
+				}
 				await this.metadata.updateSnapshotProgress(snapshotId, 0, 0);
 				await this.architectureGenerator.generate(projectId, snapshotId);
+				if (errors.length > 0) {
+					throw new Error(
+						`Full indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`,
+					);
+				}
 				await this.metadata.updateSnapshotStatus(snapshotId, "completed");
 				return { snapshotId, filesIndexed: 0, errors };
 			}
@@ -1886,6 +1954,13 @@ export class IndexerEngine {
 				errors,
 				operation: "full reindex batch indexing",
 			});
+			if (this.documentIndexer) {
+				const documentResult = await this.documentIndexer.indexFull(
+					projectId,
+					snapshotId,
+				);
+				errors.push(...documentResult.errors.map((error) => `document: ${error}`));
+			}
 
 			try {
 				await this.architectureGenerator.generate(projectId, snapshotId);
@@ -1916,5 +1991,26 @@ export class IndexerEngine {
 	private getBatchSize(): number {
 		const value = config.get("indexBatchSize");
 		return Number.isFinite(value) && value > 0 ? value : 50;
+	}
+
+	private mergeDocumentChanges(
+		diff: GitDiff,
+		plan: DocumentIncrementalPlan,
+	): GitDiff {
+		const deleted = new Set([...diff.deleted, ...plan.deleted]);
+		const added = new Set([...diff.added, ...plan.added]);
+		const modified = new Set([...diff.modified, ...plan.modified]);
+
+		for (const filePath of deleted) {
+			added.delete(filePath);
+			modified.delete(filePath);
+		}
+		for (const filePath of added) modified.delete(filePath);
+
+		return {
+			added: [...added].sort(),
+			modified: [...modified].sort(),
+			deleted: [...deleted].sort(),
+		};
 	}
 }

@@ -1,0 +1,82 @@
+[
+  {
+    "query": "Before I change session refresh retries, find the current behavioral contract and the implementation/tests that enforce it.",
+    "should_trigger": true
+  },
+  {
+    "query": "I changed src/auth/refresh-worker.ts. Check which project specs or contracts may now be affected and whether any relationship needs repair.",
+    "should_trigger": true
+  },
+  {
+    "query": "Where is the requirement that duplicate payment submission must be idempotent, and is that spec still fresh?",
+    "should_trigger": true
+  },
+  {
+    "query": "How does background agent cancellation work in this repository? I don't know which files implement it.",
+    "should_trigger": true
+  },
+  {
+    "query": "Trace the callers and dependencies around the request retry scheduler; I haven't worked in this subsystem before.",
+    "should_trigger": true
+  },
+  {
+    "query": "Give me the architecture and entry points for the desktop session subsystem before I refactor it.",
+    "should_trigger": true
+  },
+  {
+    "query": "We added a new implementation file for provider cache stability. Make sure project knowledge and impact tracking are still correct.",
+    "should_trigger": true
+  },
+  {
+    "query": "Find the code responsible for restoring window state after monitor changes; I only know the behavior, not any identifier.",
+    "should_trigger": true
+  },
+  {
+    "query": "Bootstrap the project's behavioral knowledge from its scattered requirements, RFCs, guides, and code evidence.",
+    "should_trigger": true
+  },
+  {
+    "query": "Which tests and implementation ranges should I read to understand token usage refresh behavior, and what contract describes it?",
+    "should_trigger": true
+  },
+  {
+    "query": "Open src/auth/session.ts lines 40-70 and explain this exact function body.",
+    "should_trigger": false
+  },
+  {
+    "query": "Find every exact occurrence of the identifier SessionRefreshCoordinator with ripgrep.",
+    "should_trigger": false
+  },
+  {
+    "query": "Fix the typo 'recieve' in README.md and make no other changes.",
+    "should_trigger": false
+  },
+  {
+    "query": "Rename local variable tmpResult to result in this function; behavior must not change.",
+    "should_trigger": false
+  },
+  {
+    "query": "Run the existing unit test file tests/auth/session.test.ts and tell me whether it passes.",
+    "should_trigger": false
+  },
+  {
+    "query": "Format this JSON object with two-space indentation.",
+    "should_trigger": false
+  },
+  {
+    "query": "Rewrite this release announcement to sound friendlier.",
+    "should_trigger": false
+  },
+  {
+    "query": "Summarize the text of docs/rfc-007.md; do not inspect other repository files.",
+    "should_trigger": false
+  },
+  {
+    "query": "Change the color literal #fff to #ffffff in src/theme.css; this is a mechanical edit only.",
+    "should_trigger": false
+  },
+  {
+    "query": "What does the exact exported function parseToken mean? The file and symbol are src/auth/token.ts::parseToken.",
+    "should_trigger": false
+  }
+]

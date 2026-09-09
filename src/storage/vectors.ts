@@ -2,6 +2,7 @@ import Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import type {
 	ChunkId,
+	FileDomain,
 	ProjectId,
 	SnapshotId,
 	VectorRecord,
@@ -27,6 +28,7 @@ export const REQUIRED_COLUMNS = [
 	"content_hash",
 	"chunk_type",
 	"primary_symbol",
+	"file_domain",
 	"embedding",
 ] as const;
 
@@ -42,6 +44,7 @@ type VectorMetaRow = {
 	content_hash: string;
 	chunk_type: string;
 	primary_symbol: string;
+	file_domain: FileDomain;
 };
 
 type VectorCopyRow = VectorMetaRow & {
@@ -81,7 +84,8 @@ export class SqliteVecVectorStore implements VectorStore {
 					end_line INTEGER NOT NULL,
 					content_hash TEXT NOT NULL,
 					chunk_type TEXT NOT NULL DEFAULT '',
-					primary_symbol TEXT NOT NULL DEFAULT ''
+					primary_symbol TEXT NOT NULL DEFAULT '',
+					file_domain TEXT NOT NULL DEFAULT 'code'
 				);
 
 				CREATE INDEX IF NOT EXISTS idx_vector_meta_snapshot_id
@@ -107,6 +111,18 @@ export class SqliteVecVectorStore implements VectorStore {
 					)
 				`);
 			}
+
+			const columns = db.prepare("PRAGMA table_info(vector_meta)").all() as Array<{
+				name: string;
+			}>;
+			if (!columns.some((column) => column.name === "file_domain")) {
+				db.exec(
+					"ALTER TABLE vector_meta ADD COLUMN file_domain TEXT NOT NULL DEFAULT 'code'",
+				);
+			}
+			db.exec(
+				"CREATE INDEX IF NOT EXISTS idx_vector_meta_file_domain ON vector_meta(file_domain)",
+			);
 		});
 
 		initSchema.immediate();
@@ -146,8 +162,9 @@ export class SqliteVecVectorStore implements VectorStore {
 				end_line,
 				content_hash,
 				chunk_type,
-				primary_symbol
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				primary_symbol,
+				file_domain
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 		const insertVectorStatement = db.prepare(
 			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",
@@ -167,6 +184,7 @@ export class SqliteVecVectorStore implements VectorStore {
 					vector.contentHash,
 					vector.chunkType ?? "",
 					vector.primarySymbol ?? "",
+					vector.domain ?? "code",
 				);
 				insertVectorStatement.run(
 					vector.chunkId,
@@ -194,7 +212,10 @@ export class SqliteVecVectorStore implements VectorStore {
 		const db = this.getDb();
 		const conditions = ["vm.project_id = ?"];
 		const values: Array<string | number | Buffer> = [filters.projectId];
-		const prefilter = this.buildPrefilter(filters, "vm");
+		const prefilter = this.buildPrefilter(
+			{ ...filters, domain: filters.domain ?? "code" },
+			"vm",
+		);
 		if (prefilter) {
 			conditions.push(prefilter);
 		}
@@ -223,6 +244,7 @@ export class SqliteVecVectorStore implements VectorStore {
 			contentHash: row.content_hash,
 			chunkType: row.chunk_type || undefined,
 			primarySymbol: row.primary_symbol || undefined,
+			domain: row.file_domain === "document" ? "document" : undefined,
 			score: Math.max(0, 1 - row.distance / 2),
 			distance: row.distance,
 		}));
@@ -237,7 +259,10 @@ export class SqliteVecVectorStore implements VectorStore {
 		const db = this.getDb();
 		const conditions = ["project_id = ?"];
 		const values: string[] = [filters.projectId];
-		const prefilter = this.buildPrefilter(filters);
+		const prefilter = this.buildPrefilter({
+			...filters,
+			domain: filters.domain ?? "code",
+		});
 		if (prefilter) {
 			conditions.push(prefilter);
 		}
@@ -318,8 +343,9 @@ export class SqliteVecVectorStore implements VectorStore {
 				end_line,
 				content_hash,
 				chunk_type,
-				primary_symbol
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				primary_symbol,
+				file_domain
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
 		const insertVectorStatement = db.prepare(
 			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",
@@ -339,6 +365,7 @@ export class SqliteVecVectorStore implements VectorStore {
 					row.content_hash,
 					row.chunk_type,
 					row.primary_symbol,
+					row.file_domain,
 				);
 				insertVectorStatement.run(
 					row.chunk_id,
@@ -450,10 +477,21 @@ export class SqliteVecVectorStore implements VectorStore {
 			conditions.push(
 				`${prefix}file_path = '${this.escapeSqlLiteral(filters.filePath)}'`,
 			);
-		} else if (filters.pathPrefix) {
-			conditions.push(
-				`${prefix}file_path LIKE '${this.escapeSqlLike(filters.pathPrefix)}%'`,
-			);
+		} else {
+			if (filters.filePaths && filters.filePaths.length > 0) {
+				const filePaths = [...new Set(filters.filePaths)]
+					.map((filePath) => filePath.trim())
+					.filter(Boolean)
+					.map((filePath) => `'${this.escapeSqlLiteral(filePath)}'`);
+				if (filePaths.length > 0) {
+					conditions.push(`${prefix}file_path IN (${filePaths.join(", ")})`);
+				}
+			}
+			if (filters.pathPrefix) {
+				conditions.push(
+					`${prefix}file_path LIKE '${this.escapeSqlLike(filters.pathPrefix)}%'`,
+				);
+			}
 		}
 
 		if (filters.chunkTypes && filters.chunkTypes.length > 0) {
@@ -466,6 +504,10 @@ export class SqliteVecVectorStore implements VectorStore {
 					`${prefix}chunk_type IN (${normalizedChunkTypes.join(", ")})`,
 				);
 			}
+		}
+
+		if (filters.domain) {
+			conditions.push(`${prefix}file_domain = '${filters.domain}'`);
 		}
 
 		return conditions.join(" AND ");

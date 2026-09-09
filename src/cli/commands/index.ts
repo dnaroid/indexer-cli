@@ -13,6 +13,8 @@ import {
 	IndexerEngine,
 } from "../../engine/indexer.js";
 import { scanProjectFiles } from "../../engine/scanner.js";
+import { scanProjectDocuments } from "../../knowledge/document-scanner.js";
+import { knowledgeSnapshotNeedsRefresh } from "../../knowledge/embedding.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { sanitizePathPatterns } from "../../utils/path-patterns.js";
@@ -310,6 +312,13 @@ export function registerIndexCommand(program: Command): void {
 						config.get("indexConcurrency"),
 						config.get("ollamaNumCtx"),
 					);
+					const knowledgeEmbedder = new OllamaEmbeddingProvider(
+						config.get("ollamaBaseUrl"),
+						config.get("knowledgeEmbeddingModel"),
+						config.get("indexBatchSize"),
+						config.get("indexConcurrency"),
+						config.get("ollamaNumCtx"),
+					);
 					const git = new SimpleGitOperations();
 					let engine: IndexerEngine | null = null;
 
@@ -336,8 +345,10 @@ export function registerIndexCommand(program: Command): void {
 							projectId: DEFAULT_PROJECT_ID,
 							repoRoot: resolvedProjectPath,
 							metadata,
+							knowledgeStore: metadata,
 							vectors,
 							embedder,
+							knowledgeEmbedder,
 							git,
 							languagePlugins,
 						});
@@ -346,11 +357,21 @@ export function registerIndexCommand(program: Command): void {
 							const latestSnapshot =
 								await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 							const headCommit = await git.getHeadCommit(resolvedProjectPath);
+							const workspaceDirty = await git.isDirty(resolvedProjectPath);
+							const knowledgeNeedsRefresh = latestSnapshot
+								? await knowledgeSnapshotNeedsRefresh(
+										metadata,
+										DEFAULT_PROJECT_ID,
+										latestSnapshot.id,
+									)
+								: false;
 
 							if (
 								latestSnapshot &&
 								headCommit === latestSnapshot.meta.headCommit &&
+								!workspaceDirty &&
 								!pathMaskConfigChanged &&
+								!knowledgeNeedsRefresh &&
 								!options?.dryRun
 							) {
 								console.log("Index is already up to date.");
@@ -361,7 +382,7 @@ export function registerIndexCommand(program: Command): void {
 						const latestSnapshot =
 							await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 						const headCommit = await git.getHeadCommit(resolvedProjectPath);
-						const changedFiles =
+						let changedFiles =
 							!options?.full && latestSnapshot?.meta.headCommit
 								? mergeGitDiffs(
 										await git.getChangedFiles(
@@ -371,6 +392,21 @@ export function registerIndexCommand(program: Command): void {
 										await git.getWorkingTreeChanges(resolvedProjectPath),
 									)
 								: undefined;
+						if (
+							!options?.full &&
+							latestSnapshot &&
+							(await knowledgeSnapshotNeedsRefresh(
+								metadata,
+								DEFAULT_PROJECT_ID,
+								latestSnapshot.id,
+							))
+						) {
+							const documents = await scanProjectDocuments(resolvedProjectPath);
+							changedFiles = mergeGitDiffs(
+								changedFiles ?? { added: [], modified: [], deleted: [] },
+								{ added: [], modified: documents, deleted: [] },
+							);
+						}
 						const effectiveFullReindex =
 							Boolean(options?.full) ||
 							pathMaskConfigChanged ||
@@ -464,7 +500,11 @@ export function registerIndexCommand(program: Command): void {
 						if (engine) {
 							await engine.close().catch(() => undefined);
 						} else {
-							await Promise.allSettled([vectors.close(), embedder.close()]);
+							await Promise.allSettled([
+								vectors.close(),
+								embedder.close(),
+								knowledgeEmbedder.close(),
+							]);
 						}
 					}
 				} finally {

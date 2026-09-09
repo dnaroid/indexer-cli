@@ -1250,7 +1250,7 @@ describe("IndexerEngine internals", () => {
 			);
 		});
 
-		it("returns early when no unchanged files remain", async () => {
+		it("still copies snapshot vectors when no unchanged code files remain", async () => {
 			const options = createMockOptions();
 			options.metadata.listFiles.mockResolvedValue([{ path: "src/change.ts" }]);
 			const engine = new IndexerEngine(options as any);
@@ -1263,7 +1263,12 @@ describe("IndexerEngine internals", () => {
 			});
 
 			expect(options.metadata.copyUnchangedFileData).not.toHaveBeenCalled();
-			expect(options.vectors.copyVectors).not.toHaveBeenCalled();
+			expect(options.vectors.copyVectors).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-prev",
+				"snapshot-next",
+				["src/change.ts"],
+			);
 		});
 	});
 

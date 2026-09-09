@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "new-implementation-relation",
+      "fixture": "maintenance/new-relation",
+      "setup": [
+        "idx init",
+        "idx wiki record --path docs/session-refresh.md --classification spec --type as-is --lifecycle active --confidence high --summary 'Session refresh retries once and preserves session ownership.' --topic session --topic refresh",
+        "idx wiki verify --path docs/session-refresh.md"
+      ],
+      "prompt": "A new src/refresh-worker.ts now implements the same session refresh contract. Check the knowledge impact of that file, inspect the contract and implementation/tests, repair the wiki/spec relations if warranted, and leave the knowledge state correct. Do not change production code or tests.",
+      "assertions": [
+        "The changed implementation path is reviewed even though it was not in the previous durable relation map.",
+        "docs/session-refresh.md remains the primary active contract.",
+        "src/refresh-worker.ts is added as an inferred code relation only after semantic review.",
+        "Changing the relation map makes the old verification baseline stale before re-verification.",
+        "The final docs/session-refresh.md status is fresh after explicit verification.",
+        "Production code/tests are unchanged."
+      ]
+    },
+    {
+      "id": "primary-spec-move",
+      "fixture": "maintenance/move",
+      "setup": [
+        "idx init",
+        "idx wiki record --path docs/job-cancellation.md --classification spec --type as-is --lifecycle active --confidence high --summary 'Job cancellation is idempotent and terminal.' --topic jobs --topic cancellation",
+        "idx wiki verify --path docs/job-cancellation.md",
+        "mkdir -p contracts && git mv docs/job-cancellation.md contracts/job-cancellation.md"
+      ],
+      "prompt": "I moved the job cancellation contract to contracts/job-cancellation.md. Reconcile project knowledge after the move, preserving the current contract and its implementation/test relationships. Do not change production behavior.",
+      "assertions": [
+        "The old primary path is recognized as missing/moved rather than silently fresh.",
+        "The new path is classified as the active primary spec.",
+        "Relevant code/test relations are preserved or re-established with valid provenance.",
+        "The new path is explicitly verified after semantic review.",
+        "Old docs/job-cancellation.md metadata is removed only after the new entry is established.",
+        "There is no duplicate active authority at the end."
+      ]
+    },
+    {
+      "id": "score-zero-new-contract",
+      "fixture": "maintenance/score-zero",
+      "setup": [
+        "idx init"
+      ],
+      "prompt": "notes/capture.txt is a new authoritative contract for duplicate capture behavior even though it is plain text and has no spec-like filename. Add it to project knowledge, verify it against the implementation/tests, and keep the result minimal. Do not edit production code or tests.",
+      "assertions": [
+        "The changed/explicitly named low-signal document is reviewed despite a discovery score of zero.",
+        "notes/capture.txt becomes an active as-is primary spec.",
+        "The spec is related to src/capture.ts and its test evidence.",
+        "The final status is fresh only after explicit semantic verification.",
+        "No unrelated documents are promoted to primary knowledge."
+      ]
+    },
+    {
+      "id": "uncovered-no-impact-control",
+      "fixture": "maintenance/no-impact",
+      "setup": [
+        "idx init",
+        "idx wiki record --path docs/auth.md --classification spec --type as-is --lifecycle active --confidence high --summary 'Authentication token validation contract.' --topic auth --topic tokens",
+        "idx wiki verify --path docs/auth.md"
+      ],
+      "prompt": "Check the knowledge impact of src/telemetry-format.ts. It was added near auth work, but update specs or relations only if the behavior truly affects an existing contract. Do not change production code or tests.",
+      "assertions": [
+        "src/telemetry-format.ts is surfaced as uncovered and semantically reviewed.",
+        "No auth/spec relation is invented merely to eliminate uncovered coverage.",
+        "docs/auth.md remains unchanged and fresh.",
+        "The final outcome explicitly allows no spec impact."
+      ]
+    }
+  ]
+}

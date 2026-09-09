@@ -1,6 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SqliteVecVectorStore } from "../../../src/storage/vectors.js";
 
@@ -78,6 +80,41 @@ describe("SqliteVecVectorStore initialization safety", () => {
 
 			expect(vectorMetaTable).toBeDefined();
 			expect(vecChunksTable).toBeDefined();
+		} finally {
+			await store.close();
+		}
+	});
+
+	it("migrates an existing vector_meta table and keeps old rows in code", async () => {
+		const legacyDb = new Database(dbPath);
+		sqliteVec.load(legacyDb);
+		legacyDb.exec(`
+			CREATE TABLE vector_meta (
+				chunk_id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
+				snapshot_id TEXT NOT NULL, file_path TEXT NOT NULL,
+				start_line INTEGER NOT NULL, end_line INTEGER NOT NULL,
+				content_hash TEXT NOT NULL, chunk_type TEXT NOT NULL DEFAULT '',
+				primary_symbol TEXT NOT NULL DEFAULT ''
+			);
+			CREATE VIRTUAL TABLE vec_chunks USING vec0(
+				chunk_id TEXT PRIMARY KEY, embedding float[3]
+			);
+		`);
+		legacyDb
+			.prepare(
+				"INSERT INTO vector_meta (chunk_id, project_id, snapshot_id, file_path, start_line, end_line, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			)
+			.run("legacy", "project-1", "snapshot-1", "src/legacy.ts", 1, 2, "hash");
+		legacyDb
+			.prepare("INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)")
+			.run("legacy", new Float32Array([1, 0, 0]));
+		legacyDb.close();
+
+		const store = new SqliteVecVectorStore({ dbPath, vectorSize: 3 });
+		try {
+			await store.initialize();
+			expect(await store.countVectors({ projectId: "project-1" })).toBe(1);
+			expect(await store.countVectors({ projectId: "project-1", domain: "document" })).toBe(0);
 		} finally {
 			await store.close();
 		}

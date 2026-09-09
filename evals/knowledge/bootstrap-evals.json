@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "scenarios": [
+    {
+      "id": "clean-scattered-bootstrap",
+      "fixture": "bootstrap",
+      "setup": [
+        "idx init"
+      ],
+      "prompt": "Bootstrap the project's knowledge wiki from the scattered documents. Classify the real behavioral contracts, keep overview/catalog/guide material non-primary, record useful summaries/topics/relations, and generate the compact catalog. Do not claim semantic verification unless you actually perform a contract-vs-code/test review.",
+      "assertions": [
+        "requirements/payment-behavior.md and architecture/rfc-007.md are primary specs.",
+        "docs/overview.md is meta-index, not primary.",
+        "docs/how-to-pay.md is guide, not primary.",
+        "src/payments.ts and tests/payments.test.ts are code/test evidence, never knowledge entries.",
+        "Primary specs are unverified immediately after classification-only bootstrap.",
+        "The generated knowledge_catalog is derived routing metadata, not source of truth.",
+        "No generated skill/eval fixture resource is promoted into primary knowledge."
+      ]
+    }
+  ]
+}

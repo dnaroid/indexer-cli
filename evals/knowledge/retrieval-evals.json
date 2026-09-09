@@ -1,0 +1,33 @@
+[
+  {"id":"direct-session-recovery","query":"session recovery after context compaction","expectedPath":"docs/session-recovery.md"},
+  {"id":"direct-cache-stability","query":"provider cache stability dcp tool results","expectedPath":"specs/dcp-provider-cache-stability.md"},
+  {"id":"direct-concurrency","query":"async callback wrong session tab","expectedPath":"docs/concurrency.md"},
+  {"id":"direct-inactive-question","query":"question inactive tab","expectedPath":"specs/question-inactive-tab.md"},
+  {"id":"direct-usage-refresh","query":"openai codex usage refresh","expectedPath":"specs/openai-codex-usage-refresh.md"},
+  {"id":"direct-task-manager","query":"desktop task manager workspace sidebar","expectedPath":"docs/desktop-task-manager.md"},
+
+  {"id":"paraphrase-session-recovery","query":"how do we reconstruct the conversation after pruning old context","expectedPath":"docs/session-recovery.md"},
+  {"id":"paraphrase-cache-stability","query":"keep tool output stable so repeated prompts can reuse provider cache","expectedPath":"specs/dcp-provider-cache-stability.md"},
+  {"id":"paraphrase-concurrency","query":"stale async callback should not update whichever tab is active now","expectedPath":"docs/concurrency.md"},
+  {"id":"paraphrase-inactive-question","query":"where should a pending question appear when its session is not selected","expectedPath":"specs/question-inactive-tab.md"},
+  {"id":"paraphrase-usage-refresh","query":"refresh account usage in model status without duplicate requests","expectedPath":"specs/openai-codex-usage-refresh.md"},
+  {"id":"paraphrase-window-state","query":"remember desktop window coordinates but avoid restoring offscreen","expectedPath":"specs/window-state-restoration.md"},
+  {"id":"paraphrase-file-link","query":"clicking a markdown file link should open the file inside the desktop app","expectedPath":"specs/file-link-opening.md"},
+  {"id":"paraphrase-attachments","query":"image attachment selected from local path becomes multimodal request","expectedPath":"specs/attachments.md"},
+  {"id":"paraphrase-background-cancel","query":"stopping a background worker should cancel its child operation once","expectedPath":"specs/background-agent-cancellation.md"},
+
+  {"id":"ru-session-recovery","query":"как восстанавливается история после сжатия контекста","expectedPath":"docs/session-recovery.md"},
+  {"id":"ru-cache-stability","query":"почему старый tool result нельзя удалять до отправки провайдеру","expectedPath":"specs/dcp-provider-cache-stability.md"},
+  {"id":"ru-inactive-question","query":"что происходит с вопросом в неактивной вкладке","expectedPath":"specs/question-inactive-tab.md"},
+  {"id":"ru-concurrency","query":"почему асинхронный колбэк обновляет не ту вкладку","expectedPath":"docs/concurrency.md"},
+  {"id":"ru-usage-refresh","query":"как обновляется лимит использования openai codex","expectedPath":"specs/openai-codex-usage-refresh.md"},
+
+  {"id":"synonym-session-recovery","query":"conversation resurrection after pruning","expectedPath":"docs/session-recovery.md"},
+  {"id":"synonym-cache-stability","query":"deterministic tool output for prompt reuse","expectedPath":"specs/dcp-provider-cache-stability.md"},
+
+  {"id":"path-usage-refresh","query":"src/app/model/model-usage-status.ts","expectedPath":"specs/openai-codex-usage-refresh.md"},
+  {"id":"path-task-manager","query":"desktop/src/components/WorkspaceSidebar.svelte","expectedPath":"docs/desktop-task-manager.md"},
+
+  {"id":"symbol-usage-refresh","query":"ModelUsageStatus refresh usage","expectedPath":"specs/openai-codex-usage-refresh.md"},
+  {"id":"symbol-task-manager","query":"WorkspaceSidebar tasks","expectedPath":"docs/desktop-task-manager.md"}
+]

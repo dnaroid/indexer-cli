@@ -13,17 +13,31 @@ import {
 	createDefaultLanguagePlugins,
 } from "../../engine/indexer.js";
 import { scanProjectFiles } from "../../engine/scanner.js";
+import { scanProjectDocuments } from "../../knowledge/document-scanner.js";
 import { computeHash } from "../../utils/hash.js";
+import { knowledgeSnapshotNeedsRefresh } from "../../knowledge/embedding.js";
+import { matchesPathPatterns } from "../../utils/path-patterns.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import type { SqliteMetadataStore } from "../../storage/sqlite.js";
 
 type GitDiff = Awaited<ReturnType<SimpleGitOperations["getChangedFiles"]>>;
 
-// Extensions that the indexer actually processes (from language plugins).
-// Non-code files in workspace changes are irrelevant for re-index decisions.
-const INDEXED_EXTENSIONS = new Set(
+const CODE_EXTENSIONS = new Set(
 	createDefaultLanguagePlugins().flatMap((plugin) => plugin.fileExtensions),
 );
+
+function indexedDomainForPath(filePath: string): "code" | "document" | null {
+	const normalized = filePath.replace(/\\/g, "/");
+	const extension = extname(normalized).toLowerCase();
+	if (CODE_EXTENSIONS.has(extension)) return "code";
+	if (!config.get("documentExtensions").includes(extension)) return null;
+	const includePaths = config.get("documentIncludePaths");
+	if (matchesPathPatterns(normalized, includePaths)) return "document";
+	if (matchesPathPatterns(normalized, config.get("documentExcludePaths"))) {
+		return null;
+	}
+	return "document";
+}
 
 const READ_COMMAND_LOCK_WAIT_MS = 10_000;
 const READ_COMMAND_LOCK_RETRY_MS = 500;
@@ -192,18 +206,25 @@ async function snapshotMatchesCurrentIndexedFiles(
 	repoRoot: string,
 	snapshot: Snapshot,
 ): Promise<boolean> {
-	const [snapshotFiles, currentFiles] = await Promise.all([
+	const [snapshotCodeFiles, currentCodeFiles, snapshotDocumentFiles, currentDocumentFiles] =
+		await Promise.all([
 		metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id),
-		scanProjectFiles(repoRoot, Array.from(INDEXED_EXTENSIONS), {
+		scanProjectFiles(repoRoot, Array.from(CODE_EXTENSIONS), {
 			includePaths: config.get("indexIncludePaths"),
 		}),
+		metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, { domain: "document" }),
+		scanProjectDocuments(repoRoot),
 	]);
 
 	const snapshotPaths = new Set(
-		snapshotFiles.map((file) => file.path.replace(/\\/g, "/")),
+		[...snapshotCodeFiles, ...snapshotDocumentFiles].map((file) =>
+			file.path.replace(/\\/g, "/"),
+		),
 	);
 	const currentPaths = new Set(
-		currentFiles.map((filePath) => filePath.replace(/\\/g, "/")),
+		[...currentCodeFiles, ...currentDocumentFiles].map((filePath) =>
+			filePath.replace(/\\/g, "/"),
+		),
 	);
 
 	if (snapshotPaths.size !== currentPaths.size) return false;
@@ -238,16 +259,16 @@ async function workspaceAlreadyIndexed(
 	}
 
 	for (const filePath of workspaceChanges.deleted) {
-		if (!INDEXED_EXTENSIONS.has(extname(filePath).toLowerCase())) {
-			continue; // Non-code file — not indexed, irrelevant for re-index decision
-		}
+		const domain = indexedDomainForPath(filePath);
+		if (!domain) continue;
 
 		const record = await metadata.getFile(
 			DEFAULT_PROJECT_ID,
 			snapshot.id,
 			filePath,
+			{ domain },
 		);
-		if (record) return false; // Code file still present in snapshot
+		if (record) return false;
 	}
 
 	const filesToCheck = [
@@ -257,16 +278,16 @@ async function workspaceAlreadyIndexed(
 	if (filesToCheck.length === 0) return true;
 
 	for (const filePath of filesToCheck) {
-		if (!INDEXED_EXTENSIONS.has(extname(filePath).toLowerCase())) {
-			continue; // Non-code file — not indexed, irrelevant for re-index decision
-		}
+		const domain = indexedDomainForPath(filePath);
+		if (!domain) continue;
 
 		const record = await metadata.getFile(
 			DEFAULT_PROJECT_ID,
 			snapshot.id,
 			filePath,
+			{ domain },
 		);
-		if (!record) return false; // Code file not in snapshot
+		if (!record) return false;
 
 		let content: string;
 		try {
@@ -293,6 +314,20 @@ async function getIndexPlan(
 
 	if (!snapshot.meta.headCommit) {
 		return { isFullReindex: true, changedFiles: undefined };
+	}
+
+	if (
+		await knowledgeSnapshotNeedsRefresh(
+			metadata,
+			DEFAULT_PROJECT_ID,
+			snapshot.id,
+		)
+	) {
+		const documents = await scanProjectDocuments(repoRoot);
+		return {
+			isFullReindex: false,
+			changedFiles: { added: [], modified: documents, deleted: [] },
+		};
 	}
 
 	const headCommit = await git.getHeadCommit(repoRoot);
@@ -399,19 +434,31 @@ export async function ensureIndexed(
 			config.get("indexConcurrency"),
 			config.get("ollamaNumCtx"),
 		);
+		const knowledgeEmbedder = new OllamaEmbeddingProvider(
+			config.get("ollamaBaseUrl"),
+			config.get("knowledgeEmbeddingModel"),
+			config.get("indexBatchSize"),
+			config.get("indexConcurrency"),
+			config.get("ollamaNumCtx"),
+		);
 
 		let engine: IndexerEngine | null = null;
 
 		try {
-			await vectors.initialize();
-			await embedder.initialize();
+			await Promise.all([
+				vectors.initialize(),
+				embedder.initialize(),
+				knowledgeEmbedder.initialize(),
+			]);
 
 			engine = new IndexerEngine({
 				projectId: DEFAULT_PROJECT_ID,
 				repoRoot,
 				metadata,
+				knowledgeStore: metadata,
 				vectors,
 				embedder,
+				knowledgeEmbedder,
 				git,
 				languagePlugins: createDefaultLanguagePlugins(),
 			});
@@ -481,7 +528,11 @@ export async function ensureIndexed(
 				{ cause: indexError },
 			);
 		} finally {
-			await Promise.allSettled([vectors.close(), embedder.close()]);
+			await Promise.allSettled([
+				vectors.close(),
+				embedder.close(),
+				knowledgeEmbedder.close(),
+			]);
 		}
 	} finally {
 		await release();

@@ -11,6 +11,8 @@ import { registerExplainCommand } from "./commands/explain.js";
 import { registerDepsCommand } from "./commands/deps.js";
 import { registerUpdateCommand } from "./commands/update.js";
 import { registerAstCommand } from "./commands/ast.js";
+import { registerContextCommand } from "./commands/context.js";
+import { registerWikiCommand } from "./commands/wiki.js";
 import { PACKAGE_VERSION } from "../core/version.js";
 import { SKILLS_VERSION } from "../core/skills-version.js";
 import {
@@ -132,6 +134,8 @@ registerArchitectureCommand(program);
 registerExplainCommand(program);
 registerDepsCommand(program);
 registerAstCommand(program);
+registerContextCommand(program);
+registerWikiCommand(program);
 registerUpdateCommand(program);
 registerUninstallCommand(program);
 registerDoctorCommand(program);

@@ -5,6 +5,31 @@ export type ChunkId = string;
 export type SymbolId = string;
 export type DependencyId = string;
 
+export type FileDomain = "code" | "document";
+
+export type KnowledgeClassification =
+	| "spec"
+	| "spec-like"
+	| "meta-index"
+	| "design-only"
+	| "guide"
+	| "other";
+export type KnowledgeBehaviorType = "as-is" | "change" | "mixed" | "unknown";
+export type KnowledgeLifecycle =
+	| "active"
+	| "proposed"
+	| "historical"
+	| "superseded"
+	| "unknown";
+export type KnowledgeRelationTargetKind = "code" | "knowledge";
+export type KnowledgeRelationKind =
+	| "implements"
+	| "tests"
+	| "related"
+	| "supersedes"
+	| "superseded-by";
+export type KnowledgeRelationProvenance = "explicit" | "inferred";
+
 export type SnapshotStatus = "pending" | "indexing" | "completed" | "failed";
 
 export interface Snapshot {
@@ -33,6 +58,8 @@ export interface FileRecord {
 	mtimeMs: number;
 	size: number;
 	languageId: string;
+	/** Omitted legacy records are code; document files are explicitly marked. */
+	domain?: FileDomain;
 }
 
 export interface ChunkRecord {
@@ -129,14 +156,19 @@ export interface VectorRecord {
 	contentHash: string;
 	chunkType?: string;
 	primarySymbol?: string;
+	/** Omitted legacy records are code vectors. */
+	domain?: FileDomain;
 }
 
 export interface VectorSearchFilters {
 	projectId: ProjectId;
 	snapshotId?: SnapshotId;
 	filePath?: string;
+	filePaths?: string[];
 	pathPrefix?: string;
 	chunkTypes?: string[];
+	/** Defaults to code so document vectors never enter normal code search. */
+	domain?: FileDomain;
 }
 
 export interface VectorSearchResult {
@@ -150,6 +182,107 @@ export interface VectorSearchResult {
 	distance?: number;
 	chunkType?: string;
 	primarySymbol?: string;
+	domain?: FileDomain;
+}
+
+export interface KnowledgeEntry {
+	projectId: ProjectId;
+	path: string;
+	classification: KnowledgeClassification;
+	behaviorType: KnowledgeBehaviorType;
+	lifecycle: KnowledgeLifecycle;
+	confidence: string;
+	title: string;
+	summary: string;
+	topics: string[];
+	indexedSourceHash: string;
+	indexedAt: number;
+	verifiedSourceHash?: string;
+	verifiedRelationsHash?: string;
+	verifiedAt?: number;
+	metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeRelation {
+	projectId: ProjectId;
+	sourcePath: string;
+	targetPath: string;
+	targetKind: KnowledgeRelationTargetKind;
+	relationKind: KnowledgeRelationKind;
+	provenance: KnowledgeRelationProvenance;
+	metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeVerifiedInput {
+	projectId: ProjectId;
+	sourcePath: string;
+	inputPath: string;
+	inputHash: string;
+	verifiedAt: number;
+}
+
+export interface KnowledgeChunkRecord {
+	projectId: ProjectId;
+	snapshotId: SnapshotId;
+	chunkId: ChunkId;
+	filePath: string;
+	startLine: number;
+	endLine: number;
+	contentHash: string;
+	chunkType: "doc_title" | "doc_section" | "doc_full" | "doc_links";
+	heading?: string;
+	metadata?: Record<string, unknown>;
+}
+
+export interface KnowledgeStore {
+	upsertKnowledgeEntry(entry: KnowledgeEntry): Promise<void>;
+	getKnowledgeEntry(
+		projectId: ProjectId,
+		path: string,
+	): Promise<KnowledgeEntry | null>;
+	listKnowledgeEntries(projectId: ProjectId): Promise<KnowledgeEntry[]>;
+	deleteKnowledgeEntry(projectId: ProjectId, path: string): Promise<void>;
+	upsertKnowledgeRelation(relation: KnowledgeRelation): Promise<void>;
+	listKnowledgeRelations(
+		projectId: ProjectId,
+		options?: { sourcePath?: string },
+	): Promise<KnowledgeRelation[]>;
+	deleteKnowledgeRelation(
+		projectId: ProjectId,
+		relation: Omit<KnowledgeRelation, "projectId" | "metadata"> & {
+			metadata?: Record<string, unknown>;
+		},
+	): Promise<void>;
+	upsertKnowledgeVerifiedInput(input: KnowledgeVerifiedInput): Promise<void>;
+	listKnowledgeVerifiedInputs(
+		projectId: ProjectId,
+		sourcePath: string,
+	): Promise<KnowledgeVerifiedInput[]>;
+	deleteKnowledgeVerifiedInput(
+		projectId: ProjectId,
+		sourcePath: string,
+		inputPath: string,
+	): Promise<void>;
+	replaceKnowledgeVerifiedInputs(
+		projectId: ProjectId,
+		sourcePath: string,
+		inputs: Array<Omit<KnowledgeVerifiedInput, "projectId" | "sourcePath">>,
+	): Promise<void>;
+	clearKnowledgeVerification(
+		projectId: ProjectId,
+		sourcePath: string,
+	): Promise<void>;
+	replaceKnowledgeChunks(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath: string,
+		chunks: Omit<KnowledgeChunkRecord, "projectId" | "snapshotId" | "filePath">[],
+	): Promise<void>;
+	listKnowledgeChunks(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath?: string,
+	): Promise<KnowledgeChunkRecord[]>;
 }
 
 export interface EmbeddingProvider {
@@ -186,12 +319,13 @@ export interface MetadataStore {
 	listFiles(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
-		options?: { pathPrefix?: string },
+		options?: { pathPrefix?: string; domain?: FileDomain },
 	): Promise<FileRecord[]>;
 	getFile(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
 		path: string,
+		options?: { domain?: FileDomain },
 	): Promise<FileRecord | null>;
 	replaceChunks(
 		projectId: ProjectId,

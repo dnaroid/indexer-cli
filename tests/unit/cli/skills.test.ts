@@ -3,7 +3,7 @@ import { GENERATED_SKILLS } from "../../../src/cli/commands/skills.js";
 
 function expectIntroParagraphStructure(content: string): void {
 	expect(content).toMatch(
-		/# .*\n\nUse this .*\.\n\n[A-Z].*\.\n\n## Route to one command/s,
+		/# Indexed repository guidance\n\nPick the single cheapest indexed command[\s\S]*?## Route/s,
 	);
 }
 
@@ -25,20 +25,30 @@ describe("generated skills", () => {
 		);
 
 		expect(skill).toBeDefined();
+		expect(skill?.content).toContain("# Indexed repository guidance");
+		expect(skill?.content).toContain("## Route");
+		expect(skill?.content).toContain("## Compact tool guidance");
+		expect(skill?.content).toContain("## Knowledge rules");
+		expect(skill?.content).toContain("## Stop conditions");
 		expect(skill?.content).toContain(
-			"# Use repo-discovery as the indexed entry point",
+			"Pick the single cheapest indexed command that answers the question.",
 		);
-		expect(skill?.content).toContain("## Route to one command");
-		expect(skill?.content).toContain("## Operating rules");
-		expect(skill?.content).toContain("## Skip idx when");
-		expect(skill?.content).toContain("## CLI reference");
-		expect(skill?.content).toContain(
-			"Use this skill first for unfamiliar codebases",
-		);
-		expect(skill?.content).toContain(
-			"Pick the single cheapest command that answers the question, run it, and stop when you have enough context.",
-		);
-		expect(skill?.content).toContain("C/C++, and Svelte");
+		expect(skill?.content).toContain("idx context <query>");
+		expect(skill?.content).toContain("idx wiki search <query>");
+		expect(skill?.content).toContain("idx wiki impact <task-paths...>");
+		expect(skill?.content).toContain("idx wiki record` classifies/indexes metadata");
+	});
+
+	it("mirrors the proven compact repo-discovery guidance", () => {
+		const content = GENERATED_SKILLS[0]!.content;
+		expect(content).toContain("idx search <query> --max-files 3");
+		expect(content).toContain("--max-files 20 --max-depth 2");
+		expect(content).toContain("--max-depth 3 --max-nodes 40 --no-include-text");
+		expect(content).toContain("--signature-only");
+		expect(content).toContain("--depth 1");
+		expect(content).toContain("First pass is at\n  most 3 results and no `--include-content`");
+		expect(content).toContain("Exact identifier, phrase, path, or regex is lookup");
+		expect(content).toContain("After finding causal code, stop broad search");
 	});
 
 	it("keeps the intro and next-step structure readable", () => {
@@ -54,6 +64,8 @@ describe("generated skills", () => {
 
 			const hasIdxCommand = [
 				"idx search",
+				"idx context",
+				"idx wiki",
 				"idx structure",
 				"idx architecture",
 				"idx explain",
@@ -78,6 +90,8 @@ describe("generated skills", () => {
 			expect(skill.content).toContain("Bash(idx search:*)");
 			expect(skill.content).toContain("Bash(idx explain:*)");
 			expect(skill.content).toContain("Bash(idx deps:*)");
+			expect(skill.content).toContain("Bash(idx context:*)");
+			expect(skill.content).toContain("Bash(idx wiki:*)");
 		}
 	});
 });

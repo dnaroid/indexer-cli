@@ -6,6 +6,9 @@ export interface IndexerConfig {
 	version: string;
 	embeddingProvider: string;
 	embeddingModel: string;
+	knowledgeEmbeddingModel: string;
+	knowledgeEmbeddingQueryPrefix: string;
+	knowledgeEmbeddingDocumentPrefix: string;
 	embeddingContextSize: number;
 	vectorSize: number;
 	ollamaBaseUrl: string;
@@ -16,6 +19,10 @@ export interface IndexerConfig {
 	indexIncludePaths: string[];
 	indexExcludePaths: string[];
 	visibilityExcludePaths: string[];
+	documentExtensions: string[];
+	documentIncludePaths: string[];
+	documentExcludePaths: string[];
+	documentMaxBytes: number;
 	searchMinScore: number;
 }
 
@@ -23,6 +30,9 @@ export const DEFAULT_CONFIG: IndexerConfig = {
 	version: "0.0.0",
 	embeddingProvider: "ollama",
 	embeddingModel: "jina-8k",
+	knowledgeEmbeddingModel: "nomic-embed-text-v2-moe",
+	knowledgeEmbeddingQueryPrefix: "search_query: ",
+	knowledgeEmbeddingDocumentPrefix: "search_document: ",
 	embeddingContextSize: 8192,
 	vectorSize: 768,
 	ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -33,6 +43,22 @@ export const DEFAULT_CONFIG: IndexerConfig = {
 	indexIncludePaths: [],
 	indexExcludePaths: [],
 	visibilityExcludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
+	documentExtensions: [".md", ".mdx", ".rst", ".adoc", ".txt"],
+	documentIncludePaths: [],
+	documentExcludePaths: [
+		"evals/**",
+		"**/evals/**",
+		"fixtures/**",
+		"**/fixtures/**",
+		"testdata/**",
+		"**/testdata/**",
+		"examples/**",
+		"**/examples/**",
+		".claude/skills/**",
+		".pi/skills/**",
+		".agents/skills/**",
+	],
+	documentMaxBytes: 524_288,
 	searchMinScore: 0.55,
 };
 
@@ -44,6 +70,21 @@ function loadPathPatterns(value: unknown): string[] | null {
 		return null;
 	}
 	return sanitizePathPatterns(value);
+}
+
+function loadExtensions(value: unknown): string[] | null {
+	if (!Array.isArray(value)) return null;
+	if (!value.every((item): item is string => typeof item === "string")) {
+		return null;
+	}
+	return Array.from(
+		new Set(
+			value
+				.map((item) => item.trim().toLowerCase())
+				.filter(Boolean)
+				.map((item) => (item.startsWith(".") ? item : `.${item}`)),
+		),
+	).sort();
 }
 
 export class ConfigManager {
@@ -67,6 +108,15 @@ export class ConfigManager {
 				this.config.embeddingProvider = parsed.embeddingProvider;
 			if (typeof parsed.embeddingModel === "string")
 				this.config.embeddingModel = parsed.embeddingModel;
+			if (typeof parsed.knowledgeEmbeddingModel === "string")
+				this.config.knowledgeEmbeddingModel = parsed.knowledgeEmbeddingModel;
+			if (typeof parsed.knowledgeEmbeddingQueryPrefix === "string") {
+				this.config.knowledgeEmbeddingQueryPrefix = parsed.knowledgeEmbeddingQueryPrefix;
+			}
+			if (typeof parsed.knowledgeEmbeddingDocumentPrefix === "string") {
+				this.config.knowledgeEmbeddingDocumentPrefix =
+					parsed.knowledgeEmbeddingDocumentPrefix;
+			}
 			if (
 				typeof parsed.embeddingContextSize === "number" &&
 				parsed.embeddingContextSize > 0
@@ -99,6 +149,23 @@ export class ConfigManager {
 			);
 			if (visibilityExcludePaths) {
 				this.config.visibilityExcludePaths = visibilityExcludePaths;
+			}
+			const documentExtensions = loadExtensions(parsed.documentExtensions);
+			if (documentExtensions) this.config.documentExtensions = documentExtensions;
+			const documentIncludePaths = loadPathPatterns(parsed.documentIncludePaths);
+			if (documentIncludePaths) {
+				this.config.documentIncludePaths = documentIncludePaths;
+			}
+			const documentExcludePaths = loadPathPatterns(parsed.documentExcludePaths);
+			if (documentExcludePaths) {
+				this.config.documentExcludePaths = documentExcludePaths;
+			}
+			if (
+				typeof parsed.documentMaxBytes === "number" &&
+				Number.isFinite(parsed.documentMaxBytes) &&
+				parsed.documentMaxBytes > 0
+			) {
+				this.config.documentMaxBytes = Math.floor(parsed.documentMaxBytes);
 			}
 			if (
 				typeof parsed.searchMinScore === "number" &&

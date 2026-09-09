@@ -430,6 +430,7 @@ function ensureOllamaRunning(): CheckResult {
 
 const BASE_MODEL = "unclemusclez/jina-embeddings-v2-base-code:q5";
 const CUSTOM_MODEL = "jina-8k";
+const KNOWLEDGE_MODEL = "nomic-embed-text-v2-moe";
 
 function checkJinaModel(): CheckResult {
 	if (!cmdExists("ollama")) {
@@ -482,10 +483,45 @@ function checkJinaModel(): CheckResult {
 	}
 }
 
+function checkKnowledgeModel(): CheckResult {
+	if (!cmdExists("ollama")) {
+		return createSkippedResult(
+			`Model ${KNOWLEDGE_MODEL}`,
+			"Skipped until Ollama is installed manually.",
+		);
+	}
+
+	try {
+		const models = run("ollama list");
+		if (models.includes(KNOWLEDGE_MODEL)) {
+			return {
+				name: `Model ${KNOWLEDGE_MODEL}`,
+				status: "ok",
+				detail: "pulled",
+			};
+		}
+	} catch {
+		// ollama list failed or model not present
+	}
+
+	console.log(`  Pulling multilingual knowledge model ${KNOWLEDGE_MODEL} (≈958MB)...`);
+	try {
+		run(`ollama pull ${KNOWLEDGE_MODEL}`, { stdio: "inherit" });
+		return { name: `Model ${KNOWLEDGE_MODEL}`, status: "installed" };
+	} catch (e) {
+		return {
+			name: `Model ${KNOWLEDGE_MODEL}`,
+			status: "failed",
+			detail: `Pull failed: ${e instanceof Error ? e.message : String(e)}`,
+		};
+	}
+}
+
 function collectOllamaResults(deps: {
 	checkOllama: () => CheckResult;
 	ensureOllamaRunning: () => CheckResult;
 	checkJinaModel: () => CheckResult;
+	checkKnowledgeModel: () => CheckResult;
 }): CheckResult[] {
 	const ollamaResult = deps.checkOllama();
 	if (ollamaResult.status === "failed") {
@@ -497,6 +533,10 @@ function collectOllamaResults(deps: {
 			),
 			createSkippedResult(
 				`Model ${CUSTOM_MODEL}`,
+				"Skipped until Ollama is installed manually.",
+			),
+			createSkippedResult(
+				`Model ${KNOWLEDGE_MODEL}`,
 				"Skipped until Ollama is installed manually.",
 			),
 		];
@@ -511,10 +551,19 @@ function collectOllamaResults(deps: {
 				`Model ${CUSTOM_MODEL}`,
 				"Skipped until the Ollama daemon is running.",
 			),
+			createSkippedResult(
+				`Model ${KNOWLEDGE_MODEL}`,
+				"Skipped until the Ollama daemon is running.",
+			),
 		];
 	}
 
-	return [ollamaResult, daemonResult, deps.checkJinaModel()];
+	return [
+		ollamaResult,
+		daemonResult,
+		deps.checkJinaModel(),
+		deps.checkKnowledgeModel(),
+	];
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────
@@ -591,6 +640,7 @@ export function performSetup(): void {
 			checkOllama,
 			ensureOllamaRunning,
 			checkJinaModel,
+			checkKnowledgeModel,
 		}),
 	);
 

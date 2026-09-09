@@ -1,0 +1,1 @@
+Duplicate capture returns the original result and does not create a second stored capture.

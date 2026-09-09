@@ -293,6 +293,33 @@ describe.sequential("CLI e2e", () => {
 				removeTempProject(tempRoot);
 			}
 		});
+
+		it("does not report up-to-date when the working tree has uncommitted indexed changes", () => {
+			const tempRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-dirty-index-"),
+			);
+			removeTempProject(tempRoot);
+			createTempProject(tempRoot);
+			gitInit(tempRoot);
+
+			try {
+				const init = runCLI(["init"], { cwd: tempRoot });
+				expect(init.exitCode).toBe(0);
+				const target = path.join(tempRoot, "src", "auth", "session.ts");
+				writeFileSync(
+					target,
+					`${readTextFile(target)}\n// dirty-worktree regression\n`,
+					"utf8",
+				);
+
+				const result = runCLI(["index"], { cwd: tempRoot });
+				expect(result.exitCode).toBe(0);
+				expect(result.stdout).toContain("Running incremental index...");
+				expect(result.stdout).not.toContain("Index is already up to date.");
+			} finally {
+				removeTempProject(tempRoot);
+			}
+		});
 	});
 
 	describe.sequential("search", () => {
@@ -1382,6 +1409,142 @@ describe.sequential("CLI e2e", () => {
 				"T tests/services/user.test.ts -> src/services/user.ts direct",
 			);
 			expect(result.stdout).toContain("Verify: npm test -- user");
+		});
+	});
+
+	describe.sequential("knowledge wiki and context", () => {
+		it("discovers, records, verifies, searches, packs context, and reports impact", () => {
+			const knowledgeRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-knowledge-"),
+			);
+			removeTempProject(knowledgeRoot);
+			createTempProject(knowledgeRoot);
+			gitInit(knowledgeRoot);
+			const init = runCLI(["init"], { cwd: knowledgeRoot });
+			expect(
+				init.exitCode,
+				`init stdout:\n${init.stdout}\ninit stderr:\n${init.stderr}`,
+			).toBe(0);
+
+			mkdirSync(path.join(knowledgeRoot, "docs"), { recursive: true });
+			writeFileSync(
+				path.join(knowledgeRoot, "docs", "session-contract.md"),
+				[
+					"# Session authentication contract",
+					"",
+					"## Type",
+					"",
+					"As-Is",
+					"",
+					"## Lifecycle",
+					"",
+					"Active",
+					"",
+					"## Behavior",
+					"",
+					"Session authentication state is owned by the auth session module.",
+					"",
+					"## Related files",
+					"",
+					"- `src/auth/session.ts`",
+					"",
+				].join("\n"),
+				"utf8",
+			);
+			writeFileSync(
+				path.join(knowledgeRoot, "docs", "overview.md"),
+				"# Project overview\n\nCatalog of project documentation.\n\n- [Session](session-contract.md)\n",
+				"utf8",
+			);
+
+			try {
+				const discover = runCLI(["wiki", "discover", "--json"], {
+					cwd: knowledgeRoot,
+				});
+			expect(
+				discover.exitCode,
+				`discover stdout:\n${discover.stdout}\ndiscover stderr:\n${discover.stderr}`,
+			).toBe(0);
+			expect(discover.stdout).toContain("docs/session-contract.md");
+
+			const record = runCLI(
+				[
+					"wiki",
+					"record",
+					"--path",
+					"docs/session-contract.md",
+					"--classification",
+					"spec",
+					"--type",
+					"as-is",
+					"--lifecycle",
+					"active",
+					"--confidence",
+					"high",
+					"--summary",
+					"Authentication session ownership and state contract.",
+					"--topic",
+					"authentication",
+					"--topic",
+					"session",
+					"--json",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(record.exitCode).toBe(0);
+			expect(record.stdout).toContain('"status": "unverified"');
+
+			const verify = runCLI(
+				["wiki", "verify", "--path", "docs/session-contract.md", "--json"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(verify.exitCode).toBe(0);
+			expect(verify.stdout).toContain('"status": "fresh"');
+
+			const search = runCLI(
+				["wiki", "search", "session authentication ownership", "--json"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(search.exitCode).toBe(0);
+			expect(search.stdout).toContain("docs/session-contract.md");
+			expect(search.stdout).toContain('"status": "fresh"');
+
+			const context = runCLI(
+				["context", "session authentication ownership", "--budget", "900"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(context.exitCode).toBe(0);
+			expect(context.stdout).toContain("Primary knowledge:");
+			expect(context.stdout).toContain("docs/session-contract.md");
+			expect(context.stdout).toContain("src/auth/session.ts");
+
+			const impact = runCLI(
+				[
+					"wiki",
+					"impact",
+					"src/auth/session.ts",
+					"--no-semantic",
+					"--json",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(impact.exitCode).toBe(0);
+			expect(impact.stdout).toContain("docs/session-contract.md");
+			expect(impact.stdout).toContain('"semanticSweepRequired": true');
+
+			const status = runCLI(["wiki", "status", "--json"], {
+				cwd: knowledgeRoot,
+			});
+			expect(status.exitCode).toBe(0);
+			expect(status.stdout).toContain('"freshCount": 1');
+
+			const catalog = runCLI(["wiki", "catalog"], { cwd: knowledgeRoot });
+			expect(catalog.exitCode).toBe(0);
+			expect(catalog.stdout).toContain("# Knowledge Catalog");
+			expect(catalog.stdout).toContain("docs/session-contract.md");
+			} finally {
+				removeTempProject(knowledgeRoot);
+			}
 		});
 	});
 

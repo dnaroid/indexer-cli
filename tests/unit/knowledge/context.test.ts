@@ -1,0 +1,211 @@
+import { describe, expect, it } from "vitest";
+import type {
+	KnowledgeRelation,
+	KnowledgeStore,
+	MetadataStore,
+} from "../../../src/core/types.js";
+import {
+	KnowledgeContextEngine,
+	formatKnowledgeContext,
+} from "../../../src/knowledge/context.js";
+import type { KnowledgeSearchResult } from "../../../src/knowledge/search.js";
+
+const SPEC: KnowledgeSearchResult = {
+	path: "docs/auth.md",
+	title: "Auth session contract",
+	classification: "spec",
+	behaviorType: "as-is",
+	lifecycle: "active",
+	status: "fresh",
+	score: 18,
+	semanticScore: 0.9,
+	lexicalScore: 7,
+	summary: "Refresh tokens are rotated once and failures propagate.",
+	topics: ["auth", "refresh"],
+	reasonCodes: ["semantic", "title:1"],
+	bestRanges: [{ startLine: 10, endLine: 24, score: 0.9 }],
+};
+
+function relation(
+	targetPath: string,
+	relationKind: KnowledgeRelation["relationKind"],
+	targetKind: KnowledgeRelation["targetKind"] = "code",
+): KnowledgeRelation {
+	return {
+		projectId: "default",
+		sourcePath: SPEC.path,
+		targetPath,
+		targetKind,
+		relationKind,
+		provenance: "explicit",
+	};
+}
+
+describe("KnowledgeContextEngine", () => {
+	it("merges primary knowledge, tracked implementation, semantic ranges, and tests", async () => {
+		const relations = [
+			relation("src/auth/refresh.ts", "implements"),
+			relation("tests/auth/refresh.test.ts", "tests"),
+			relation("docs/auth-v1.md", "supersedes", "knowledge"),
+		];
+		const knowledge = {
+			listKnowledgeRelations: async () => relations,
+		} as unknown as KnowledgeStore;
+		const metadata = {
+			listFiles: async () => [
+				{
+					snapshotId: "snap",
+					path: "src/auth/refresh.ts",
+					sha256: "a",
+					mtimeMs: 1,
+					size: 1,
+					languageId: "typescript",
+				},
+				{
+					snapshotId: "snap",
+					path: "tests/auth/refresh.test.ts",
+					sha256: "b",
+					mtimeMs: 1,
+					size: 1,
+					languageId: "typescript",
+				},
+			],
+			listDependencies: async () => [
+				{
+					snapshotId: "snap",
+					id: "dep",
+					fromPath: "tests/auth/refresh.test.ts",
+					toSpecifier: "../../src/auth/refresh",
+					toPath: "src/auth/refresh.ts",
+					kind: "import",
+					dependencyType: "internal",
+				},
+				{
+					snapshotId: "snap",
+					id: "dep-code",
+					fromPath: "src/auth/refresh.ts",
+					toSpecifier: "./session",
+					toPath: "src/auth/session.ts",
+					kind: "import",
+					dependencyType: "internal",
+				},
+			],
+		} as unknown as MetadataStore;
+		const engine = new KnowledgeContextEngine(
+			"default",
+			"snap",
+			metadata,
+			knowledge,
+			{ search: async () => [SPEC] },
+			{
+				search: async () => [
+					{
+						filePath: "src/auth/refresh.ts",
+						startLine: 30,
+						endLine: 55,
+						score: 1.8,
+						reasonCode: "semantic+text",
+					},
+				],
+			},
+		);
+
+		const pack = await engine.build("how refresh token retry works");
+		expect(pack.specs).toEqual([SPEC]);
+		expect(pack.implementation).toEqual([
+			{
+				path: "src/auth/refresh.ts",
+				startLine: 30,
+				endLine: 55,
+				score: 1.8,
+				reason: "tracked+semantic",
+			},
+			{
+				path: "src/auth/session.ts",
+				startLine: undefined,
+				endLine: undefined,
+				score: undefined,
+				reason: "graph",
+			},
+		]);
+		expect(pack.tests[0]).toEqual({
+			path: "tests/auth/refresh.test.ts",
+			reason: "explicit",
+			confidence: "high",
+		});
+		expect(pack.relations).toHaveLength(3);
+		expect(pack.warnings).toEqual([]);
+		expect(pack.readNext).toContain("docs/auth.md:10-24");
+		expect(pack.readNext).toContain("src/auth/refresh.ts:30-55");
+		expect(pack.readNext).toContain("src/auth/session.ts");
+	});
+
+	it("surfaces non-fresh knowledge and keeps formatted output bounded", async () => {
+		const stale = { ...SPEC, status: "inputs-changed" as const };
+		const engine = new KnowledgeContextEngine(
+			"default",
+			"snap",
+			{
+				listFiles: async () => [],
+				listDependencies: async () => [],
+			} as unknown as MetadataStore,
+			{ listKnowledgeRelations: async () => [] } as unknown as KnowledgeStore,
+			{ search: async () => [stale] },
+			{ search: async () => [] },
+		);
+		const pack = await engine.build("auth refresh");
+		expect(pack.warnings).toEqual(["docs/auth.md: inputs-changed"]);
+
+		const output = formatKnowledgeContext(pack, 200);
+		expect(output).toContain("docs/auth.md: inputs-changed");
+		expect(output).toContain("Primary knowledge:");
+		expect(output).toContain("Read: docs/auth.md:10-24");
+	});
+
+	it("still returns useful code context when no primary knowledge matches", async () => {
+		const engine = new KnowledgeContextEngine(
+			"default",
+			"snap",
+			{
+				listFiles: async () => [
+					{
+						snapshotId: "snap",
+						path: "src/telemetry/format.ts",
+						sha256: "a",
+						mtimeMs: 1,
+						size: 1,
+						languageId: "typescript",
+					},
+				],
+				listDependencies: async () => [],
+			} as unknown as MetadataStore,
+			{ listKnowledgeRelations: async () => [] } as unknown as KnowledgeStore,
+			{ search: async () => [] },
+			{
+				search: async () => [
+					{
+						filePath: "src/telemetry/format.ts",
+						startLine: 8,
+						endLine: 22,
+						score: 1.4,
+						reasonCode: "semantic+text",
+					},
+				],
+			},
+		);
+
+		const pack = await engine.build("telemetry label formatting");
+		expect(pack.specs).toEqual([]);
+		expect(pack.implementation).toEqual([
+			{
+				path: "src/telemetry/format.ts",
+				startLine: 8,
+				endLine: 22,
+				score: 1.4,
+				reason: "semantic",
+			},
+		]);
+		expect(pack.warnings).toContain("No primary knowledge matched the query.");
+		expect(pack.readNext).toContain("src/telemetry/format.ts:8-22");
+	});
+});

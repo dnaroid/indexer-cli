@@ -19,13 +19,12 @@ export type CLIRunResult = {
 };
 
 function resolveCliEntry(): string {
-	const distEntry = path.join(CLI_ROOT, "dist", "cli", "entry.js");
-	try {
+	if (process.env.INDEXER_CLI_TEST_USE_DIST === "1") {
+		const distEntry = path.join(CLI_ROOT, "dist", "cli", "entry.js");
 		accessSync(distEntry, fsConstants.F_OK);
 		return distEntry;
-	} catch {
-		return path.join(CLI_ROOT, "src", "cli", "entry.ts");
 	}
+	return path.join(CLI_ROOT, "src", "cli", "entry.ts");
 }
 
 export function runCLI(
@@ -33,7 +32,7 @@ export function runCLI(
 	options?: { cwd: string; env?: Record<string, string> },
 ): CLIRunResult {
 	const entry = resolveCliEntry();
-	const isTs = entry.endsWith(".entry.ts");
+	const isTs = entry.endsWith(".ts");
 	const command = isTs
 		? `npx tsx "${entry}" ${args.join(" ")}`
 		: `node "${entry}" ${args.join(" ")}`;

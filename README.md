@@ -2,7 +2,7 @@
 
 # indexer-cli
 
-**Local-first semantic code search and repository discovery for coding agents.**
+**Local-first semantic code search, repository discovery, and project knowledge for coding agents.**
 
 Index once. Give Claude, OpenCode, and other coding agents the right context without burning tokens on blind searches.
 
@@ -27,6 +27,7 @@ Then, inside any Git repository:
 idx init
 idx index
 idx search "authentication middleware"
+idx context "how authentication refresh works"
 ```
 
 > **Local by default:** source code and embeddings stay in your project. Embeddings are generated through your local
@@ -38,10 +39,12 @@ The main feature of `indexer-cli` is not just search on its own: it turns your r
 can navigate efficiently. Running `idx init` installs a project-local discovery skill so Claude, OpenCode, and similar
 tools can pick the right indexed workflow instead of wasting tokens on blind `rg`/`grep`, `find`, and repeated file reads.
 
-Under the hood, `indexer-cli` indexes source code, generates vector embeddings through a local Ollama instance, and
-stores everything in a per-project `.indexer-cli/` directory. That gives both humans and agents fast natural-language
-search, repo structure snapshots, and low-friction incremental reindexing without any daemon or background service. A Git
-post-commit hook keeps the index up to date automatically.
+Under the hood, `indexer-cli` indexes source code plus document-domain knowledge, generates vector embeddings through a
+local Ollama instance, and stores everything in a per-project `.indexer-cli/` directory. Code and documents remain
+separate search domains by default. That gives both humans and agents fast natural-language code search, project
+contract/spec retrieval, repo structure snapshots, and low-friction incremental reindexing without any daemon or
+background service. A Git post-commit hook keeps deterministic index state up to date automatically; semantic
+classification and verification remain explicit agent actions.
 
 ## Features
 
@@ -51,9 +54,16 @@ post-commit hook keeps the index up to date automatically.
   context loading
 - **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby, Rust, C/C++, Svelte
 - **Semantic code search**: Natural language queries over your entire codebase
+- **Project knowledge/wiki**: Discover, classify, search, relate, and verify behavioral specs/contracts without a second
+  state directory
+- **Knowledge-aware context packs**: `idx context` combines primary contracts, freshness, implementation ranges, and
+  relevant tests under a token budget
+- **Spec/code impact checks**: `idx wiki impact` combines durable relations, changed paths, dependency context, and
+  semantic candidates while leaving final semantic decisions to the agent
 - **Incremental indexing**: Uses `git diff` to re-index only changed files, bulk-copies unchanged vectors
 - **Local-first**: All data stored in `.indexer-cli/` inside the project (SQLite + sqlite-vec)
-- **Ollama-powered embeddings**: Uses `jina-8k` model (768-dim vectors) via a local Ollama instance
+- **Ollama-powered embeddings**: Uses `jina-8k` for code and multilingual `nomic-embed-text-v2-moe` for project
+  knowledge; both use 768-dim vectors in the local sqlite-vec store
 - **Architecture snapshot**: Generates dependency graphs, entry points, and file stats
 - **Symbol extraction**: Functions, classes, interfaces, and imports are all indexed
 - **Adaptive chunking**: Smart code splitting at function, module, or single-file granularity
@@ -61,7 +71,7 @@ post-commit hook keeps the index up to date automatically.
 ## Prerequisites
 
 - [Ollama](https://ollama.ai) installed manually. `idx setup` will verify it, start the daemon if needed,
-  and prepare the `jina-8k` model.
+  and prepare both the code (`jina-8k`) and multilingual knowledge (`nomic-embed-text-v2-moe`) embedding models.
 - Node.js 18+ and build tools (python3, make, C++ compiler) for native dependencies.
 
 The `setup` command handles global installation automatically: it installs indexer-cli via npm and ensures the
@@ -112,11 +122,14 @@ idx setup
 cd /path/to/your/project
 idx init
 
-# 4. Index the codebase
+# 4. Index code and document-domain knowledge
 idx index
 
 # 5. Search semantically yourself
 idx search "authentication middleware"
+
+# 6. Ask for a behavior-aware context pack
+idx context "how authentication refresh works"
 ```
 
 After `idx init`, you can run project commands from subdirectories too: `indexer-cli` will detect the initialized
@@ -124,8 +137,8 @@ project root automatically. If a project has not been initialized yet, commands 
 stop with a clear message telling you to run `idx init` first instead of creating data in the wrong directory.
 
 After `init`, the repo contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents get one indexed discovery
-entry point that routes them toward `idx search`, `idx structure`, `idx ast`, `idx architecture`, `idx explain`, and `idx deps`
-before they start burning tokens on broad filesystem scans.
+entry point that routes them toward `idx context`, `idx wiki`, `idx search`, `idx structure`, `idx ast`,
+`idx architecture`, `idx explain`, and `idx deps` before they start burning tokens on broad filesystem scans.
 
 ## Why agents save tokens with this
 
@@ -148,6 +161,9 @@ to `.gitignore`.
 That skill routes repository discovery flows such as:
 
 ```bash
+idx context "how session refresh works"
+idx wiki search "session refresh contract"
+idx wiki impact src/auth/session.ts src/auth/refresh-worker.ts
 idx search "<query>"
 idx structure --path-prefix src/<area>
 idx ast src/<large-file.ts>
@@ -185,7 +201,8 @@ When run from a subdirectory of a Git project, `idx init` automatically initiali
 
 ### `idx index`
 
-Index all supported source files in the current working directory.
+Index all supported source files and document-domain knowledge files in the current working directory. Normal code
+commands still read only the code domain unless a knowledge/context command explicitly combines domains.
 
 Indexing respects the project root `.gitignore` plus built-in excludes such as `node_modules`, `.git`, `dist`, and
 `coverage`. If the root `.gitignore` changes, the next incremental run rescans the indexable file set, removes newly
@@ -201,11 +218,25 @@ New configs also include an empty `indexExcludePaths` list so the available inde
 `.indexer-cli/config.json` also contains `visibilityExcludePaths` (fixtures/vendor by default). These masks hide
 matching files from discovery output such as `idx architecture` and `idx structure`; they do not change what is indexed.
 
+Document-domain indexing is configured separately with:
+
+- `documentExtensions` — default `.md`, `.mdx`, `.rst`, `.adoc`, `.txt`;
+- `documentIncludePaths` — force document paths/globs into knowledge indexing;
+- `documentExcludePaths` — exclude fixture/eval/example/skill-resource noise by default;
+- `documentMaxBytes` — maximum document size to embed.
+- `knowledgeEmbeddingModel` — multilingual document/wiki embedding model;
+- `knowledgeEmbeddingQueryPrefix` / `knowledgeEmbeddingDocumentPrefix` — retrieval prefixes used by the knowledge
+  embedding model.
+
+Document indexing is deterministic. It updates file hashes/chunks/vectors only; it never classifies a document as an
+authoritative contract and never creates a semantic verification baseline by itself.
+
 If you run `idx index` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
 
-Only one indexing process writes at a time. Discovery commands that auto-index, such as `idx search`, `idx structure`,
-`idx architecture`, `idx explain`, and `idx deps`, wait up to 10 seconds when another process holds the index lock. If
+Only one indexing process writes at a time. Discovery commands that auto-index, such as `idx context`, `idx wiki`,
+`idx search`, `idx structure`, `idx architecture`, `idx explain`, and `idx deps`, wait up to 10 seconds when another
+process holds the index lock. If
 the lock is still held and a completed snapshot already exists, they continue with that existing index and print an
 `IDX stale reason=lock-held action=using-existing-index` diagnostic. If the lock file itself is older than the stale
 threshold, the diagnostic uses `reason=stale-lock`; read commands still do not remove or recover the lock. Run
@@ -219,6 +250,63 @@ threshold, the diagnostic uses `reason=stale-lock`; read commands still do not r
 | `--tree`    | Show indexed file tree (use with `--status`)               |
 | `--include <path>` | Add a path/glob mask to index even when matched by `.gitignore` |
 | `--exclude <path>` | Remove a path/glob mask from the persisted include list |
+
+### `idx context <query>`
+
+Build a compact project context pack that prioritizes primary knowledge/contracts and then adds implementation ranges,
+first-hop dependency context, relevant tests, freshness warnings, and `Read next:` hints.
+
+```bash
+idx context "how session refresh retries work" --budget 1800
+idx context "payment cancellation" --path-prefix src/payments/
+```
+
+| Option                    | Default | Description                                      |
+|---------------------------|---------|--------------------------------------------------|
+| `--budget <tokens>`       | 1400    | Approximate output token budget                  |
+| `--max-specs <number>`    | 4       | Maximum primary knowledge results                |
+| `--max-code <number>`     | 6       | Maximum implementation paths/ranges              |
+| `--max-tests <number>`    | 4       | Maximum relevant test hints                      |
+| `--path-prefix <path>`    | —       | Limit implementation discovery to a code area    |
+| `--include-secondary`     | —       | Allow `design-only` secondary knowledge retrieval |
+
+The command reports non-fresh knowledge explicitly. `unverified`, `spec-changed`, `inputs-changed`, and related states
+are warnings to the calling agent, not reasons to silently trust or suppress the source.
+
+### `idx wiki`
+
+Maintain the project behavioral knowledge layer. Primary source documents remain authoritative; SQLite metadata,
+summaries, vectors, catalogs, and search rankings are derived navigation state.
+
+Core commands:
+
+```bash
+idx wiki discover
+idx wiki record --path docs/auth.md --classification spec --type as-is --lifecycle active \
+  --summary "Authentication session and refresh contract." --topic auth --topic sessions
+idx wiki verify --path docs/auth.md
+idx wiki relate --path docs/auth.md --add-code src/auth/refresh.ts
+idx wiki status
+idx wiki audit
+idx wiki catalog
+idx wiki search "почему refresh token повторяется"
+idx wiki impact src/auth/refresh.ts src/auth/session.ts
+```
+
+Important semantics:
+
+- `record` means semantic classification/index metadata only; it does **not** establish `fresh`;
+- `verify` is explicit and should be called only after an agent has checked the primary source against relevant
+  implementation/tests/evidence;
+- source, tracked input, or durable relation-map changes invalidate freshness;
+- `impact` prefers task-scoped paths; uncovered paths require semantic review, but graph/vector similarity never creates
+  a durable relation automatically;
+- historical/superseded knowledge remains searchable but active knowledge wins ranking ties;
+- active as-is specs with no tracked code/test inputs are reported as relation gaps;
+- legacy `.spec-wiki` state is not read, imported, or trusted.
+
+`idx wiki search` uses the existing local document embeddings plus lexical metadata/path/relation evidence, so
+multilingual paraphrases do not require manual English query expansion.
 
 ### `idx search <query>`
 

@@ -40,6 +40,7 @@ describe("SqliteVecVectorStore constants", () => {
 			"content_hash",
 			"chunk_type",
 			"primary_symbol",
+			"file_domain",
 			"embedding",
 		]);
 	});
@@ -77,6 +78,20 @@ describe("SqliteVecVectorStore internal logic", () => {
 		});
 
 		expect(filter).toBe("file_path = 'src/exact.ts'");
+		store.close();
+	});
+
+	it("combines a file allow-list with path prefix filtering", () => {
+		const store = createStore();
+		const filter = (store as any).buildPrefilter({
+			projectId: "project-a",
+			filePaths: ["docs/auth.md", "specs/jobs.md", "docs/auth.md"],
+			pathPrefix: "docs/",
+		});
+
+		expect(filter).toBe(
+			"file_path IN ('docs/auth.md', 'specs/jobs.md') AND file_path LIKE 'docs/%'",
+		);
 		store.close();
 	});
 
@@ -357,6 +372,69 @@ describe("SqliteVecVectorStore search", () => {
 
 		expect(results).toHaveLength(1);
 		expect(results[0].chunkId).toBe("chunk-a");
+		store.close();
+	});
+
+	it("filters semantic candidates by an explicit file allow-list", async () => {
+		const store = createStore();
+		await store.upsert([
+			{
+				...createVectorRecord(0),
+				chunkId: "allowed",
+				filePath: "docs/allowed.md",
+				domain: "document",
+				embedding: [1, 0, 0],
+			},
+			{
+				...createVectorRecord(1),
+				chunkId: "noise",
+				filePath: "README.md",
+				domain: "document",
+				embedding: [1, 0, 0],
+			},
+		]);
+
+		const results = await store.search([1, 0, 0], 5, {
+			projectId: "project-1",
+			domain: "document",
+			filePaths: ["docs/allowed.md"],
+		});
+		expect(results.map((result) => result.filePath)).toEqual(["docs/allowed.md"]);
+		store.close();
+	});
+
+	it("keeps legacy and omitted vectors in the code domain by default", async () => {
+		const store = createStore();
+		await store.upsert([
+			{
+				...createVectorRecord(0),
+				chunkId: "code-vector",
+				embedding: [1, 0, 0],
+			},
+			{
+				...createVectorRecord(1),
+				chunkId: "document-vector",
+				filePath: "docs/auth.md",
+				domain: "document",
+				embedding: [1, 0, 0],
+			},
+		]);
+
+		expect(
+			await store.countVectors({ projectId: "project-1" }),
+		).toBe(1);
+		expect(
+			await store.countVectors({ projectId: "project-1", domain: "document" }),
+		).toBe(1);
+		const documentResults = await store.search([1, 0, 0], 5, {
+			projectId: "project-1",
+			domain: "document",
+		});
+		expect(documentResults).toHaveLength(1);
+		expect(documentResults[0]).toMatchObject({
+			chunkId: "document-vector",
+			domain: "document",
+		});
 		store.close();
 	});
 

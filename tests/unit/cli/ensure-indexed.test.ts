@@ -14,7 +14,7 @@ async function loadEnsureIndexedInternals<T>(): Promise<T> {
 	);
 	const source = readFileSync(filePath, "utf8");
 	const match = source.match(
-		/const INDEXED_EXTENSIONS[\s\S]*?(?=\nasync function getIndexPlan\()/,
+		/const CODE_EXTENSIONS[\s\S]*?(?=\nasync function getIndexPlan\()/,
 	);
 	if (!match) {
 		throw new Error(
@@ -27,7 +27,11 @@ async function loadEnsureIndexedInternals<T>(): Promise<T> {
 import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 const DEFAULT_PROJECT_ID = "default";
-const config = { get: (key) => key === "indexIncludePaths" ? [] : undefined };
+const config = { get: (key) => {
+	if (key === "indexIncludePaths" || key === "documentIncludePaths" || key === "documentExcludePaths") return [];
+	if (key === "documentExtensions") return [".md", ".mdx", ".rst", ".adoc", ".txt"];
+	return undefined;
+} };
 function createDefaultLanguagePlugins() {
 	return ${JSON.stringify(
 		createDefaultLanguagePlugins().map((plugin) => ({
@@ -62,6 +66,10 @@ async function scanProjectFiles(rootPath, codeExtensions) {
 	await walk(rootPath);
 	return files.sort();
 }
+async function scanProjectDocuments(rootPath) {
+	return scanProjectFiles(rootPath, config.get("documentExtensions"));
+}
+function matchesPathPatterns() { return false; }
 ${match[0]}
 export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles, useExistingIndexOnLockHeld, workspaceAlreadyIndexed };`,
 		{
@@ -356,6 +364,38 @@ describe("ensureIndexed error formatting", () => {
 					{ added: [], modified: ["App.svelte"], deleted: [] },
 				),
 			).resolves.toBe(true);
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("treats document-only workspace changes as indexed only when the document hash matches", async () => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-indexed-"));
+		try {
+			const content = "# Session contract\n\nRetry once.\n";
+			await writeFile(path.join(repoRoot, "contract.md"), content);
+			const records = new Map<string, { sha256: string }>([
+				["contract.md", { sha256: computeTestHash(content) }],
+			]);
+
+			await expect(
+				ensureIndexedInternals.workspaceAlreadyIndexed(
+					metadataFromRecords(records),
+					repoRoot,
+					{ id: "snapshot-1" },
+					{ added: [], modified: ["contract.md"], deleted: [] },
+				),
+			).resolves.toBe(true);
+
+			await writeFile(path.join(repoRoot, "contract.md"), `${content}Changed.\n`);
+			await expect(
+				ensureIndexedInternals.workspaceAlreadyIndexed(
+					metadataFromRecords(records),
+					repoRoot,
+					{ id: "snapshot-1" },
+					{ added: [], modified: ["contract.md"], deleted: [] },
+				),
+			).resolves.toBe(false);
 		} finally {
 			await rm(repoRoot, { recursive: true, force: true });
 		}

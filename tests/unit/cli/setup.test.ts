@@ -97,6 +97,11 @@ const setupInternals = await loadSetupInternals<{
 			status: "ok" | "installed" | "failed" | "skipped";
 			detail?: string;
 		};
+		checkKnowledgeModel: () => {
+			name: string;
+			status: "ok" | "installed" | "failed" | "skipped";
+			detail?: string;
+		};
 	}) => Array<{
 		name: string;
 		status: "ok" | "installed" | "failed" | "skipped";
@@ -122,6 +127,10 @@ describe("setup command helpers", () => {
 			name: "Model jina-8k",
 			status: "ok" as const,
 		}));
+		const checkKnowledgeModel = vi.fn(() => ({
+			name: "Model nomic-embed-text-v2-moe",
+			status: "ok" as const,
+		}));
 
 		const results = setupInternals.collectOllamaResults({
 			checkOllama: () => ({
@@ -131,6 +140,7 @@ describe("setup command helpers", () => {
 			}),
 			ensureOllamaRunning,
 			checkJinaModel,
+			checkKnowledgeModel,
 		});
 
 		expect(results).toEqual([
@@ -145,14 +155,24 @@ describe("setup command helpers", () => {
 				status: "skipped",
 				detail: "Skipped until Ollama is installed manually.",
 			},
+			{
+				name: "Model nomic-embed-text-v2-moe",
+				status: "skipped",
+				detail: "Skipped until Ollama is installed manually.",
+			},
 		]);
 		expect(ensureOllamaRunning).not.toHaveBeenCalled();
 		expect(checkJinaModel).not.toHaveBeenCalled();
+		expect(checkKnowledgeModel).not.toHaveBeenCalled();
 	});
 
 	it("skips model setup when the Ollama daemon cannot be started", () => {
 		const checkJinaModel = vi.fn(() => ({
 			name: "Model jina-8k",
+			status: "ok" as const,
+		}));
+		const checkKnowledgeModel = vi.fn(() => ({
+			name: "Model nomic-embed-text-v2-moe",
 			status: "ok" as const,
 		}));
 
@@ -168,6 +188,7 @@ describe("setup command helpers", () => {
 				detail: "Timed out",
 			}),
 			checkJinaModel,
+			checkKnowledgeModel,
 		});
 
 		expect(results).toEqual([
@@ -178,13 +199,24 @@ describe("setup command helpers", () => {
 				status: "skipped",
 				detail: "Skipped until the Ollama daemon is running.",
 			},
+			{
+				name: "Model nomic-embed-text-v2-moe",
+				status: "skipped",
+				detail: "Skipped until the Ollama daemon is running.",
+			},
 		]);
 		expect(checkJinaModel).not.toHaveBeenCalled();
+		expect(checkKnowledgeModel).not.toHaveBeenCalled();
 	});
 
 	it("checks the embedding model when Ollama is ready", () => {
 		const checkJinaModel = vi.fn(() => ({
 			name: "Model jina-8k",
+			status: "ok" as const,
+			detail: "pulled",
+		}));
+		const checkKnowledgeModel = vi.fn(() => ({
+			name: "Model nomic-embed-text-v2-moe",
 			status: "ok" as const,
 			detail: "pulled",
 		}));
@@ -201,14 +233,21 @@ describe("setup command helpers", () => {
 				detail: "running",
 			}),
 			checkJinaModel,
+			checkKnowledgeModel,
 		});
 
 		expect(results).toEqual([
 			{ name: "Ollama", status: "ok", detail: "installed" },
 			{ name: "Ollama daemon", status: "ok", detail: "running" },
 			{ name: "Model jina-8k", status: "ok", detail: "pulled" },
+			{
+				name: "Model nomic-embed-text-v2-moe",
+				status: "ok",
+				detail: "pulled",
+			},
 		]);
 		expect(checkJinaModel).toHaveBeenCalledTimes(1);
+		expect(checkKnowledgeModel).toHaveBeenCalledTimes(1);
 	});
 
 	it("reports repaired idx wrapper scripts explicitly", async () => {

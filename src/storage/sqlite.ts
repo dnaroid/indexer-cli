@@ -7,6 +7,11 @@ import type {
 	DependencyRecord,
 	FileMetricsRecord,
 	FileRecord,
+	KnowledgeChunkRecord,
+	KnowledgeEntry,
+	KnowledgeRelation,
+	KnowledgeStore,
+	KnowledgeVerifiedInput,
 	MetadataStore,
 	ProjectId,
 	Snapshot,
@@ -26,6 +31,55 @@ type Migration = {
 	version: number;
 	name: string;
 	up: (db: Database.Database) => void;
+};
+
+type KnowledgeEntryRow = {
+	project_id: string;
+	path: string;
+	classification: string;
+	behavior_type: string;
+	lifecycle: string;
+	confidence: string;
+	title: string;
+	summary: string;
+	topics_json: string;
+	indexed_source_hash: string;
+	indexed_at: number;
+	verified_source_hash: string | null;
+	verified_relations_hash: string | null;
+	verified_at: number | null;
+	metadata_json: string | null;
+};
+
+type KnowledgeRelationRow = {
+	project_id: string;
+	source_path: string;
+	target_path: string;
+	target_kind: string;
+	relation_kind: string;
+	provenance: string;
+	metadata_json: string | null;
+};
+
+type KnowledgeVerifiedInputRow = {
+	project_id: string;
+	source_path: string;
+	input_path: string;
+	input_hash: string;
+	verified_at: number;
+};
+
+type KnowledgeChunkRow = {
+	project_id: string;
+	snapshot_id: string;
+	chunk_id: string;
+	file_path: string;
+	start_line: number;
+	end_line: number;
+	content_hash: string;
+	chunk_type: string;
+	heading: string | null;
+	metadata_json: string | null;
 };
 
 // To add a new migration:
@@ -49,9 +103,91 @@ const migrations: Migration[] = [
 			}
 		},
 	},
+	{
+		version: 2,
+		name: "add_knowledge_storage_and_file_domains",
+		up: (db) => {
+			const fileColumns = db.prepare("PRAGMA table_info(files)").all() as Array<{
+				name: string;
+			}>;
+			if (!fileColumns.some((column) => column.name === "file_domain")) {
+				db.exec(
+					"ALTER TABLE files ADD COLUMN file_domain TEXT NOT NULL DEFAULT 'code'",
+				);
+			}
+
+			db.exec(`
+			CREATE TABLE IF NOT EXISTS knowledge_entries (
+				project_id TEXT NOT NULL,
+				path TEXT NOT NULL,
+				classification TEXT NOT NULL,
+				behavior_type TEXT NOT NULL,
+				lifecycle TEXT NOT NULL,
+				confidence TEXT NOT NULL,
+				title TEXT NOT NULL DEFAULT '',
+				summary TEXT NOT NULL DEFAULT '',
+				topics_json TEXT NOT NULL DEFAULT '[]',
+				indexed_source_hash TEXT NOT NULL,
+				indexed_at INTEGER NOT NULL,
+				verified_source_hash TEXT,
+				verified_relations_hash TEXT,
+				verified_at INTEGER,
+				metadata_json TEXT,
+				PRIMARY KEY (project_id, path)
+			);
+
+			CREATE TABLE IF NOT EXISTS knowledge_relations (
+				project_id TEXT NOT NULL,
+				source_path TEXT NOT NULL,
+				target_path TEXT NOT NULL,
+				target_kind TEXT NOT NULL,
+				relation_kind TEXT NOT NULL,
+				provenance TEXT NOT NULL,
+				metadata_json TEXT,
+				PRIMARY KEY (
+					project_id, source_path, target_path, target_kind,
+					relation_kind, provenance
+				)
+			);
+
+			CREATE TABLE IF NOT EXISTS knowledge_verified_inputs (
+				project_id TEXT NOT NULL,
+				source_path TEXT NOT NULL,
+				input_path TEXT NOT NULL,
+				input_hash TEXT NOT NULL,
+				verified_at INTEGER NOT NULL,
+				PRIMARY KEY (project_id, source_path, input_path)
+			);
+
+			CREATE TABLE IF NOT EXISTS knowledge_chunks (
+				project_id TEXT NOT NULL,
+				snapshot_id TEXT NOT NULL,
+				chunk_id TEXT NOT NULL,
+				file_path TEXT NOT NULL,
+				start_line INTEGER NOT NULL,
+				end_line INTEGER NOT NULL,
+				content_hash TEXT NOT NULL,
+				chunk_type TEXT NOT NULL,
+				heading TEXT,
+				metadata_json TEXT,
+				PRIMARY KEY (project_id, snapshot_id, chunk_id),
+				FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+			);
+
+			CREATE INDEX IF NOT EXISTS idx_knowledge_relations_source
+				ON knowledge_relations(project_id, source_path);
+			CREATE INDEX IF NOT EXISTS idx_knowledge_relations_target
+				ON knowledge_relations(project_id, target_path);
+			CREATE INDEX IF NOT EXISTS idx_knowledge_verified_inputs_source
+				ON knowledge_verified_inputs(project_id, source_path);
+			CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_file
+				ON knowledge_chunks(project_id, snapshot_id, file_path);
+		`);
+		},
+	},
 ];
 
-export class SqliteMetadataStore implements MetadataStore {
+export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 	private db: Database.Database;
 	private initialized = false;
 
@@ -107,6 +243,332 @@ export class SqliteMetadataStore implements MetadataStore {
 				throw error;
 			}
 		});
+	}
+
+	async upsertKnowledgeEntry(entry: KnowledgeEntry): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(`
+					INSERT INTO knowledge_entries (
+						project_id, path, classification, behavior_type, lifecycle,
+						confidence, title, summary, topics_json, indexed_source_hash,
+						indexed_at, verified_source_hash, verified_relations_hash,
+						verified_at, metadata_json
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+					ON CONFLICT(project_id, path) DO UPDATE SET
+						classification = excluded.classification,
+						behavior_type = excluded.behavior_type,
+						lifecycle = excluded.lifecycle,
+						confidence = excluded.confidence,
+						title = excluded.title,
+						summary = excluded.summary,
+						topics_json = excluded.topics_json,
+						indexed_source_hash = excluded.indexed_source_hash,
+						indexed_at = excluded.indexed_at,
+						verified_source_hash = COALESCE(
+							excluded.verified_source_hash,
+							knowledge_entries.verified_source_hash
+						),
+						verified_relations_hash = COALESCE(
+							excluded.verified_relations_hash,
+							knowledge_entries.verified_relations_hash
+						),
+						verified_at = COALESCE(
+							excluded.verified_at,
+							knowledge_entries.verified_at
+						),
+						metadata_json = excluded.metadata_json
+				`).run(
+					entry.projectId,
+					entry.path,
+					entry.classification,
+					entry.behaviorType,
+					entry.lifecycle,
+					entry.confidence,
+					entry.title,
+					entry.summary,
+					JSON.stringify(entry.topics),
+					entry.indexedSourceHash,
+					entry.indexedAt,
+					entry.verifiedSourceHash ?? null,
+					entry.verifiedRelationsHash ?? null,
+					entry.verifiedAt ?? null,
+					entry.metadata ? JSON.stringify(entry.metadata) : null,
+				);
+		});
+	}
+
+	async getKnowledgeEntry(
+		projectId: ProjectId,
+		path: string,
+	): Promise<KnowledgeEntry | null> {
+		const row = this.db
+			.prepare("SELECT * FROM knowledge_entries WHERE project_id = ? AND path = ?")
+			.get(projectId, path) as KnowledgeEntryRow | undefined;
+		return row ? this.mapKnowledgeEntryRow(row) : null;
+	}
+
+	async listKnowledgeEntries(projectId: ProjectId): Promise<KnowledgeEntry[]> {
+		const rows = this.db
+			.prepare(
+				"SELECT * FROM knowledge_entries WHERE project_id = ? ORDER BY path",
+			)
+			.all(projectId) as KnowledgeEntryRow[];
+		return rows.map((row) => this.mapKnowledgeEntryRow(row));
+	}
+
+	async deleteKnowledgeEntry(projectId: ProjectId, path: string): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					"DELETE FROM knowledge_relations WHERE project_id = ? AND (source_path = ? OR (target_kind = 'knowledge' AND target_path = ?))",
+				)
+				.run(projectId, path, path);
+			this.db
+				.prepare(
+					"DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?",
+				)
+				.run(projectId, path);
+			this.db
+				.prepare("DELETE FROM knowledge_entries WHERE project_id = ? AND path = ?")
+				.run(projectId, path);
+		});
+	}
+
+	async upsertKnowledgeRelation(relation: KnowledgeRelation): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(`
+					INSERT INTO knowledge_relations (
+						project_id, source_path, target_path, target_kind,
+						relation_kind, provenance, metadata_json
+					) VALUES (?, ?, ?, ?, ?, ?, ?)
+					ON CONFLICT(
+						project_id, source_path, target_path, target_kind,
+						relation_kind, provenance
+					) DO UPDATE SET metadata_json = excluded.metadata_json
+				`).run(
+					relation.projectId,
+					relation.sourcePath,
+					relation.targetPath,
+					relation.targetKind,
+					relation.relationKind,
+					relation.provenance,
+					relation.metadata ? JSON.stringify(relation.metadata) : null,
+				);
+		});
+	}
+
+	async listKnowledgeRelations(
+		projectId: ProjectId,
+		options?: { sourcePath?: string },
+	): Promise<KnowledgeRelation[]> {
+		let sql = "SELECT * FROM knowledge_relations WHERE project_id = ?";
+		const params: string[] = [projectId];
+		if (options?.sourcePath) {
+			sql += " AND source_path = ?";
+			params.push(options.sourcePath);
+		}
+		sql += " ORDER BY source_path, target_path, relation_kind, provenance";
+		const rows = this.db.prepare(sql).all(...params) as KnowledgeRelationRow[];
+		return rows.map((row) => this.mapKnowledgeRelationRow(row));
+	}
+
+	async deleteKnowledgeRelation(
+		projectId: ProjectId,
+		relation: Omit<KnowledgeRelation, "projectId" | "metadata"> & {
+			metadata?: Record<string, unknown>;
+		},
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(`
+					DELETE FROM knowledge_relations
+					WHERE project_id = ? AND source_path = ? AND target_path = ?
+					  AND target_kind = ? AND relation_kind = ? AND provenance = ?
+				`)
+				.run(
+					projectId,
+					relation.sourcePath,
+					relation.targetPath,
+					relation.targetKind,
+					relation.relationKind,
+					relation.provenance,
+				);
+		});
+	}
+
+	async upsertKnowledgeVerifiedInput(
+		input: KnowledgeVerifiedInput,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(`
+					INSERT INTO knowledge_verified_inputs
+						(project_id, source_path, input_path, input_hash, verified_at)
+					VALUES (?, ?, ?, ?, ?)
+					ON CONFLICT(project_id, source_path, input_path) DO UPDATE SET
+						input_hash = excluded.input_hash,
+						verified_at = excluded.verified_at
+				`)
+				.run(
+					input.projectId,
+					input.sourcePath,
+					input.inputPath,
+					input.inputHash,
+					input.verifiedAt,
+				);
+		});
+	}
+
+	async listKnowledgeVerifiedInputs(
+		projectId: ProjectId,
+		sourcePath: string,
+	): Promise<KnowledgeVerifiedInput[]> {
+		const rows = this.db
+			.prepare(`
+				SELECT * FROM knowledge_verified_inputs
+				WHERE project_id = ? AND source_path = ? ORDER BY input_path
+			`)
+			.all(projectId, sourcePath) as KnowledgeVerifiedInputRow[];
+		return rows.map((row) => ({
+			projectId: row.project_id,
+			sourcePath: row.source_path,
+			inputPath: row.input_path,
+			inputHash: row.input_hash,
+			verifiedAt: row.verified_at,
+		}));
+	}
+
+	async deleteKnowledgeVerifiedInput(
+		projectId: ProjectId,
+		sourcePath: string,
+		inputPath: string,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(`
+					DELETE FROM knowledge_verified_inputs
+					WHERE project_id = ? AND source_path = ? AND input_path = ?
+				`)
+				.run(projectId, sourcePath, inputPath);
+		});
+	}
+
+	async replaceKnowledgeVerifiedInputs(
+		projectId: ProjectId,
+		sourcePath: string,
+		inputs: Array<Omit<KnowledgeVerifiedInput, "projectId" | "sourcePath">>,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(
+					"DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?",
+				)
+				.run(projectId, sourcePath);
+
+			if (inputs.length === 0) return;
+			const insert = this.db.prepare(`
+				INSERT INTO knowledge_verified_inputs
+					(project_id, source_path, input_path, input_hash, verified_at)
+				VALUES (?, ?, ?, ?, ?)
+			`);
+			for (const input of inputs) {
+				insert.run(
+					projectId,
+					sourcePath,
+					input.inputPath,
+					input.inputHash,
+					input.verifiedAt,
+				);
+			}
+		});
+	}
+
+	async clearKnowledgeVerification(
+		projectId: ProjectId,
+		sourcePath: string,
+	): Promise<void> {
+		await this.transaction(async () => {
+			this.db
+				.prepare(`
+					UPDATE knowledge_entries
+					SET verified_source_hash = NULL,
+						verified_relations_hash = NULL,
+						verified_at = NULL
+					WHERE project_id = ? AND path = ?
+				`)
+				.run(projectId, sourcePath);
+			this.db
+				.prepare(
+					"DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?",
+				)
+				.run(projectId, sourcePath);
+		});
+	}
+
+	async replaceKnowledgeChunks(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath: string,
+		chunks: Omit<KnowledgeChunkRecord, "projectId" | "snapshotId" | "filePath">[],
+	): Promise<void> {
+		const transaction = this.db.transaction(() => {
+			this.db
+				.prepare(
+					"DELETE FROM knowledge_chunks WHERE project_id = ? AND snapshot_id = ? AND file_path = ?",
+				)
+				.run(projectId, snapshotId, filePath);
+			const insert = this.db.prepare(`
+				INSERT INTO knowledge_chunks (
+					project_id, snapshot_id, chunk_id, file_path, start_line, end_line,
+					content_hash, chunk_type, heading, metadata_json
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`);
+			for (const chunk of chunks) {
+				insert.run(
+					projectId,
+					snapshotId,
+					chunk.chunkId,
+					filePath,
+					chunk.startLine,
+					chunk.endLine,
+					chunk.contentHash,
+					chunk.chunkType,
+					chunk.heading ?? null,
+					chunk.metadata ? JSON.stringify(chunk.metadata) : null,
+				);
+			}
+		});
+		transaction();
+	}
+
+	async listKnowledgeChunks(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		filePath?: string,
+	): Promise<KnowledgeChunkRecord[]> {
+		let sql =
+			"SELECT * FROM knowledge_chunks WHERE project_id = ? AND snapshot_id = ?";
+		const params: string[] = [projectId, snapshotId];
+		if (filePath) {
+			sql += " AND file_path = ?";
+			params.push(filePath);
+		}
+		sql += " ORDER BY file_path, start_line";
+		const rows = this.db.prepare(sql).all(...params) as KnowledgeChunkRow[];
+		return rows.map((row) => ({
+			projectId: row.project_id,
+			snapshotId: row.snapshot_id,
+			chunkId: row.chunk_id,
+			filePath: row.file_path,
+			startLine: row.start_line,
+			endLine: row.end_line,
+			contentHash: row.content_hash,
+			chunkType: row.chunk_type as KnowledgeChunkRecord["chunkType"],
+			heading: row.heading ?? undefined,
+			metadata: this.parseJsonObject(row.metadata_json),
+		}));
 	}
 
 	async createSnapshot(
@@ -255,13 +717,14 @@ export class SqliteMetadataStore implements MetadataStore {
 		await this.transaction(async () => {
 			this.db
 				.prepare(
-					`INSERT INTO files (project_id, sha256, mtime_ms, size, path, snapshot_id, language_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?)
+					`INSERT INTO files (project_id, sha256, mtime_ms, size, path, snapshot_id, language_id, file_domain)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(project_id, snapshot_id, path) DO UPDATE SET
              sha256 = excluded.sha256,
              mtime_ms = excluded.mtime_ms,
              size = excluded.size,
-             language_id = excluded.language_id`,
+	             language_id = excluded.language_id,
+             file_domain = excluded.file_domain`,
 				)
 				.run(
 					projectId,
@@ -271,6 +734,7 @@ export class SqliteMetadataStore implements MetadataStore {
 					file.path,
 					file.snapshotId,
 					file.languageId,
+					file.domain ?? "code",
 				);
 		});
 	}
@@ -278,10 +742,15 @@ export class SqliteMetadataStore implements MetadataStore {
 	async listFiles(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
-		options?: { pathPrefix?: string },
+		options?: { pathPrefix?: string; domain?: FileRecord["domain"] },
 	): Promise<FileRecord[]> {
-		let sql = "SELECT * FROM files WHERE project_id = ? AND snapshot_id = ?";
-		const params: Array<string | number> = [projectId, snapshotId];
+		let sql =
+			"SELECT * FROM files WHERE project_id = ? AND snapshot_id = ? AND file_domain = ?";
+		const params: Array<string | number> = [
+			projectId,
+			snapshotId,
+			options?.domain ?? "code",
+		];
 		const pathPrefix = options?.pathPrefix?.replace(/\/+$/, "");
 
 		if (pathPrefix) {
@@ -298,28 +767,23 @@ export class SqliteMetadataStore implements MetadataStore {
 			mtime_ms: number;
 			size: number;
 			language_id: string;
+			file_domain: "code" | "document" | null;
 		}>;
 
-		return rows.map((row) => ({
-			snapshotId: row.snapshot_id,
-			path: row.path,
-			sha256: row.sha256,
-			mtimeMs: row.mtime_ms,
-			size: row.size,
-			languageId: row.language_id,
-		}));
+		return rows.map((row) => this.mapFileRow(row));
 	}
 
 	async getFile(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
 		path: string,
+		options?: { domain?: FileRecord["domain"] },
 	): Promise<FileRecord | null> {
 		const row = this.db
 			.prepare(
-				"SELECT * FROM files WHERE project_id = ? AND snapshot_id = ? AND path = ?",
+				"SELECT * FROM files WHERE project_id = ? AND snapshot_id = ? AND path = ? AND file_domain = ?",
 			)
-			.get(projectId, snapshotId, path) as
+			.get(projectId, snapshotId, path, options?.domain ?? "code") as
 			| {
 					snapshot_id: string;
 					path: string;
@@ -327,6 +791,7 @@ export class SqliteMetadataStore implements MetadataStore {
 					mtime_ms: number;
 					size: number;
 					language_id: string;
+					file_domain: "code" | "document" | null;
 			  }
 			| undefined;
 
@@ -334,14 +799,7 @@ export class SqliteMetadataStore implements MetadataStore {
 			return null;
 		}
 
-		return {
-			snapshotId: row.snapshot_id,
-			path: row.path,
-			sha256: row.sha256,
-			mtimeMs: row.mtime_ms,
-			size: row.size,
-			languageId: row.language_id,
-		};
+		return this.mapFileRow(row);
 	}
 
 	async replaceChunks(
@@ -809,8 +1267,8 @@ export class SqliteMetadataStore implements MetadataStore {
 		const transaction = this.db.transaction(() => {
 			this.db
 				.prepare(
-					`INSERT INTO files (project_id, sha256, mtime_ms, size, path, snapshot_id, language_id)
-           SELECT ?, sha256, mtime_ms, size, path, ?, language_id
+					`INSERT INTO files (project_id, sha256, mtime_ms, size, path, snapshot_id, language_id, file_domain)
+           SELECT ?, sha256, mtime_ms, size, path, ?, language_id, file_domain
            FROM files
            WHERE project_id = ? AND snapshot_id = ? AND path IN (${placeholders})`,
 				)
@@ -860,6 +1318,19 @@ export class SqliteMetadataStore implements MetadataStore {
 					`INSERT INTO file_metrics (project_id, snapshot_id, file_path, metrics_json, updated_at)
            SELECT ?, ?, file_path, metrics_json, updated_at
            FROM file_metrics
+           WHERE project_id = ? AND snapshot_id = ? AND file_path IN (${placeholders})`,
+				)
+				.run(...params);
+
+			this.db
+				.prepare(
+					`INSERT INTO knowledge_chunks (
+            project_id, snapshot_id, chunk_id, file_path, start_line, end_line,
+            content_hash, chunk_type, heading, metadata_json
+          )
+           SELECT ?, ?, chunk_id, file_path, start_line, end_line,
+                  content_hash, chunk_type, heading, metadata_json
+           FROM knowledge_chunks
            WHERE project_id = ? AND snapshot_id = ? AND file_path IN (${placeholders})`,
 				)
 				.run(...params);
@@ -985,6 +1456,86 @@ export class SqliteMetadataStore implements MetadataStore {
 		});
 	}
 
+	private mapFileRow(row: {
+		snapshot_id: string;
+		path: string;
+		sha256: string;
+		mtime_ms: number;
+		size: number;
+		language_id: string;
+		file_domain: "code" | "document" | null;
+	}): FileRecord {
+		const domain = row.file_domain === "document" ? "document" : undefined;
+		return {
+			snapshotId: row.snapshot_id,
+			path: row.path,
+			sha256: row.sha256,
+			mtimeMs: row.mtime_ms,
+			size: row.size,
+			languageId: row.language_id,
+			...(domain ? { domain } : {}),
+		};
+	}
+
+	private mapKnowledgeEntryRow(row: KnowledgeEntryRow): KnowledgeEntry {
+		return {
+			projectId: row.project_id,
+			path: row.path,
+			classification: row.classification as KnowledgeEntry["classification"],
+			behaviorType: row.behavior_type as KnowledgeEntry["behaviorType"],
+			lifecycle: row.lifecycle as KnowledgeEntry["lifecycle"],
+			confidence: row.confidence,
+			title: row.title,
+			summary: row.summary,
+			topics: this.parseJsonArray(row.topics_json),
+			indexedSourceHash: row.indexed_source_hash,
+			indexedAt: row.indexed_at,
+			verifiedSourceHash: row.verified_source_hash ?? undefined,
+			verifiedRelationsHash: row.verified_relations_hash ?? undefined,
+			verifiedAt: row.verified_at ?? undefined,
+			metadata: this.parseJsonObject(row.metadata_json),
+		};
+	}
+
+	private mapKnowledgeRelationRow(row: KnowledgeRelationRow): KnowledgeRelation {
+		return {
+			projectId: row.project_id,
+			sourcePath: row.source_path,
+			targetPath: row.target_path,
+			targetKind: row.target_kind as KnowledgeRelation["targetKind"],
+			relationKind: row.relation_kind as KnowledgeRelation["relationKind"],
+			provenance: row.provenance as KnowledgeRelation["provenance"],
+			metadata: this.parseJsonObject(row.metadata_json),
+		};
+	}
+
+	private parseJsonArray(value: string | null | undefined): string[] {
+		try {
+			const parsed = JSON.parse(value ?? "[]");
+			return Array.isArray(parsed)
+				? parsed.filter((item): item is string => typeof item === "string")
+				: [];
+		} catch {
+			return [];
+		}
+	}
+
+	private parseJsonObject(
+		value: string | null | undefined,
+	): Record<string, unknown> | undefined {
+		if (!value) {
+			return undefined;
+		}
+		try {
+			const parsed: unknown = JSON.parse(value);
+			return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+				? (parsed as Record<string, unknown>)
+				: undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
 	private parseMetrics(metricsJson: string): FileMetricsRecord["metrics"] {
 		try {
 			const parsed = JSON.parse(metricsJson || "{}") as Partial<
@@ -1059,6 +1610,7 @@ export class SqliteMetadataStore implements MetadataStore {
         mtime_ms INTEGER NOT NULL,
         size INTEGER NOT NULL,
         language_id TEXT NOT NULL,
+        file_domain TEXT NOT NULL DEFAULT 'code',
         PRIMARY KEY (project_id, snapshot_id, path),
         FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
       );

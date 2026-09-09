@@ -8,6 +8,9 @@ const DEFAULT_CONFIG = {
 	version: "0.0.0",
 	embeddingProvider: "ollama",
 	embeddingModel: "jina-8k",
+	knowledgeEmbeddingModel: "nomic-embed-text-v2-moe",
+	knowledgeEmbeddingQueryPrefix: "search_query: ",
+	knowledgeEmbeddingDocumentPrefix: "search_document: ",
 	embeddingContextSize: 8192,
 	vectorSize: 768,
 	ollamaBaseUrl: "http://127.0.0.1:11434",
@@ -18,6 +21,22 @@ const DEFAULT_CONFIG = {
 	indexIncludePaths: [],
 	indexExcludePaths: [],
 	visibilityExcludePaths: ["fixtures/**", "**/fixtures/**", "vendor/**"],
+	documentExtensions: [".md", ".mdx", ".rst", ".adoc", ".txt"],
+	documentIncludePaths: [],
+	documentExcludePaths: [
+		"evals/**",
+		"**/evals/**",
+		"fixtures/**",
+		"**/fixtures/**",
+		"testdata/**",
+		"**/testdata/**",
+		"examples/**",
+		"**/examples/**",
+		".claude/skills/**",
+		".pi/skills/**",
+		".agents/skills/**",
+	],
+	documentMaxBytes: 524_288,
 	searchMinScore: 0.55,
 };
 
@@ -61,6 +80,13 @@ describe("ConfigManager", () => {
 	it("get() returns default values before load()", () => {
 		expect(manager.get("embeddingProvider")).toBe("ollama");
 		expect(manager.get("embeddingModel")).toBe("jina-8k");
+		expect(manager.get("knowledgeEmbeddingModel")).toBe(
+			"nomic-embed-text-v2-moe",
+		);
+		expect(manager.get("knowledgeEmbeddingQueryPrefix")).toBe("search_query: ");
+		expect(manager.get("knowledgeEmbeddingDocumentPrefix")).toBe(
+			"search_document: ",
+		);
 		expect(manager.get("embeddingContextSize")).toBe(8192);
 		expect(manager.get("vectorSize")).toBe(768);
 		expect(manager.get("ollamaBaseUrl")).toBe("http://127.0.0.1:11434");
@@ -97,6 +123,10 @@ describe("ConfigManager", () => {
 			indexIncludePaths: ["generated/keep/**"],
 			indexExcludePaths: ["generated/drop/**"],
 			visibilityExcludePaths: ["examples/**", "generated/**"],
+			documentExtensions: ["md", ".txt", "RST"],
+			documentIncludePaths: ["knowledge/**"],
+			documentExcludePaths: ["knowledge/generated/**"],
+			documentMaxBytes: 123_456,
 		});
 
 		manager.load(dir);
@@ -115,6 +145,10 @@ describe("ConfigManager", () => {
 			indexIncludePaths: ["generated/keep/**"],
 			indexExcludePaths: ["generated/drop/**"],
 			visibilityExcludePaths: ["examples/**", "generated/**"],
+			documentExtensions: [".md", ".rst", ".txt"],
+			documentIncludePaths: ["knowledge/**"],
+			documentExcludePaths: ["knowledge/generated/**"],
+			documentMaxBytes: 123_456,
 		});
 	});
 
@@ -162,6 +196,10 @@ describe("ConfigManager", () => {
 			indexIncludePaths: [123, null],
 			indexExcludePaths: [123, null],
 			visibilityExcludePaths: [123, null],
+			documentExtensions: [123, null],
+			documentIncludePaths: [123, null],
+			documentExcludePaths: [123, null],
+			documentMaxBytes: "large",
 		});
 
 		manager.load(dir);
@@ -177,6 +215,7 @@ describe("ConfigManager", () => {
 			ollamaNumCtx: 0,
 			indexConcurrency: -5,
 			indexBatchSize: 0,
+			documentMaxBytes: 0,
 		});
 
 		manager.load(dir);
