@@ -42,16 +42,76 @@ const DEFAULT_DEPRECATED_SKILL_DIRECTORIES = [
 	"dependency-trace",
 ];
 
-async function writeClaudeSkills(
+export type SkillTarget = "claude" | "codex";
+
+const SKILL_TARGET_ROOTS: Record<SkillTarget, string[]> = {
+	claude: [".claude", "skills"],
+	codex: [".agents", "skills"],
+};
+
+function normalizeSkillTargets(targets: readonly SkillTarget[]): SkillTarget[] {
+	return [...new Set(targets)].sort() as SkillTarget[];
+}
+
+function skillRoot(projectRoot: string, target: SkillTarget): string {
+	return path.join(projectRoot, ...SKILL_TARGET_ROOTS[target]);
+}
+
+function skillIgnoreEntry(target: SkillTarget): string {
+	return target === "claude" ? ".claude/" : ".agents/";
+}
+
+function configuredTargetsFromValue(value: unknown): SkillTarget[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	return normalizeSkillTargets(
+		value.filter(
+			(item): item is SkillTarget => item === "claude" || item === "codex",
+		),
+	);
+}
+
+export async function detectInstalledSkillTargets(
 	projectRoot: string,
+): Promise<SkillTarget[]> {
+	const targets: SkillTarget[] = [];
+	for (const target of ["claude", "codex"] as const) {
+		const generatedSkillPath = path.join(
+			skillRoot(projectRoot, target),
+			"repo-discovery",
+			"SKILL.md",
+		);
+		if (await pathExists(generatedSkillPath)) targets.push(target);
+	}
+	return targets;
+}
+
+export async function getEnabledSkillTargets(
+	projectRoot: string,
+): Promise<SkillTarget[]> {
+	const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
+	if (!(await pathExists(configPath))) return [];
+
+	try {
+		const parsed = JSON.parse(await readFile(configPath, "utf8")) as Record<
+			string,
+			unknown
+		>;
+		return configuredTargetsFromValue(parsed.skillTargets)
+			?? await detectInstalledSkillTargets(projectRoot);
+	} catch {
+		return await detectInstalledSkillTargets(projectRoot);
+	}
+}
+
+async function writeSkillsForTarget(
+	projectRoot: string,
+	target: SkillTarget,
 	skills = GENERATED_SKILLS,
 	options: { silent?: boolean } = {},
 ): Promise<void> {
 	for (const skill of skills) {
 		const skillDir = path.join(
-			projectRoot,
-			".claude",
-			"skills",
+			skillRoot(projectRoot, target),
 			skill.directory,
 		);
 		await mkdir(skillDir, { recursive: true });
@@ -63,11 +123,14 @@ async function writeClaudeSkills(
 	}
 }
 
-export async function refreshClaudeSkills(
+export async function refreshSkillsForTarget(
 	projectRoot: string,
+	target: SkillTarget,
 	skillDirectories = GENERATED_SKILL_DIRECTORIES,
 	skills = GENERATED_SKILLS,
-	deprecatedSkillDirectories = DEFAULT_DEPRECATED_SKILL_DIRECTORIES,
+	deprecatedSkillDirectories = target === "claude"
+		? DEFAULT_DEPRECATED_SKILL_DIRECTORIES
+		: [],
 	options: { silent?: boolean } = {},
 ): Promise<void> {
 	for (const skillDirectory of [
@@ -75,9 +138,7 @@ export async function refreshClaudeSkills(
 		...deprecatedSkillDirectories,
 	]) {
 		const skillDir = path.join(
-			projectRoot,
-			".claude",
-			"skills",
+			skillRoot(projectRoot, target),
 			skillDirectory,
 		);
 		if (await pathExists(skillDir)) {
@@ -90,7 +151,24 @@ export async function refreshClaudeSkills(
 		}
 	}
 
-	await writeClaudeSkills(projectRoot, skills, options);
+	await writeSkillsForTarget(projectRoot, target, skills, options);
+}
+
+export async function refreshSkillTargets(
+	projectRoot: string,
+	targets: readonly SkillTarget[],
+	options: { silent?: boolean } = {},
+): Promise<void> {
+	for (const target of normalizeSkillTargets(targets)) {
+		await refreshSkillsForTarget(
+			projectRoot,
+			target,
+			GENERATED_SKILL_DIRECTORIES,
+			GENERATED_SKILLS,
+			undefined,
+			options,
+		);
+	}
 }
 
 async function ensureGitignoreEntries(
@@ -122,6 +200,59 @@ async function ensureGitignoreEntries(
 	await writeFile(gitignorePath, `${missing.join("\n")}\n`, "utf8");
 }
 
+async function persistSkillTargets(
+	projectRoot: string,
+	targets: readonly SkillTarget[],
+): Promise<void> {
+	const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
+	if (!(await pathExists(configPath))) {
+		throw new Error(`Project is not initialized: ${projectRoot}`);
+	}
+	const parsed = JSON.parse(await readFile(configPath, "utf8")) as Record<
+		string,
+		unknown
+	>;
+	parsed.skillTargets = normalizeSkillTargets(targets);
+	parsed.skillsVersion = SKILLS_VERSION;
+	await writeFile(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+}
+
+export async function installSkillTargets(
+	projectRoot: string,
+	requestedTargets: readonly SkillTarget[],
+	options: { silent?: boolean } = {},
+): Promise<SkillTarget[]> {
+	const requested = normalizeSkillTargets(requestedTargets);
+	if (requested.length === 0) {
+		throw new Error("Select at least one skill target: --claude and/or --codex.");
+	}
+	const enabled = normalizeSkillTargets([
+		...(await getEnabledSkillTargets(projectRoot)),
+		...requested,
+	]);
+	await ensureGitignoreEntries(
+		projectRoot,
+		[".indexer-cli/", ...requested.map(skillIgnoreEntry)],
+	);
+	await refreshSkillTargets(projectRoot, requested, options);
+	await persistSkillTargets(projectRoot, enabled);
+	return enabled;
+}
+
+export async function refreshEnabledSkillTargets(
+	projectRoot: string,
+	options: { silent?: boolean } = {},
+): Promise<SkillTarget[]> {
+	const enabled = await getEnabledSkillTargets(projectRoot);
+	await ensureGitignoreEntries(projectRoot, [
+		".indexer-cli/",
+		...enabled.map(skillIgnoreEntry),
+	]);
+	await refreshSkillTargets(projectRoot, enabled, options);
+	await persistSkillTargets(projectRoot, enabled);
+	return enabled;
+}
+
 async function ensurePostCommitHook(projectRoot: string): Promise<void> {
 	const gitDir = path.join(projectRoot, ".git");
 	if (!(await pathExists(gitDir))) return;
@@ -146,7 +277,11 @@ async function ensurePostCommitHook(projectRoot: string): Promise<void> {
 
 export async function performInit(
 	projectRoot: string,
-	options?: { refreshSkills?: boolean; skipIndexing?: boolean },
+	options?: {
+		refreshSkills?: boolean;
+		skipIndexing?: boolean;
+		skillTargets?: SkillTarget[];
+	},
 ): Promise<void> {
 	const dataDir = path.join(projectRoot, ".indexer-cli");
 	const dbPath = path.join(dataDir, "db.sqlite");
@@ -170,25 +305,55 @@ export async function performInit(
 		});
 		await vectors.initialize();
 
+		let existingConfig: Record<string, unknown> = {};
+		if (await pathExists(configPath)) {
+			try {
+				existingConfig = JSON.parse(await readFile(configPath, "utf8")) as Record<string, unknown>;
+			} catch {
+				existingConfig = {};
+			}
+		}
+		const configuredTargets = Array.isArray(existingConfig.skillTargets)
+			? existingConfig.skillTargets.filter(
+					(value): value is SkillTarget => value === "claude" || value === "codex",
+				)
+			: await detectInstalledSkillTargets(projectRoot);
+		const requestedTargets = normalizeSkillTargets(options?.skillTargets ?? []);
+		const enabledTargets = normalizeSkillTargets([
+			...configuredTargets,
+			...requestedTargets,
+		]);
+
 		await writeFile(
 			configPath,
-			`${JSON.stringify({ ...config.getAll(), version: PACKAGE_VERSION, skillsVersion: SKILLS_VERSION }, null, 2)}\n`,
+			`${JSON.stringify({
+				...config.getAll(),
+				version: PACKAGE_VERSION,
+				skillsVersion: SKILLS_VERSION,
+				skillTargets: enabledTargets,
+			}, null, 2)}\n`,
 			"utf8",
 		);
+		const gitignoreTargets = options?.refreshSkills
+			? enabledTargets
+			: requestedTargets;
 		await ensureGitignoreEntries(projectRoot, [
 			".indexer-cli/",
-			".claude/",
+			...gitignoreTargets.map(skillIgnoreEntry),
 		]);
 		await ensurePostCommitHook(projectRoot);
 
 		const displayRoot = path.relative(process.cwd(), projectRoot) || ".";
 		console.log(`Initialized indexer-cli in ${displayRoot}`);
-		if (options?.refreshSkills) {
-			await refreshClaudeSkills(projectRoot);
-		} else {
-			await refreshClaudeSkills(projectRoot, [], GENERATED_SKILLS);
+		const targetsToWrite = options?.refreshSkills
+			? enabledTargets
+			: requestedTargets;
+		if (targetsToWrite.length > 0) {
+			await refreshSkillTargets(projectRoot, targetsToWrite);
+			console.log(
+				"  Restart the selected coding agent(s) to pick up skill changes.",
+			);
 		}
-		console.log("  Restart OpenCode, Claude Code, or pi to pick up skill changes.");
 		console.log(`  SQLite: ${path.relative(projectRoot, dbPath)}`);
 		console.log(`  Config: ${path.relative(projectRoot, configPath)}`);
 
@@ -215,11 +380,13 @@ export function registerInitCommand(program: Command): void {
 	program
 		.command("init")
 		.description("Initialize indexer storage for a project")
+		.option("--claude", "install/enable the repo-discovery skill for Claude Code")
+		.option("--codex", "install/enable the repo-discovery skill for OpenAI Codex")
 		.option(
 			"--refresh-skills",
-			"remove this CLI's generated skills and recreate them under .claude/skills",
+			"refresh already enabled skills (plus any --claude/--codex targets supplied now)",
 		)
-		.action(async (options?: { refreshSkills?: boolean }) => {
+		.action(async (options?: { refreshSkills?: boolean; claude?: boolean; codex?: boolean }) => {
 			try {
 				const { projectRoot, notice } = resolveInitProjectRoot();
 				if (notice) {
@@ -228,6 +395,10 @@ export function registerInitCommand(program: Command): void {
 
 				await performInit(projectRoot, {
 					refreshSkills: options?.refreshSkills,
+					skillTargets: [
+						...(options?.claude ? ["claude" as const] : []),
+						...(options?.codex ? ["codex" as const] : []),
+					],
 				});
 				addProject({
 					projectPath: projectRoot,

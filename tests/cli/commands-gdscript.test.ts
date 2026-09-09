@@ -86,7 +86,7 @@ describe.sequential("CLI e2e GDScript", () => {
 
 	describe("init", () => {
 		it("creates indexer data, skills, and hook", () => {
-			const result = runCLI(["init"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");
@@ -117,7 +117,7 @@ describe.sequential("CLI e2e GDScript", () => {
 		});
 
 		it("is idempotent", () => {
-			const result = runCLI(["init"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");

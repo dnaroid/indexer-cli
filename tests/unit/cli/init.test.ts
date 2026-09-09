@@ -22,7 +22,7 @@ async function loadInitInternals<T>(): Promise<T> {
 	}
 
 	const transpiled = ts.transpileModule(
-		`import { constants as fsConstants } from "node:fs";\nimport { access, mkdir, rm, writeFile } from "node:fs/promises";\nimport path from "node:path";\n${match[0]}\nexport { pathExists, writeClaudeSkills, refreshClaudeSkills };`,
+		`import { constants as fsConstants } from "node:fs";\nimport { access, mkdir, rm, writeFile } from "node:fs/promises";\nimport path from "node:path";\nconst GENERATED_SKILL_DIRECTORIES = [];\nconst GENERATED_SKILLS = [];\n${match[0]}\nexport { pathExists, writeSkillsForTarget, refreshSkillsForTarget, detectInstalledSkillTargets };`,
 		{
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
@@ -36,12 +36,16 @@ async function loadInitInternals<T>(): Promise<T> {
 }
 
 const initInternals = await loadInitInternals<{
-	refreshClaudeSkills: (
+	refreshSkillsForTarget: (
 		projectRoot: string,
+		target: "claude" | "codex",
 		skillDirectories?: string[],
 		skills?: Array<{ directory: string; content: string }>,
 		deprecatedSkillDirectories?: string[],
 	) => Promise<void>;
+	detectInstalledSkillTargets: (
+		projectRoot: string,
+	) => Promise<Array<"claude" | "codex">>;
 }>();
 
 afterEach(async () => {
@@ -69,8 +73,9 @@ describe("init command helpers", () => {
 			"utf8",
 		);
 
-		await initInternals.refreshClaudeSkills(
+		await initInternals.refreshSkillsForTarget(
 			projectRoot,
+			"claude",
 			["repo-discovery"],
 			[
 				{
@@ -113,8 +118,9 @@ describe("init command helpers", () => {
 			"utf8",
 		);
 
-		await initInternals.refreshClaudeSkills(
+		await initInternals.refreshSkillsForTarget(
 			projectRoot,
+			"claude",
 			["repo-discovery"],
 			[
 				{
@@ -141,6 +147,49 @@ describe("init command helpers", () => {
 		const skillDirectories = readdirSync(skillsRoot);
 		expect(repoDiscovery).toContain("name: repo-discovery");
 		expect(skillDirectories).toEqual(["repo-discovery"]);
+	});
+
+	it("writes and detects Codex skills under .agents/skills", async () => {
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-"));
+		tempDirs.push(projectRoot);
+		const preexistingCodexSkill = path.join(
+			projectRoot,
+			".agents",
+			"skills",
+			"context-pack",
+			"SKILL.md",
+		);
+		mkdirSync(path.dirname(preexistingCodexSkill), { recursive: true });
+		writeFileSync(preexistingCodexSkill, "user-owned\n", "utf8");
+
+		await initInternals.refreshSkillsForTarget(
+			projectRoot,
+			"codex",
+			["repo-discovery"],
+			[
+				{
+					directory: "repo-discovery",
+					content: "name: repo-discovery\n",
+				},
+			],
+		);
+
+		expect(
+			readFileSync(
+				path.join(
+					projectRoot,
+					".agents",
+					"skills",
+					"repo-discovery",
+					"SKILL.md",
+				),
+				"utf8",
+			),
+		).toContain("name: repo-discovery");
+		expect(readFileSync(preexistingCodexSkill, "utf8")).toBe("user-owned\n");
+		expect(await initInternals.detectInstalledSkillTargets(projectRoot)).toEqual([
+			"codex",
+		]);
 	});
 });
 

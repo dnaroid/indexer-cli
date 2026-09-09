@@ -2,9 +2,13 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PACKAGE_VERSION } from "./version.js";
 import { performUninstall } from "../cli/commands/uninstall.js";
-import { performInit } from "../cli/commands/init.js";
+import {
+	detectInstalledSkillTargets,
+	performInit,
+	refreshSkillTargets,
+	type SkillTarget,
+} from "../cli/commands/init.js";
 import { SKILLS_VERSION } from "./skills-version.js";
-import { refreshClaudeSkills } from "../cli/commands/init.js";
 import { ensureIdxBinary } from "./idx-binary.js";
 import { resolveInitializedProjectRoot } from "../cli/project-root.js";
 import { addProject, cleanStaleEntries, getRegisteredProjects } from "./registry.js";
@@ -14,6 +18,21 @@ export interface RefreshSkillsResult {
 	refreshed: number;
 	failed: number;
 	stale: number;
+}
+
+function parseSkillTargets(value: unknown): SkillTarget[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	return [...new Set(value.filter(
+		(item): item is SkillTarget => item === "claude" || item === "codex",
+	))].sort() as SkillTarget[];
+}
+
+async function configuredSkillTargets(
+	projectRoot: string,
+	parsedConfig: Record<string, unknown>,
+): Promise<SkillTarget[]> {
+	return parseSkillTargets(parsedConfig.skillTargets)
+		?? await detectInstalledSkillTargets(projectRoot);
 }
 
 /**
@@ -51,6 +70,7 @@ export async function checkAndMigrateIfNeeded(): Promise<boolean> {
 	}
 
 	let configVersion: string;
+	let parsedConfig: Record<string, unknown>;
 	try {
 		const raw = readFileSync(configPath, "utf8");
 		const parsed: unknown = JSON.parse(raw);
@@ -63,6 +83,7 @@ export async function checkAndMigrateIfNeeded(): Promise<boolean> {
 			return false;
 		}
 		configVersion = (parsed as { version: string }).version;
+		parsedConfig = parsed as Record<string, unknown>;
 	} catch {
 		return false;
 	}
@@ -83,10 +104,14 @@ export async function checkAndMigrateIfNeeded(): Promise<boolean> {
 	console.log("  Removing .indexer-cli/...");
 
 	try {
+		const skillTargets = await configuredSkillTargets(projectRoot, parsedConfig);
 		await performUninstall(projectRoot);
 
 		console.log("  Re-initializing...");
-		await performInit(projectRoot, { skipIndexing: false });
+		await performInit(projectRoot, {
+			skipIndexing: false,
+			skillTargets,
+		});
 
 		console.log("indexer-cli: migration complete.");
 		return true;
@@ -104,14 +129,15 @@ export async function checkAndMigrateIfNeeded(): Promise<boolean> {
 async function refreshSkillsIfNeededForProject(
 	projectRoot: string,
 	options: { announce?: boolean; silent?: boolean } = {},
-): Promise<boolean> {
+): Promise<"none" | "version-only" | "refreshed"> {
 	const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
 
 	if (!existsSync(configPath)) {
-		return false;
+		return "none";
 	}
 
 	let storedSkillsVersion: number | undefined;
+	let parsedConfig: Record<string, unknown>;
 	try {
 		const raw = readFileSync(configPath, "utf8");
 		const parsed: unknown = JSON.parse(raw);
@@ -123,17 +149,19 @@ async function refreshSkillsIfNeededForProject(
 		) {
 			storedSkillsVersion = (parsed as { skillsVersion: number }).skillsVersion;
 		}
+		parsedConfig = parsed as Record<string, unknown>;
 	} catch {
-		return false;
+		return "none";
 	}
 
 	if (storedSkillsVersion === SKILLS_VERSION) {
-		return false;
+		return "none";
 	}
 
-	if (options.announce !== false) {
+	const targets = await configuredSkillTargets(projectRoot, parsedConfig);
+	if (options.announce !== false && targets.length > 0) {
 		console.error(
-			`indexer-cli: skills updated (version ${storedSkillsVersion ?? "none"} → ${SKILLS_VERSION}). Refreshing .claude/skills/...`,
+			`indexer-cli: skills updated (version ${storedSkillsVersion ?? "none"} → ${SKILLS_VERSION}). Refreshing ${targets.join(", ")} skill target(s)...`,
 		);
 	}
 
@@ -142,18 +170,21 @@ async function refreshSkillsIfNeededForProject(
 		if (options.silent !== false) {
 			console.log = () => undefined;
 		}
-		await refreshClaudeSkills(projectRoot);
+		await refreshSkillTargets(projectRoot, targets, { silent: true });
 	} finally {
 		console.log = originalConsoleLog;
 	}
 	ensureIdxBinary();
 
-	const raw = readFileSync(configPath, "utf8");
-	const parsed = JSON.parse(raw) as Record<string, unknown>;
-	parsed.skillsVersion = SKILLS_VERSION;
-	writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+	parsedConfig.skillsVersion = SKILLS_VERSION;
+	parsedConfig.skillTargets = targets;
+	writeFileSync(
+		configPath,
+		`${JSON.stringify(parsedConfig, null, 2)}\n`,
+		"utf8",
+	);
 
-	return true;
+	return targets.length > 0 ? "refreshed" : "version-only";
 }
 
 export async function forceRefreshProjectSkills(
@@ -165,21 +196,23 @@ export async function forceRefreshProjectSkills(
 	if (!existsSync(configPath)) {
 		return;
 	}
+	const raw = readFileSync(configPath, "utf8");
+	const parsed = JSON.parse(raw) as Record<string, unknown>;
+	const targets = await configuredSkillTargets(projectRoot, parsed);
 
 	const originalConsoleLog = console.log;
 	try {
 		if (options.silent) {
 			console.log = () => undefined;
 		}
-		await refreshClaudeSkills(projectRoot);
+		await refreshSkillTargets(projectRoot, targets, { silent: options.silent });
 	} finally {
 		console.log = originalConsoleLog;
 	}
 	ensureIdxBinary();
 
-	const raw = readFileSync(configPath, "utf8");
-	const parsed = JSON.parse(raw) as Record<string, unknown>;
 	parsed.skillsVersion = SKILLS_VERSION;
+	parsed.skillTargets = targets;
 	writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
 
 	addProject({
@@ -197,7 +230,7 @@ export async function checkAndRefreshSkills(): Promise<boolean> {
 		return false;
 	}
 
-	return refreshSkillsIfNeededForProject(projectRoot);
+	return (await refreshSkillsIfNeededForProject(projectRoot)) === "refreshed";
 }
 
 export async function refreshRegisteredProjectSkillsIfNeeded(
@@ -215,12 +248,12 @@ export async function refreshRegisteredProjectSkillsIfNeeded(
 	for (const entry of projects) {
 		const projectRoot = path.resolve(entry.projectPath);
 		try {
-			const refreshed = await refreshSkillsIfNeededForProject(projectRoot, {
+			const refreshState = await refreshSkillsIfNeededForProject(projectRoot, {
 				announce: !options.silent,
 				silent: true,
 			});
-			if (refreshed) {
-				result.refreshed += 1;
+			if (refreshState !== "none") {
+				if (refreshState === "refreshed") result.refreshed += 1;
 				addProject({
 					projectPath: projectRoot,
 					cliVersion: PACKAGE_VERSION,

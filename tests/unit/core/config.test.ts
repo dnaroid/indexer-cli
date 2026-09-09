@@ -6,6 +6,7 @@ import { ConfigManager, config } from "../../../src/core/config.js";
 
 const DEFAULT_CONFIG = {
 	version: "0.0.0",
+	skillTargets: [],
 	embeddingProvider: "ollama",
 	embeddingModel: "jina-8k",
 	knowledgeEmbeddingModel: "nomic-embed-text-v2-moe",
@@ -111,6 +112,7 @@ describe("ConfigManager", () => {
 	it("overrides matching keys from a valid config.json", () => {
 		const dir = makeTempDir();
 		writeConfig(dir, {
+			skillTargets: ["codex", "claude", "codex", "invalid"],
 			embeddingProvider: "custom-provider",
 			embeddingModel: "custom-model",
 			embeddingContextSize: 4096,
@@ -133,6 +135,7 @@ describe("ConfigManager", () => {
 
 		expect(manager.getAll()).toEqual({
 			...DEFAULT_CONFIG,
+			skillTargets: ["claude", "codex"],
 			embeddingProvider: "custom-provider",
 			embeddingModel: "custom-model",
 			embeddingContextSize: 4096,
@@ -184,6 +187,7 @@ describe("ConfigManager", () => {
 	it("keeps defaults for keys with invalid types", () => {
 		const dir = makeTempDir();
 		writeConfig(dir, {
+			skillTargets: "claude",
 			embeddingProvider: 123,
 			embeddingModel: false,
 			embeddingContextSize: "4096",

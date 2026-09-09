@@ -36,8 +36,9 @@ idx context "how authentication refresh works"
 ## Overview
 
 The main feature of `indexer-cli` is not just search on its own: it turns your repository into something coding agents
-can navigate efficiently. Running `idx init` installs a project-local discovery skill so Claude, OpenCode, and similar
-tools can pick the right indexed workflow instead of wasting tokens on blind `rg`/`grep`, `find`, and repeated file reads.
+can navigate efficiently. `idx init` initializes the local index without changing any agent configuration by default.
+When you want a project-local discovery skill, opt in explicitly with `--claude`, `--codex`, or both so the selected
+agent can pick the right indexed workflow instead of wasting tokens on blind `rg`/`grep`, `find`, and repeated file reads.
 
 Under the hood, `indexer-cli` indexes source code plus document-domain knowledge, generates vector embeddings through a
 local Ollama instance, and stores everything in a per-project `.indexer-cli/` directory. Code and documents remain
@@ -48,7 +49,8 @@ classification and verification remain explicit agent actions.
 
 ## Features
 
-- **Code-agent repo skill**: `init` installs one focused autonomous discovery skill for Claude and OpenCode workflows
+- **Optional code-agent repo skill**: `idx init --claude` and/or `idx init --codex` install one focused autonomous
+  discovery skill only for the selected agent targets
 - **`idx` command alias**: `setup` installs or repairs a clean `idx` wrapper — no npm warnings in agent output
 - **Token savings for agents**: Pushes agents toward indexed discovery instead of expensive blind search and repeated
   context loading
@@ -118,9 +120,14 @@ idx --version
 # 2. Run dependency setup (may start Ollama and prepare the embedding model)
 idx setup
 
-# 3. Initialize indexing and install the discovery skill
+# 3. Initialize indexing (no agent skill is installed by default)
 cd /path/to/your/project
 idx init
+
+# Optional: enable one or both project-local agent integrations
+idx init --claude
+idx init --codex
+# or: idx init --claude --codex
 
 # 4. Index code and document-domain knowledge
 idx index
@@ -136,9 +143,14 @@ After `idx init`, you can run project commands from subdirectories too: `indexer
 project root automatically. If a project has not been initialized yet, commands such as `idx search` and `idx index`
 stop with a clear message telling you to run `idx init` first instead of creating data in the wrong directory.
 
-After `init`, the repo contains `.claude/skills/repo-discovery/SKILL.md`, so coding agents get one indexed discovery
-entry point that routes them toward `idx context`, `idx wiki`, `idx search`, `idx structure`, `idx ast`,
-`idx architecture`, `idx explain`, and `idx deps` before they start burning tokens on broad filesystem scans.
+When enabled, the generated skill is written to the selected agent's canonical project-local location:
+
+- Claude Code: `.claude/skills/repo-discovery/SKILL.md`
+- OpenAI Codex: `.agents/skills/repo-discovery/SKILL.md`
+
+Both variants use the same generated guidance and route agents toward `idx context`, `idx wiki`, `idx search`,
+`idx structure`, `idx ast`, `idx architecture`, `idx explain`, and `idx deps` before they start burning tokens on broad
+filesystem scans.
 
 ## Why agents save tokens with this
 
@@ -155,8 +167,29 @@ In practice, that means:
 
 ## Agent Integration
 
-When you run `idx init`, the CLI creates a single `repo-discovery` skill under `.claude/skills/` and adds `.claude/`
-to `.gitignore`.
+Agent integration is explicit. Plain `idx init` creates no agent skill directories. Use:
+
+```bash
+idx init --claude          # .claude/skills/repo-discovery/SKILL.md
+idx init --codex           # .agents/skills/repo-discovery/SKILL.md
+idx init --claude --codex  # install both
+```
+
+For an already initialized project, install the same integrations later without
+re-running initialization:
+
+```bash
+idx skills install --claude
+idx skills install --codex
+idx skills install --claude --codex
+idx skills status
+idx skills refresh
+```
+
+The selected target is persisted in `.indexer-cli/config.json` as `skillTargets`. Future skill-version refreshes update
+only those enabled targets. Re-running plain `idx init` neither installs a new integration nor disables an existing one.
+`idx init --refresh-skills` refreshes only already enabled targets; combining it with `--claude` and/or `--codex` enables
+those targets explicitly and refreshes the resulting set.
 
 That skill routes repository discovery flows such as:
 
@@ -170,11 +203,28 @@ idx ast src/<large-file.ts>
 idx architecture
 ```
 
+For material behavior-changing work, the generated skill also treats project
+knowledge maintenance as part of task completion rather than a separate manual
+cleanup step. The agent should find the governing primary contract before or
+during implementation, update it in the same task (or create a focused primary
+spec when no suitable authority exists), then run task-scoped
+`idx wiki impact <changed-paths...>`, review uncovered/new/moved knowledge, repair
+only evidence-backed relations, and run `idx wiki verify` only after checking the
+final primary source against the relevant implementation/tests. Mechanical edits
+that do not change project behavior skip this lifecycle, and a reviewed no-impact
+result is valid.
+
+`idx wiki record` never means "verified": newly classified or newly created
+primary knowledge stays unverified until semantic evidence review establishes a
+baseline. Likewise, changed code never rewrites spec semantics automatically;
+non-fresh states such as `inputs-changed`, `spec-changed`, and `missing-source`
+remain explicit review obligations.
+
 All discovery commands return human-readable text output, optimized for coding agents.
 
-This is especially useful in Claude and OpenCode setups, where project-local skills can guide the agent away from
-blind `rg`/`grep`/`find` usage and toward indexed discovery, which usually means less wasted context and lower token usage
-during repo discovery.
+This is especially useful in Claude Code and OpenAI Codex setups, where project-local skills can guide the agent away
+from blind `rg`/`grep`/`find` usage and toward indexed discovery, which usually means less wasted context and lower token
+usage during repo discovery.
 
 ## CLI Commands
 
@@ -188,16 +238,37 @@ After running `setup`, restart your shell to ensure `idx` is on `PATH`.
 
 ### `idx init`
 
-Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-vec vector store, and add `.indexer-cli/`
-to `.gitignore` in the current working directory. Also writes the `repo-discovery` skill under `.claude/skills/`,
-adds `.claude/` to `.gitignore`, and installs a Git post-commit hook that automatically re-indexes changed files.
-The first run may also start Ollama and download/create the `jina-8k` embedding model, so initial setup can take time.
+Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-vec vector store, add `.indexer-cli/`
+to `.gitignore`, and install a Git post-commit hook that automatically re-indexes changed files. Agent skills are
+opt-in: `--claude` writes under `.claude/skills/`, `--codex` writes under `.agents/skills/`, and only selected target roots
+are added to `.gitignore`. The first run may also start Ollama and download/create the `jina-8k` embedding model, so
+initial setup can take time.
 
 When run from a subdirectory of a Git project, `idx init` automatically initializes the Git project root.
 
-| Option              | Description                                                                     |
-|---------------------|---------------------------------------------------------------------------------|
-| `--refresh-skills`  | Remove this CLI's generated discovery skill under `.claude/skills/` and recreate it |
+| Option              | Description                                                                                 |
+|---------------------|---------------------------------------------------------------------------------------------|
+| `--claude`          | Install/enable `repo-discovery` under `.claude/skills/`                                     |
+| `--codex`           | Install/enable `repo-discovery` under `.agents/skills/`                                     |
+| `--refresh-skills`  | Refresh only enabled skill targets (plus targets explicitly supplied in this invocation)   |
+
+### `idx skills`
+
+Manage project-local coding-agent integrations for the current initialized
+project. This command does not initialize or re-index the project.
+
+```bash
+idx skills install --claude
+idx skills install --codex
+idx skills install --claude --codex
+idx skills status
+idx skills refresh
+```
+
+`install` is additive and persists the selected targets in
+`.indexer-cli/config.json`. `refresh` rewrites only enabled targets. `status` is
+read-only and reports both configured targets and generated skills currently
+present on disk.
 
 ### `idx index`
 
@@ -445,9 +516,9 @@ Use `path::symbol` with `--mode calls` to focus on one callable symbol, for exam
 
 ### `idx uninstall`
 
-Remove the `.indexer-cli/` directory from the initialized project root. Also removes the generated
-`.claude/skills/` directories created by `indexer-cli`, cleans this CLI's Git hook block, and removes its
-`.gitignore` entries when present. Prompts for confirmation unless `-f` is given.
+Remove the `.indexer-cli/` directory from the initialized project root. Also removes this CLI's generated
+`repo-discovery` directories from `.claude/skills/` and `.agents/skills/` when present, cleans this CLI's Git hook block,
+and removes its `.gitignore` entries when present. Prompts for confirmation unless `-f` is given.
 
 Deprecated generated skill directories such as `context-pack` are cleaned up when present.
 
@@ -460,7 +531,7 @@ subdirectories for `.indexer-cli/`, auto-registers found projects, and operates 
 
 | Option              | Description                                      |
 |---------------------|--------------------------------------------------|
-| `--skills-only`     | Only refresh skills without full reinstall       |
+| `--skills-only`     | Refresh only the skill targets already enabled for each project |
 | `-f, --force`       | Skip confirmation prompt                         |
 
 The global registry is maintained automatically: `idx init` registers a project, `idx uninstall` unregisters it.

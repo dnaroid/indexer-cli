@@ -516,7 +516,9 @@ from earlier releases.
 ## Generated agent integration
 
 Keep a **thin** generated `repo-discovery` skill rather than a second large wiki
-skill during the first release.
+skill during the first release. Agent integration is explicit opt-in: plain
+`idx init` creates no agent skill directories. Users enable Claude and/or Codex
+with `idx init --claude/--codex` or later with `idx skills install ...`.
 
 Add routing rules:
 
@@ -581,70 +583,78 @@ separate domain; code discovery regression tests remain green.
 
 ## Phase 3 — core wiki CLI
 
-- [ ] Add `idx wiki discover`.
-- [ ] Add `idx wiki record`.
-- [ ] Add `idx wiki verify`.
-- [ ] Add `idx wiki relate`.
-- [ ] Add `idx wiki remove` (metadata only).
-- [ ] Add freshness computation and relation-map fingerprint.
-- [ ] Add `idx wiki status` / `audit`.
-- [ ] Add compact `knowledge_catalog` artifact generation.
+- [x] Add `idx wiki discover`.
+- [x] Add `idx wiki record`.
+- [x] Add `idx wiki verify`.
+- [x] Add `idx wiki relate`.
+- [x] Add `idx wiki remove` (metadata only).
+- [x] Add freshness computation and relation-map fingerprint.
+- [x] Add `idx wiki status` / `audit`.
+- [x] Add compact `knowledge_catalog` artifact generation.
 
 Exit criterion: all deterministic state/freshness behavior from `spec-wiki` has
 feature parity in TypeScript/SQLite.
 
 ## Phase 4 — hybrid knowledge retrieval
 
-- [ ] Add `idx wiki search` using document vectors.
-- [ ] Blend semantic + lexical + title/topic/path/relation scoring.
-- [ ] Support active/proposed/historical/superseded ranking semantics.
-- [ ] Return machine-readable evidence/reason codes and freshness.
-- [ ] Port 26 live retrieval regression cases.
-- [ ] Target >=95% top-1 and 100% top-3/recall on the existing regression set.
+- [x] Add `idx wiki search` using document vectors.
+- [x] Blend semantic + lexical + title/topic/path/relation scoring.
+- [x] Support active/proposed/historical/superseded ranking semantics.
+- [x] Return machine-readable evidence/reason codes and freshness.
+- [x] Port 26 live retrieval regression cases.
+- [x] Target >=95% top-1 and 100% top-3/recall on the existing regression set.
 
 Exit criterion: no query-expansion workaround is required for multilingual
 paraphrases to achieve regression targets.
 
 ## Phase 5 — impact and maintenance
 
-- [ ] Add task-scoped `idx wiki impact <paths...>`.
-- [ ] Add Git fallback using existing `SimpleGitOperations` change model.
-- [ ] Combine known durable relations with module/call graph expansion.
-- [ ] Add semantic wiki candidate retrieval for uncovered paths.
-- [ ] Surface every changed/new document for classification regardless discovery
+- [x] Add task-scoped `idx wiki impact <paths...>`.
+- [x] Add Git fallback using existing `SimpleGitOperations` change model.
+- [x] Combine known durable relations with module/call graph expansion.
+- [x] Add semantic wiki candidate retrieval for uncovered paths.
+- [x] Surface every changed/new document for classification regardless discovery
   score.
-- [ ] Detect moved/missing primary sources.
-- [ ] Preserve no-impact as a valid semantic outcome; never create a relation just
+- [x] Detect moved/missing primary sources.
+- [x] Preserve no-impact as a valid semantic outcome; never create a relation just
   to make coverage non-empty.
-- [ ] Port the 5 deterministic maintenance regression cases.
-- [ ] Port semantic maintenance scenarios (new relation, move, score-0 spec,
-  no-impact control).
+- [x] Port the deterministic maintenance regression coverage across service,
+  impact, storage, and integration tests.
+- [x] Port semantic maintenance scenarios (new relation, move, score-0 spec,
+  no-impact control) and add create-primary/update-primary drift scenarios.
 
 Exit criterion: material changed paths are either linked to reviewed current
 knowledge or explicitly surfaced for semantic no-impact review.
 
 ## Phase 6 — `idx context`
 
-- [ ] Define context result schema and text formatter.
-- [ ] Retrieve primary knowledge first, then code ranges/tests.
-- [ ] Use dependency graph to enrich implementation evidence without exploding
+- [x] Define context result schema and text formatter.
+- [x] Retrieve primary knowledge first, then code ranges/tests.
+- [x] Use dependency graph to enrich implementation evidence without exploding
   output.
-- [ ] Add token budget and deduplication.
-- [ ] Add `Read next:` recommendations.
-- [ ] Add tests for stale/unverified knowledge warnings.
-- [ ] Add tests for code-only queries where no spec exists.
+- [x] Add token budget and deduplication.
+- [x] Add `Read next:` recommendations.
+- [x] Add tests for stale/unverified knowledge warnings.
+- [x] Add tests for code-only queries where no spec exists.
 
 Exit criterion: one command can produce a compact, useful project context pack
 without reading the full wiki or broad source tree.
 
 ## Phase 7 — agent integration
 
-- [ ] Update `src/cli/commands/skills.ts` routing guidance.
-- [ ] Extend allowed commands for wiki/context.
-- [ ] Keep progressive disclosure / one-cheapest-command behavior.
-- [ ] Update `README.md` command docs and onboarding.
-- [ ] Add `idx doctor` checks for knowledge/vector schema health if necessary.
-- [ ] Verify `idx init --refresh-skills` upgrades existing generated skills.
+- [x] Update `src/cli/commands/skills.ts` routing and contract-maintenance guidance.
+- [x] Extend allowed commands for wiki/context.
+- [x] Keep progressive disclosure / one-cheapest-command behavior.
+- [x] Update `README.md` command docs and onboarding.
+- [x] Evaluate `idx doctor` coverage; no extra knowledge-specific doctor action
+  is required for the first release because runtime initialization/migration and
+  model setup already fail explicitly.
+- [x] Verify generated-skill refresh/update paths for both Claude and Codex.
+  Generated agent skill files stay local/ignored; the generator is the source of
+  truth and CLI e2e verifies both targets receive identical content.
+- [x] Make agent skill installation opt-in, persist enabled targets, and support
+  both Claude (`.claude/skills`) and Codex (`.agents/skills`).
+- [x] Add `idx skills install|refresh|status` for already initialized projects.
 
 Exit criterion: agents naturally use knowledge/context for behavioral questions
 and impact checks without a separate `spec-wiki` skill.
@@ -652,8 +662,8 @@ and impact checks without a separate `spec-wiki` skill.
 ## Phase 8 — compatibility and prototype retirement
 
 - [x] Explicitly reject legacy `.spec-wiki` compatibility/import requirements.
-- [ ] Test upgrade from existing pre-knowledge `.indexer-cli` databases.
-- [ ] Document clean knowledge bootstrap for existing indexer projects.
+- [x] Test upgrade from existing pre-knowledge `.indexer-cli` databases.
+- [x] Document clean knowledge bootstrap for existing indexer projects.
 - [ ] Decide retirement/removal point for standalone `spec-wiki` prototype.
 
 Exit criterion: existing `indexer-cli` projects upgrade safely, while old
@@ -661,16 +671,16 @@ Exit criterion: existing `indexer-cli` projects upgrade safely, while old
 
 ## Phase 9 — full validation and release readiness
 
-- [ ] `npm test` unit suite.
-- [ ] CLI suite for all supported languages.
-- [ ] knowledge-specific unit/CLI/integration tests.
-- [ ] retrieval regression.
-- [ ] maintenance regression.
-- [ ] generated skill trigger evals / behavior evals.
-- [ ] existing code-search/architecture/deps regression.
-- [ ] fresh-init database test.
-- [ ] upgrade-from-old-database migration test.
-- [ ] incremental dirty-worktree test.
+- [x] `npm test` unit suite.
+- [x] CLI suite for all supported languages.
+- [x] knowledge-specific unit/CLI/integration tests.
+- [x] retrieval regression.
+- [x] maintenance regression.
+- [x] generated skill trigger evals / behavior evals.
+- [x] existing code-search/architecture/deps regression.
+- [x] fresh-init database test.
+- [x] upgrade-from-old-database migration test.
+- [x] incremental dirty-worktree test.
 - [ ] post-commit hook test.
 - [ ] large-repository document-index performance/token-output check.
 - [ ] independent code review focused on migration, freshness, and false-positive
@@ -777,3 +787,28 @@ ranges, nearest tests, and read-next hints within the requested token budget.
 - Phase 2 focused regressions: 88/88 config/storage/knowledge tests, 99/99
   existing engine/auto-index tests, plus the document-only auto-index regression;
   TypeScript `--noEmit` compile passed.
+- Completed Phases 3–7: first-class `idx wiki` state/freshness commands,
+  multilingual hybrid retrieval, task-scoped impact, bounded `idx context`, and
+  the generated `repo-discovery` coding-agent integration.
+- Knowledge retrieval regression: 26/26 top-1/top-3/top-5 with the multilingual
+  knowledge embedding model.
+- Semantic maintenance eval corpus is now v2 and covers six end-to-end agent
+  scenarios: new relation, primary move, score-zero primary, reviewed no-impact,
+  create-primary-when-missing, and update-primary-after-semantic-drift. All six
+  passed against real `idx` state in temporary repositories.
+- Generated `repo-discovery` now requires material behavior changes to
+  keep/create the governing primary spec in the same task, run task-scoped
+  impact, repair only evidence-backed relations, and verify only after source +
+  code/test review. Claude and Codex installs are generated from the same source
+  and their installed contents are compared in CLI e2e coverage.
+- Agent skills are no longer installed by default. `idx init --claude` and
+  `idx init --codex` explicitly enable targets; `idx skills install` can add them
+  later in the current initialized project. Enabled targets persist in
+  `skillTargets`, and automatic refresh updates only those targets.
+- Trigger eval on the final description has zero false-positive runs. Across two
+  independent 3-run batches, all 11 positive and all 10 negative queries pass at
+  the evaluator's >=50% query threshold (53/66 positive trigger runs, 0/60
+  negative trigger runs).
+- Latest build and unit suite: build passed, 538/538 unit tests passed; the main
+  dist CLI suite passed 89/89, including plain-init/no-skill, Claude/Codex opt-in,
+  later `idx skills` installation, refresh, status, and uninstall coverage.

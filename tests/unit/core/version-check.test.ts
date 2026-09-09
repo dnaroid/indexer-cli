@@ -9,12 +9,14 @@ const {
 	uninstallMock,
 	initMock,
 	refreshSkillsMock,
+	detectInstalledSkillTargetsMock,
 	ensureIdxBinaryMock,
 	mockSkillsVersion,
 } = vi.hoisted(() => ({
 	uninstallMock: vi.fn(),
 	initMock: vi.fn(),
 	refreshSkillsMock: vi.fn(),
+	detectInstalledSkillTargetsMock: vi.fn(),
 	ensureIdxBinaryMock: vi.fn(),
 	mockSkillsVersion: 999999,
 }));
@@ -25,7 +27,8 @@ vi.mock("../../../src/cli/commands/uninstall.js", () => ({
 
 vi.mock("../../../src/cli/commands/init.js", () => ({
 	performInit: initMock,
-	refreshClaudeSkills: refreshSkillsMock,
+	refreshSkillTargets: refreshSkillsMock,
+	detectInstalledSkillTargets: detectInstalledSkillTargetsMock,
 }));
 
 vi.mock("../../../src/core/idx-binary.js", () => ({
@@ -60,6 +63,8 @@ afterEach(async () => {
 	uninstallMock.mockReset();
 	initMock.mockReset();
 	refreshSkillsMock.mockReset();
+	detectInstalledSkillTargetsMock.mockReset();
+	detectInstalledSkillTargetsMock.mockResolvedValue([]);
 	ensureIdxBinaryMock.mockReset();
 	process.exitCode = undefined;
 	if (originalIndexerCliHome === undefined) {
@@ -216,6 +221,7 @@ describe("checkAndMigrateIfNeeded", () => {
 		expect(initMock).toHaveBeenCalledTimes(1);
 		expect(initMock).toHaveBeenCalledWith(tempDir, {
 			skipIndexing: false,
+			skillTargets: [],
 		});
 	});
 
@@ -265,7 +271,11 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 		const currentProject = createTempDir();
 		writeConfig(
 			staleProject,
-			JSON.stringify({ version: "0.5.0", skillsVersion: 12345 }),
+			JSON.stringify({
+				version: "0.5.0",
+				skillsVersion: 12345,
+				skillTargets: ["claude"],
+			}),
 		);
 		writeConfig(
 			currentProject,
@@ -298,7 +308,11 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 			stale: 0,
 		});
 		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
-		expect(refreshSkillsMock).toHaveBeenCalledWith(staleProject);
+		expect(refreshSkillsMock).toHaveBeenCalledWith(
+			staleProject,
+			["claude"],
+			{ silent: true },
+		);
 		expect(ensureIdxBinaryMock).toHaveBeenCalledTimes(1);
 
 		const updatedConfig = JSON.parse(
@@ -345,6 +359,48 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 		expect(getRegisteredProjects()).toEqual([]);
 		expect(refreshSkillsMock).not.toHaveBeenCalled();
 	});
+
+	it("updates stale registry bookkeeping without installing skills when no targets are enabled", async () => {
+		const registryHome = createTempDir();
+		process.env.INDEXER_CLI_HOME = registryHome;
+
+		const project = createTempDir();
+		writeConfig(
+			project,
+			JSON.stringify({
+				version: "0.5.0",
+				skillsVersion: 12345,
+				skillTargets: [],
+			}),
+		);
+
+		const { addProject, getRegisteredProjects } = await import(
+			"../../../src/core/registry.js"
+		);
+		addProject({
+			projectPath: project,
+			cliVersion: "0.5.0",
+			skillsVersion: 12345,
+		});
+
+		const { refreshRegisteredProjectSkillsIfNeeded } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await refreshRegisteredProjectSkillsIfNeeded({ silent: true });
+
+		expect(result).toEqual({
+			checked: 1,
+			refreshed: 0,
+			failed: 0,
+			stale: 0,
+		});
+		expect(refreshSkillsMock).toHaveBeenCalledWith(project, [], { silent: true });
+		expect(
+			getRegisteredProjects().find(
+				(entry) => path.resolve(entry.projectPath) === project,
+			)?.skillsVersion,
+		).toBe(mockSkillsVersion);
+	});
 });
 
 	it("returns false when skillsVersion matches current version", async () => {
@@ -369,7 +425,11 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 		const tempDir = createTempDir();
 		writeConfig(
 			tempDir,
-			JSON.stringify({ version: "0.5.0", skillsVersion: 12345 }),
+			JSON.stringify({
+				version: "0.5.0",
+				skillsVersion: 12345,
+				skillTargets: ["claude"],
+			}),
 		);
 		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
 
@@ -380,7 +440,11 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 
 		expect(result).toBe(true);
 		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
-		expect(refreshSkillsMock).toHaveBeenCalledWith(tempDir);
+		expect(refreshSkillsMock).toHaveBeenCalledWith(
+			tempDir,
+			["claude"],
+			{ silent: true },
+		);
 		expect(ensureIdxBinaryMock).toHaveBeenCalledTimes(1);
 
 		const updated = JSON.parse(
@@ -389,7 +453,7 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 		expect(updated.skillsVersion).toBe(mockSkillsVersion);
 	});
 
-	it("refreshes skills when config has no skillsVersion field", async () => {
+	it("does not install skills when config has no skills target", async () => {
 		const tempDir = createTempDir();
 		writeConfig(tempDir, JSON.stringify({ version: "0.5.0" }));
 		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
@@ -399,14 +463,42 @@ describe("refreshRegisteredProjectSkillsIfNeeded", () => {
 		);
 		const result = await checkAndRefreshSkills();
 
-		expect(result).toBe(true);
-		expect(refreshSkillsMock).toHaveBeenCalledTimes(1);
+		expect(result).toBe(false);
+		expect(refreshSkillsMock).toHaveBeenCalledWith(
+			tempDir,
+			[],
+			{ silent: true },
+		);
 		expect(ensureIdxBinaryMock).toHaveBeenCalledTimes(1);
 
 		const updated = JSON.parse(
 			readFileSync(path.join(tempDir, ".indexer-cli", "config.json"), "utf8"),
 		);
 		expect(updated.skillsVersion).toBe(mockSkillsVersion);
+		expect(updated.skillTargets).toEqual([]);
+	});
+
+	it("infers a legacy installed Claude skill when skillTargets is missing", async () => {
+		const tempDir = createTempDir();
+		writeConfig(tempDir, JSON.stringify({ version: "0.5.0", skillsVersion: 12345 }));
+		detectInstalledSkillTargetsMock.mockResolvedValue(["claude"]);
+		vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+
+		const { checkAndRefreshSkills } = await import(
+			"../../../src/core/version-check.js"
+		);
+		const result = await checkAndRefreshSkills();
+
+		expect(result).toBe(true);
+		expect(refreshSkillsMock).toHaveBeenCalledWith(
+			tempDir,
+			["claude"],
+			{ silent: true },
+		);
+		const updated = JSON.parse(
+			readFileSync(path.join(tempDir, ".indexer-cli", "config.json"), "utf8"),
+		);
+		expect(updated.skillTargets).toEqual(["claude"]);
 	});
 
 	it("preserves other config fields when updating skillsVersion", async () => {

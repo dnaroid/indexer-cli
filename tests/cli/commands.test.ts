@@ -70,7 +70,7 @@ describe.sequential("CLI e2e", () => {
 	});
 
 	describe.sequential("init", () => {
-		it("creates indexer data, config, skills, and git hook", () => {
+		it("creates indexer data and git hook without installing agent skills by default", () => {
 			const result = runCLI(["init"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
@@ -80,18 +80,11 @@ describe.sequential("CLI e2e", () => {
 			const dbPath = path.join(dataDir, "db.sqlite");
 			const configPath = path.join(dataDir, "config.json");
 			const hookPath = path.join(TEMP_DIR, ".git", "hooks", "post-commit");
-			const skillPath = path.join(
-				TEMP_DIR,
-				".claude",
-				"skills",
-				"repo-discovery",
-				"SKILL.md",
-			);
-
 			expect(fileExists(dataDir)).toBe(true);
 			expect(fileExists(dbPath)).toBe(true);
 			expect(fileExists(configPath)).toBe(true);
-			expect(fileExists(skillPath)).toBe(true);
+			expect(fileExists(path.join(TEMP_DIR, ".claude"))).toBe(false);
+			expect(fileExists(path.join(TEMP_DIR, ".agents"))).toBe(false);
 			expect(fileExists(hookPath)).toBe(true);
 
 			const config = JSON.parse(readTextFile(configPath)) as {
@@ -101,6 +94,7 @@ describe.sequential("CLI e2e", () => {
 				indexExcludePaths?: string[];
 				visibilityExcludePaths?: string[];
 				skillsVersion: number;
+				skillTargets: string[];
 			};
 			expect(config.embeddingModel).toBe("jina-8k");
 			expect(config.vectorSize).toBe(768);
@@ -112,16 +106,133 @@ describe.sequential("CLI e2e", () => {
 				"vendor/**",
 			]);
 			expect(config.skillsVersion).toBeTypeOf("number");
-			expect(
-				readdirSync(path.join(TEMP_DIR, ".claude", "skills")).sort(),
-			).toEqual(["repo-discovery"]);
+			expect(config.skillTargets).toEqual([]);
 
 			const gitignore = readTextFile(path.join(TEMP_DIR, ".gitignore"));
 			expect(gitignore).toContain(".indexer-cli/");
-			expect(gitignore).toContain(".claude/");
+			expect(gitignore).not.toContain(".claude/");
+			expect(gitignore).not.toContain(".agents/");
 
 			const hook = readTextFile(hookPath);
 			expect(hook).toContain("idx index");
+		});
+
+		it("installs Claude and Codex skills only when explicitly requested", () => {
+			const result = runCLI(["init", "--claude", "--codex"], {
+				cwd: TEMP_DIR,
+			});
+
+			expect(result.exitCode).toBe(0);
+			const claudeSkillPath = path.join(
+				TEMP_DIR,
+				".claude",
+				"skills",
+				"repo-discovery",
+				"SKILL.md",
+			);
+			const codexSkillPath = path.join(
+				TEMP_DIR,
+				".agents",
+				"skills",
+				"repo-discovery",
+				"SKILL.md",
+			);
+			expect(fileExists(claudeSkillPath)).toBe(true);
+			expect(fileExists(codexSkillPath)).toBe(true);
+			expect(readTextFile(codexSkillPath)).toBe(readTextFile(claudeSkillPath));
+
+			const config = JSON.parse(
+				readTextFile(path.join(TEMP_DIR, ".indexer-cli", "config.json")),
+			) as { skillTargets: string[] };
+			expect(config.skillTargets).toEqual(["claude", "codex"]);
+
+			const gitignore = readTextFile(path.join(TEMP_DIR, ".gitignore"));
+			expect(gitignore).toContain(".claude/");
+			expect(gitignore).toContain(".agents/");
+		});
+
+		it("installs only the Codex skill when --codex is the only target", () => {
+			const tempRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-codex-only-"),
+			);
+			removeTempProject(tempRoot);
+			createTempProject(tempRoot);
+			gitInit(tempRoot);
+
+			try {
+				const result = runCLI(["init", "--codex"], { cwd: tempRoot });
+				expect(result.exitCode).toBe(0);
+				expect(
+					fileExists(
+						path.join(
+							tempRoot,
+							".agents",
+							"skills",
+							"repo-discovery",
+							"SKILL.md",
+						),
+					),
+				).toBe(true);
+				expect(fileExists(path.join(tempRoot, ".claude"))).toBe(false);
+
+				const config = JSON.parse(
+					readTextFile(path.join(tempRoot, ".indexer-cli", "config.json")),
+				) as { skillTargets: string[] };
+				expect(config.skillTargets).toEqual(["codex"]);
+				const gitignore = readTextFile(path.join(tempRoot, ".gitignore"));
+				expect(gitignore).toContain(".agents/");
+				expect(gitignore).not.toContain(".claude/");
+			} finally {
+				removeTempProject(tempRoot);
+			}
+		});
+
+		it("can install and refresh an agent skill later with idx skills", () => {
+			const tempRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-skills-command-"),
+			);
+			removeTempProject(tempRoot);
+			createTempProject(tempRoot);
+			gitInit(tempRoot);
+
+			try {
+				const init = runCLI(["init"], { cwd: tempRoot });
+				expect(init.exitCode).toBe(0);
+
+				const before = runCLI(["skills", "status"], { cwd: tempRoot });
+				expect(before.exitCode).toBe(0);
+				expect(before.stdout).toContain("Enabled: none");
+				expect(before.stdout).toContain("Installed: none");
+
+				const install = runCLI(["skills", "install", "--codex"], {
+					cwd: tempRoot,
+				});
+				expect(install.exitCode).toBe(0);
+				expect(install.stdout).toContain("Enabled skill targets: codex");
+				expect(fileExists(path.join(tempRoot, ".claude"))).toBe(false);
+				expect(
+					fileExists(
+						path.join(
+							tempRoot,
+							".agents",
+							"skills",
+							"repo-discovery",
+							"SKILL.md",
+						),
+					),
+				).toBe(true);
+
+				const after = runCLI(["skills", "status"], { cwd: tempRoot });
+				expect(after.exitCode).toBe(0);
+				expect(after.stdout).toContain("Enabled: codex");
+				expect(after.stdout).toContain("Installed: codex");
+
+				const refresh = runCLI(["skills", "refresh"], { cwd: tempRoot });
+				expect(refresh.exitCode).toBe(0);
+				expect(refresh.stdout).toContain("Refreshed skill targets: codex");
+			} finally {
+				removeTempProject(tempRoot);
+			}
 		});
 
 		it("is idempotent", () => {
@@ -131,7 +242,7 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Initialized indexer-cli");
 		});
 
-		it("removes legacy generated skill directories during plain init", () => {
+		it("refreshes only enabled skill targets and removes their legacy generated skills", () => {
 			const legacySkillPath = path.join(
 				TEMP_DIR,
 				".claude",
@@ -142,12 +253,15 @@ describe.sequential("CLI e2e", () => {
 			mkdirSync(path.dirname(legacySkillPath), { recursive: true });
 			writeFileSync(legacySkillPath, "legacy skill\n", "utf8");
 
-			const result = runCLI(["init"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--refresh-skills"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(fileExists(legacySkillPath)).toBe(false);
 			expect(
 				readdirSync(path.join(TEMP_DIR, ".claude", "skills")).sort(),
+			).toEqual(["repo-discovery"]);
+			expect(
+				readdirSync(path.join(TEMP_DIR, ".agents", "skills")).sort(),
 			).toEqual(["repo-discovery"]);
 		});
 
@@ -1556,10 +1670,12 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Removed");
 			expect(fileExists(path.join(TEMP_DIR, ".indexer-cli"))).toBe(false);
 			expect(fileExists(path.join(TEMP_DIR, ".claude"))).toBe(false);
+			expect(fileExists(path.join(TEMP_DIR, ".agents"))).toBe(false);
 
 			const gitignore = readTextFile(path.join(TEMP_DIR, ".gitignore"));
 			expect(gitignore).not.toContain(".indexer-cli/");
 			expect(gitignore).not.toContain(".claude/");
+			expect(gitignore).not.toContain(".agents/");
 
 			const hookPath = path.join(TEMP_DIR, ".git", "hooks", "post-commit");
 			if (fileExists(hookPath)) {

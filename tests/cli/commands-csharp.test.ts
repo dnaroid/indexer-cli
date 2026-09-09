@@ -105,7 +105,7 @@ describe.sequential("CLI e2e CSharp", () => {
 
 	describe("init", () => {
 		it("creates indexer data, config, skills, and git hook", () => {
-			const result = runCLI(["init"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");
@@ -149,7 +149,7 @@ describe.sequential("CLI e2e CSharp", () => {
 		});
 
 		it("is idempotent", () => {
-			const result = runCLI(["init"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");

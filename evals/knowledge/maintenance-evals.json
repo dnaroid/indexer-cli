@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "scenarios": [
     {
       "id": "new-implementation-relation",
@@ -67,6 +67,39 @@
         "No auth/spec relation is invented merely to eliminate uncovered coverage.",
         "docs/auth.md remains unchanged and fresh.",
         "The final outcome explicitly allows no spec impact."
+      ]
+    },
+    {
+      "id": "create-primary-when-missing",
+      "fixture": "maintenance/new-primary",
+      "setup": [
+        "idx init"
+      ],
+      "prompt": "We are introducing shipment-freeze behavior and there is no existing primary contract for it. Create the smallest focused authoritative spec needed for this behavior and add it to project knowledge. Do not claim semantic verification until implementation/tests have actually been reviewed.",
+      "assertions": [
+        "Existing project knowledge is searched before creating a duplicate contract.",
+        "A real focused primary spec source file is created because no suitable authority exists.",
+        "The new source is recorded as primary knowledge only after it is read/classified.",
+        "record does not imply verify; without reviewed implementation/test evidence the new primary remains unverified.",
+        "No unrelated implementation or tests are modified."
+      ]
+    },
+    {
+      "id": "update-primary-after-semantic-drift",
+      "fixture": "maintenance/update-primary",
+      "setup": [
+        "idx init",
+        "idx wiki record --path docs/payment-retry.md --classification spec --type as-is --lifecycle active --confidence high --summary 'Payment retries reuse one stable idempotency key.' --topic payments --topic retry",
+        "idx wiki verify --path docs/payment-retry.md",
+        "node .eval/apply-change.mjs"
+      ],
+      "prompt": "The implementation has intentionally changed payment retry behavior, so the current primary contract is now stale. Review the task-scoped impact, update the authoritative spec to the implemented behavior, verify it against code/tests, and leave project knowledge current. Do not change production code or tests.",
+      "assertions": [
+        "Task-scoped impact identifies docs/payment-retry.md as requiring semantic review.",
+        "The primary source document is updated because the behavioral contract truly changed.",
+        "Production code/tests remain unchanged during knowledge reconciliation.",
+        "The final primary spec is explicitly verified only after source + code/test evidence review.",
+        "The final current primary status is fresh."
       ]
     }
   ]

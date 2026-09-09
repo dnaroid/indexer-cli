@@ -29,6 +29,7 @@ describe("generated skills", () => {
 		expect(skill?.content).toContain("## Route");
 		expect(skill?.content).toContain("## Compact tool guidance");
 		expect(skill?.content).toContain("## Knowledge rules");
+		expect(skill?.content).toContain("## Material-change completion checkpoint");
 		expect(skill?.content).toContain("## Stop conditions");
 		expect(skill?.content).toContain(
 			"Pick the single cheapest indexed command that answers the question.",
@@ -37,6 +38,10 @@ describe("generated skills", () => {
 		expect(skill?.content).toContain("idx wiki search <query>");
 		expect(skill?.content).toContain("idx wiki impact <task-paths...>");
 		expect(skill?.content).toContain("idx wiki record` classifies/indexes metadata");
+		expect(skill?.content).toContain("same task");
+		expect(skill?.content).toContain("metadata alone is not a spec");
+		expect(skill?.content).toContain("Empty known impact does not prove no impact");
+		expect(skill?.content).toContain("remove old metadata only after the new authority is established");
 	});
 
 	it("mirrors the proven compact repo-discovery guidance", () => {
@@ -94,4 +99,5 @@ describe("generated skills", () => {
 			expect(skill.content).toContain("Bash(idx wiki:*)");
 		}
 	});
+
 });

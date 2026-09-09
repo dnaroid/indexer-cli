@@ -62,7 +62,7 @@ describe.sequential("CLI e2e Rust", () => {
 	});
 
 	it("initializes indexer data, config, skills, and git hook", () => {
-		const result = runCLI(["init"], { cwd: TEMP_DIR });
+		const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
 
 		expect(result.exitCode).toBe(0);
 		expect(result.stdout).toContain("Initialized indexer-cli");

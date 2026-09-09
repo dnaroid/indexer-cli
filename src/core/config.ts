@@ -4,6 +4,7 @@ import { sanitizePathPatterns } from "../utils/path-patterns.js";
 
 export interface IndexerConfig {
 	version: string;
+	skillTargets: Array<"claude" | "codex">;
 	embeddingProvider: string;
 	embeddingModel: string;
 	knowledgeEmbeddingModel: string;
@@ -28,6 +29,7 @@ export interface IndexerConfig {
 
 export const DEFAULT_CONFIG: IndexerConfig = {
 	version: "0.0.0",
+	skillTargets: [],
 	embeddingProvider: "ollama",
 	embeddingModel: "jina-8k",
 	knowledgeEmbeddingModel: "nomic-embed-text-v2-moe",
@@ -104,6 +106,16 @@ export class ConfigManager {
 
 			if (typeof parsed.version === "string")
 				this.config.version = parsed.version;
+			if (Array.isArray(parsed.skillTargets)) {
+				this.config.skillTargets = [
+					...new Set(
+						parsed.skillTargets.filter(
+							(item): item is "claude" | "codex" =>
+								item === "claude" || item === "codex",
+						),
+					),
+				].sort() as Array<"claude" | "codex">;
+			}
 			if (typeof parsed.embeddingProvider === "string")
 				this.config.embeddingProvider = parsed.embeddingProvider;
 			if (typeof parsed.embeddingModel === "string")

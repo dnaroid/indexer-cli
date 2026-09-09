@@ -1,4 +1,4 @@
-import { CommanderError, program } from "commander";
+import { CommanderError, program, type Command } from "commander";
 import { registerInitCommand } from "./commands/init.js";
 import { registerIndexCommand } from "./commands/index.js";
 import { registerSearchCommand } from "./commands/search.js";
@@ -13,6 +13,7 @@ import { registerUpdateCommand } from "./commands/update.js";
 import { registerAstCommand } from "./commands/ast.js";
 import { registerContextCommand } from "./commands/context.js";
 import { registerWikiCommand } from "./commands/wiki.js";
+import { registerSkillsCommand } from "./commands/skill-management.js";
 import { PACKAGE_VERSION } from "../core/version.js";
 import { SKILLS_VERSION } from "../core/skills-version.js";
 import {
@@ -42,7 +43,10 @@ const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"indexer.preActionFailed",
 ]);
 
-async function runPreActionChecks(commandName: string): Promise<void> {
+async function runPreActionChecks(
+	commandName: string,
+	options: { skipSkillRefresh?: boolean } = {},
+): Promise<void> {
 	if (SKIP_MIGRATION_COMMANDS.has(commandName)) {
 		return;
 	}
@@ -59,6 +63,10 @@ async function runPreActionChecks(commandName: string): Promise<void> {
 		const exitCode =
 			typeof process.exitCode === "number" ? process.exitCode : 1;
 		throw new CommanderError(exitCode, "indexer.preActionFailed", "");
+	}
+
+	if (options.skipSkillRefresh) {
+		return;
 	}
 
 	try {
@@ -136,16 +144,28 @@ registerDepsCommand(program);
 registerAstCommand(program);
 registerContextCommand(program);
 registerWikiCommand(program);
+registerSkillsCommand(program);
 registerUpdateCommand(program);
 registerUninstallCommand(program);
 registerDoctorCommand(program);
 
 let lastActionCommandName: string | null = null;
 
+function topLevelCommandName(actionCommand: Command): string {
+	let current = actionCommand;
+	while (current.parent && current.parent !== program) {
+		current = current.parent;
+	}
+	return current.name();
+}
+
 program.hook("preAction", async (thisCommand, actionCommand) => {
 	void thisCommand;
-	lastActionCommandName = actionCommand.name();
-	await runPreActionChecks(actionCommand.name());
+	const commandName = topLevelCommandName(actionCommand);
+	lastActionCommandName = commandName;
+	await runPreActionChecks(commandName, {
+		skipSkillRefresh: commandName === "skills",
+	});
 });
 
 async function main(): Promise<void> {

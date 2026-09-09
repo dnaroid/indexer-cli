@@ -36,16 +36,19 @@ async function isDirEmpty(dirPath: string): Promise<boolean> {
 	return entries.length === 0;
 }
 
-async function removeClaudeSkill(projectRoot: string): Promise<boolean> {
+async function removeGeneratedSkillsAtRoot(
+	projectRoot: string,
+	agentRoot: ".claude" | ".agents",
+): Promise<boolean> {
 	let removedAny = false;
 
 	for (const skillDirectory of [
 		...GENERATED_SKILL_DIRECTORIES,
-		...DEPRECATED_SKILL_DIRECTORIES,
+		...(agentRoot === ".claude" ? DEPRECATED_SKILL_DIRECTORIES : []),
 	]) {
 		const skillDir = path.join(
 			projectRoot,
-			".claude",
+			agentRoot,
 			"skills",
 			skillDirectory,
 		);
@@ -56,7 +59,7 @@ async function removeClaudeSkill(projectRoot: string): Promise<boolean> {
 		}
 	}
 
-	const skillsDir = path.join(projectRoot, ".claude", "skills");
+	const skillsDir = path.join(projectRoot, agentRoot, "skills");
 	if (await pathExists(skillsDir)) {
 		try {
 			if (await isDirEmpty(skillsDir)) {
@@ -66,12 +69,12 @@ async function removeClaudeSkill(projectRoot: string): Promise<boolean> {
 		} catch {}
 	}
 
-	const claudeDir = path.join(projectRoot, ".claude");
-	if (await pathExists(claudeDir)) {
+	const agentDir = path.join(projectRoot, agentRoot);
+	if (await pathExists(agentDir)) {
 		try {
-			if (await isDirEmpty(claudeDir)) {
-				await rm(claudeDir, { recursive: true, force: true });
-				console.log(`Removed empty ${claudeDir}`);
+			if (await isDirEmpty(agentDir)) {
+				await rm(agentDir, { recursive: true, force: true });
+				console.log(`Removed empty ${agentDir}`);
 				removedAny = true;
 			}
 		} catch {}
@@ -144,11 +147,15 @@ export async function performUninstall(projectRoot: string): Promise<void> {
 		removedAny = true;
 	}
 
-	removedAny = (await removeClaudeSkill(projectRoot)) || removedAny;
+	removedAny =
+		(await removeGeneratedSkillsAtRoot(projectRoot, ".claude")) || removedAny;
+	removedAny =
+		(await removeGeneratedSkillsAtRoot(projectRoot, ".agents")) || removedAny;
 	removedAny =
 		(await removeFromGitignore(projectRoot, [
 			".indexer-cli/",
 			".claude/",
+			".agents/",
 		])) ||
 		removedAny;
 	removedAny = (await removePostCommitHook(projectRoot)) || removedAny;

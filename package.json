@@ -45,7 +45,7 @@
 		"indexer-cli": "tsx bin/indexer-cli.js",
 		"indexer-cli:init": "tsx bin/indexer-cli.js init",
 		"indexer-cli:uninstall": "tsx bin/indexer-cli.js uninstall -f",
-		"refresh-skills": "tsx bin/indexer-cli.js init --refresh-skills",
+		"refresh-skills": "tsx bin/indexer-cli.js skills refresh",
 		"test": "vitest run tests/unit/",
 		"test:full": "npm run build && INDEXER_CLI_TEST_USE_DIST=1 vitest run tests/unit/ tests/cli/ --testTimeout=180000",
 		"test:watch": "vitest",

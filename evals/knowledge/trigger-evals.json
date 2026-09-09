@@ -40,6 +40,10 @@
     "should_trigger": true
   },
   {
+    "query": "This feature changes observable retry behavior. Find or create the governing primary spec and keep it current through implementation and verification.",
+    "should_trigger": true
+  },
+  {
     "query": "Open src/auth/session.ts lines 40-70 and explain this exact function body.",
     "should_trigger": false
   },
