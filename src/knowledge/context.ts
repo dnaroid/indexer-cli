@@ -1,6 +1,4 @@
 import type {
-	DependencyRecord,
-	FileRecord,
 	KnowledgeRelation,
 	KnowledgeStore,
 	MetadataStore,
@@ -129,24 +127,31 @@ export class KnowledgeContextEngine {
 		const specPaths = new Set(specs.map((spec) => spec.path));
 		const allRelations = await this.knowledge.listKnowledgeRelations(this.projectId);
 		const relations = allRelations.filter((relation) => specPaths.has(relation.sourcePath));
+		const [semanticCode, files, dependencies] = await Promise.all([
+			this.codeSearch.search(
+				this.projectId,
+				this.snapshotId,
+				query,
+				{
+					topK: Math.max(maxCode * 2, 8),
+					mode: "hybrid",
+					pathPrefix: options.pathPrefix,
+					includeContent: false,
+					includeReasonCodes: true,
+					dedupeFile: true,
+					excludeTests: true,
+				},
+			),
+			this.metadata.listFiles(this.projectId, this.snapshotId, { domain: "code" }),
+			this.metadata.listDependencies(this.projectId, this.snapshotId),
+		]);
+		const indexedPaths = new Set(files.map((file) => file.path));
 		const trackedImplementation = relationTargets(relations, "implements").filter(
-			(filePath) => matchesPrefix(filePath, options.pathPrefix),
+			(filePath) =>
+				indexedPaths.has(filePath) && matchesPrefix(filePath, options.pathPrefix),
 		);
-		const explicitTests = relationTargets(relations, "tests");
-
-		const semanticCode = await this.codeSearch.search(
-			this.projectId,
-			this.snapshotId,
-			query,
-			{
-				topK: Math.max(maxCode * 2, 8),
-				mode: "hybrid",
-				pathPrefix: options.pathPrefix,
-				includeContent: false,
-				includeReasonCodes: true,
-				dedupeFile: true,
-				excludeTests: true,
-			},
+		const explicitTests = relationTargets(relations, "tests").filter((filePath) =>
+			indexedPaths.has(filePath),
 		);
 
 		const semanticByPath = new Map(semanticCode.map((result) => [result.filePath, result]));
@@ -172,10 +177,6 @@ export class KnowledgeContextEngine {
 			})),
 		]);
 
-		const [files, dependencies] = await Promise.all([
-			this.metadata.listFiles(this.projectId, this.snapshotId, { domain: "code" }),
-			this.metadata.listDependencies(this.projectId, this.snapshotId),
-		]);
 		const graphNeighbors: Array<{
 			path: string;
 			startLine?: number;

@@ -162,6 +162,42 @@ describe("KnowledgeContextEngine", () => {
 		expect(output).toContain("Read: docs/auth.md:10-24");
 	});
 
+	it("omits relation targets that are absent from the current code index", async () => {
+		const relations = [
+			relation("src/auth/refresh.ts", "implements"),
+			relation("dist/main.js", "implements"),
+			relation(".pi/tasks.test.ts", "tests"),
+		];
+		const engine = new KnowledgeContextEngine(
+			"default",
+			"snap",
+			{
+				listFiles: async () => [
+					{
+						snapshotId: "snap",
+						path: "src/auth/refresh.ts",
+						sha256: "a",
+						mtimeMs: 1,
+						size: 1,
+						languageId: "typescript",
+					},
+				],
+				listDependencies: async () => [],
+			} as unknown as MetadataStore,
+			{ listKnowledgeRelations: async () => relations } as unknown as KnowledgeStore,
+			{ search: async () => [SPEC] },
+			{ search: async () => [] },
+		);
+
+		const pack = await engine.build("auth refresh");
+		expect(pack.implementation.map((item) => item.path)).toEqual([
+			"src/auth/refresh.ts",
+		]);
+		expect(pack.tests).toEqual([]);
+		expect(pack.readNext).not.toContain("dist/main.js");
+		expect(pack.readNext).not.toContain(".pi/tasks.test.ts");
+	});
+
 	it("still returns useful code context when no primary knowledge matches", async () => {
 		const engine = new KnowledgeContextEngine(
 			"default",

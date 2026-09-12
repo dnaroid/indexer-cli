@@ -1646,12 +1646,38 @@ describe.sequential("CLI e2e", () => {
 			expect(record.exitCode).toBe(0);
 			expect(record.stdout).toContain('"status": "unverified"');
 
+			mkdirSync(path.join(knowledgeRoot, "dist"), { recursive: true });
+			writeFileSync(path.join(knowledgeRoot, "dist", "main.js"), "export {};\n");
+			writeFileSync(
+				path.join(knowledgeRoot, ".gitignore"),
+				`${readTextFile(path.join(knowledgeRoot, ".gitignore"))}\ndist/\n`,
+			);
+			const relateIgnored = runCLI(
+				[
+					"wiki",
+					"relate",
+					"--path",
+					"docs/session-contract.md",
+					"--add-code",
+					"dist/main.js",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(relateIgnored.exitCode).toBe(0);
+			expect(relateIgnored.stdout).toContain(
+				"Warning: dist/main.js is gitignored and will not participate in freshness tracking.",
+			);
+
 			const verify = runCLI(
 				["wiki", "verify", "--path", "docs/session-contract.md", "--json"],
 				{ cwd: knowledgeRoot },
 			);
 			expect(verify.exitCode).toBe(0);
 			expect(verify.stdout).toContain('"status": "fresh"');
+			writeFileSync(
+				path.join(knowledgeRoot, "dist", "main.js"),
+				"export const rebuilt = true;\n",
+			);
 
 			const search = runCLI(
 				["wiki", "search", "session authentication ownership", "--json"],
@@ -1670,6 +1696,7 @@ describe.sequential("CLI e2e", () => {
 			expect(context.stdout).toContain("Primary knowledge:");
 			expect(context.stdout).toContain("docs/session-contract.md");
 			expect(context.stdout).toContain("src/auth/session.ts");
+			expect(context.stdout).not.toContain("dist/main.js");
 			expect(context.stdout).not.toContain("Recommendation:");
 
 			const impact = runCLI(

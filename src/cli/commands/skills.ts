@@ -73,6 +73,9 @@ read the smallest returned ranges, and expand only for a named gap.
   \`spec+inputs-changed\`, and \`missing-source\` as review obligations, not as
   current truth. Do not present a non-fresh primary spec as unquestionably current
   without reviewing the relevant implementation/tests.
+- Gitignored code relations remain dependency documentation but do not participate
+  in verified-input freshness tracking. Treat the relate warning as intentional;
+  context code hints include only paths present in the current code index.
 - After material behavior-changing implementation, run task-scoped
   \`idx wiki impact <changed paths...>\` even when the files are already known.
   Review uncovered paths plus new/moved/changed documents and semantic/graph

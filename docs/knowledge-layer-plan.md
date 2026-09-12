@@ -350,8 +350,14 @@ Writes:
 
 - verified source hash;
 - verified durable relation hash;
-- verified input hashes;
+- verified input hashes for non-gitignored code relations, including Git-tracked
+  files that are not in the code index;
 - verification timestamp.
+
+Gitignored relation targets remain durable dependency documentation but are not
+freshness inputs. Verification skips them even when they are absent, and status
+also ignores legacy verified-input rows for them. Missing non-gitignored inputs
+still block verification.
 
 ## `idx wiki relate`
 
@@ -365,6 +371,8 @@ Only inferred edges are removable through the CLI. Source-explicit edges require
 editing the source document.
 
 Any effective relation-map change invalidates `fresh` until re-verification.
+Adding a gitignored code relation emits a warning that the target will not
+participate in freshness tracking.
 
 ## `idx wiki search`
 
@@ -456,6 +464,9 @@ Return one compact LLM context pack containing, in priority order:
 
 Context output must be token-budgeted and deduplicated. It should return paths
 and smallest useful ranges by default, not dump source bodies.
+Implementation and test relation targets that are absent from the current code
+index are excluded from code hints and `Read next:` so they do not consume hint
+limits.
 
 If discovery has new or changed document candidates, context output includes an
 explicit recommendation to tell the user they remain unreviewed and to classify

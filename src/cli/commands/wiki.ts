@@ -265,6 +265,7 @@ export function registerWikiCommand(program: Command): void {
 					throw new Error("At least one relation add/remove option is required.");
 				}
 				let status;
+				const warnings = new Set<string>();
 				for (const operation of operations) {
 					for (const targetPath of operation.values) {
 						status = await service.relate({
@@ -274,10 +275,15 @@ export function registerWikiCommand(program: Command): void {
 							relationKind: operation.relationKind,
 							action: operation.action,
 						});
+						for (const warning of status.warnings) warnings.add(warning);
 					}
 				}
-				if (options.json) console.log(JSON.stringify({ status }, null, 2));
-				else if (status) console.log(`updated relations: ${options.path} — ${status.status}`);
+				if (options.json) {
+					console.log(JSON.stringify({ status, warnings: [...warnings] }, null, 2));
+				} else if (status) {
+					for (const warning of warnings) console.log(`Warning: ${warning}`);
+					console.log(`updated relations: ${options.path} — ${status.status}`);
+				}
 			});
 		} catch (error) {
 			reportFailure(error);

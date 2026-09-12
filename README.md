@@ -369,7 +369,9 @@ Important semantics:
 - `record` means semantic classification/index metadata only; it does **not** establish `fresh`;
 - `verify` is explicit and should be called only after an agent has checked the primary source against relevant
   implementation/tests/evidence;
-- source, tracked input, or durable relation-map changes invalidate freshness;
+- source, non-gitignored tracked input, or durable relation-map changes invalidate freshness; gitignored code
+  relations remain documented but are excluded from verification baselines and emit a warning when added;
+- context packs omit related implementation/test paths that are absent from the current code index;
 - `impact` prefers task-scoped paths; uncovered paths require semantic review, but graph/vector similarity never creates
   a durable relation automatically;
 - historical/superseded knowledge remains searchable but active knowledge wins ranking ties;

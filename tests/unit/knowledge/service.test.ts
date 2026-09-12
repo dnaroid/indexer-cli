@@ -177,6 +177,133 @@ describe("KnowledgeService", () => {
 		await store.close();
 	});
 
+	it.each(["changed", "deleted"])(
+		"ignores a gitignored legacy verified input when it is %s",
+		async (change) => {
+			const { root, store, service } = await setup();
+			await mkdir(path.join(root, "docs"), { recursive: true });
+			await mkdir(path.join(root, ".pi"), { recursive: true });
+			await writeFile(path.join(root, ".gitignore"), ".pi/\n");
+			await writeFile(path.join(root, ".pi/tasks.jsonc"), "{\"version\":1}\n");
+			await writeFile(path.join(root, "docs/tasks.md"), "# Tasks\n\n## Behavior\nTasks.\n");
+			await service.record({
+				path: "docs/tasks.md",
+				classification: "spec",
+				behaviorType: "as-is",
+				lifecycle: "active",
+				summary: "Task state contract.",
+			});
+			await store.upsertKnowledgeRelation({
+				projectId: "project",
+				sourcePath: "docs/tasks.md",
+				targetPath: ".pi/tasks.jsonc",
+				targetKind: "code",
+				relationKind: "implements",
+				provenance: "inferred",
+			});
+			await service.verify("docs/tasks.md");
+			await store.upsertKnowledgeVerifiedInput({
+				projectId: "project",
+				sourcePath: "docs/tasks.md",
+				inputPath: ".pi/tasks.jsonc",
+				inputHash: "legacy-hash",
+				verifiedAt: Date.now(),
+			});
+
+			if (change === "changed") {
+				await writeFile(path.join(root, ".pi/tasks.jsonc"), "{\"version\":2}\n");
+			} else {
+				rmSync(path.join(root, ".pi/tasks.jsonc"));
+			}
+
+			const entry = await store.getKnowledgeEntry("project", "docs/tasks.md");
+			expect(entry).not.toBeNull();
+			expect(await service.getStatus(entry!)).toMatchObject({
+				status: "fresh",
+				reasons: [],
+			});
+			await store.close();
+		},
+	);
+
+	it("skips gitignored relation targets during verify but rejects missing tracked inputs", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs"), { recursive: true });
+		await writeFile(path.join(root, ".gitignore"), "dist/\n");
+		await writeFile(path.join(root, "docs/build.md"), "# Build\n\n## Behavior\nBuild.\n");
+		await service.record({
+			path: "docs/build.md",
+			classification: "spec",
+			behaviorType: "as-is",
+			lifecycle: "active",
+			summary: "Build contract.",
+		});
+		await store.upsertKnowledgeRelation({
+			projectId: "project",
+			sourcePath: "docs/build.md",
+			targetPath: "dist/main.js",
+			targetKind: "code",
+			relationKind: "implements",
+			provenance: "inferred",
+		});
+
+		await expect(service.verify("docs/build.md")).resolves.toMatchObject({
+			path: "docs/build.md",
+		});
+		expect(
+			await store.listKnowledgeVerifiedInputs("project", "docs/build.md"),
+		).toEqual([]);
+
+		await store.upsertKnowledgeRelation({
+			projectId: "project",
+			sourcePath: "docs/build.md",
+			targetPath: "src/missing.ts",
+			targetKind: "code",
+			relationKind: "implements",
+			provenance: "inferred",
+		});
+		await expect(service.verify("docs/build.md")).rejects.toThrow(
+			"Tracked input is missing or unreadable: src/missing.ts",
+		);
+		await store.close();
+	});
+
+	it("stores gitignored code relations and returns a freshness warning", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs"), { recursive: true });
+		await mkdir(path.join(root, "dist"), { recursive: true });
+		await writeFile(path.join(root, ".gitignore"), "dist/\n");
+		await writeFile(path.join(root, "dist/main.js"), "export {};\n");
+		await writeFile(path.join(root, "docs/build.md"), "# Build\n\n## Behavior\nBuild.\n");
+		await service.record({
+			path: "docs/build.md",
+			classification: "spec",
+			behaviorType: "as-is",
+			lifecycle: "active",
+			summary: "Build contract.",
+		});
+
+		const status = await service.relate({
+			sourcePath: "docs/build.md",
+			targetPath: "dist/main.js",
+			targetKind: "code",
+			relationKind: "implements",
+			action: "add",
+		});
+		expect(status.warnings).toEqual([
+			"dist/main.js is gitignored and will not participate in freshness tracking.",
+		]);
+		expect(
+			await store.listKnowledgeRelations("project", { sourcePath: "docs/build.md" }),
+		).toEqual([
+			expect.objectContaining({
+				targetPath: "dist/main.js",
+				targetKind: "code",
+			}),
+		]);
+		await store.close();
+	});
+
 	it("can remove an inferred relation after its target file has already been deleted", async () => {
 		const { root, store, service } = await setup();
 		await mkdir(path.join(root, "docs"), { recursive: true });

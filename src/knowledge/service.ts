@@ -15,6 +15,7 @@ import type {
 	SnapshotId,
 } from "../core/types.js";
 import { computeHash } from "../utils/hash.js";
+import { parseGitignore, type GitignoreFilter } from "../utils/gitignore.js";
 import { documentTitle, knowledgeDiscoverySignals } from "./discovery.js";
 import { scanProjectDocuments } from "./document-scanner.js";
 import { extractExplicitKnowledgeRelations } from "./relations.js";
@@ -39,6 +40,10 @@ export interface KnowledgeStatus {
 	lifecycle: KnowledgeLifecycle;
 	status: KnowledgeFreshnessStatus;
 	reasons: string[];
+}
+
+export interface KnowledgeRelateStatus extends KnowledgeStatus {
+	warnings: string[];
 }
 
 export interface KnowledgeCandidate {
@@ -147,7 +152,10 @@ export class KnowledgeService {
 		}
 	}
 
-	async getStatus(entry: KnowledgeEntry): Promise<KnowledgeStatus> {
+	private async getStatusWithGitignore(
+		entry: KnowledgeEntry,
+		gitignore: GitignoreFilter,
+	): Promise<KnowledgeStatus> {
 		if (!primary(entry)) {
 			return {
 				path: entry.path,
@@ -195,6 +203,7 @@ export class KnowledgeService {
 		);
 		const changedInputs: string[] = [];
 		for (const input of verifiedInputs) {
+			if (gitignore.ignores(input.inputPath)) continue;
 			const current = await this.currentHash(input.inputPath);
 			if (!current || current !== input.inputHash) {
 				changedInputs.push(input.inputPath);
@@ -221,9 +230,16 @@ export class KnowledgeService {
 		};
 	}
 
+	async getStatus(entry: KnowledgeEntry): Promise<KnowledgeStatus> {
+		return this.getStatusWithGitignore(entry, parseGitignore(this.repoRoot));
+	}
+
 	async listStatuses(): Promise<KnowledgeStatus[]> {
 		const entries = await this.knowledge.listKnowledgeEntries(this.projectId);
-		return Promise.all(entries.map((entry) => this.getStatus(entry)));
+		const gitignore = parseGitignore(this.repoRoot);
+		return Promise.all(
+			entries.map((entry) => this.getStatusWithGitignore(entry, gitignore)),
+		);
 	}
 
 	async discover(options: {
@@ -401,6 +417,7 @@ export class KnowledgeService {
 		const codeRelations = relations.filter(
 			(relation) => relation.targetKind === "code",
 		);
+		const gitignore = parseGitignore(this.repoRoot);
 		const verifiedAt = Date.now();
 		const inputs = [] as Array<{
 			inputPath: string;
@@ -408,6 +425,7 @@ export class KnowledgeService {
 			verifiedAt: number;
 		}>;
 		for (const inputPath of [...new Set(codeRelations.map((relation) => relation.targetPath))]) {
+			if (gitignore.ignores(inputPath)) continue;
 			const inputHash = await this.currentHash(inputPath);
 			if (!inputHash) {
 				throw new Error(`Tracked input is missing or unreadable: ${inputPath}`);
@@ -432,9 +450,16 @@ export class KnowledgeService {
 		return verified;
 	}
 
-	async relate(input: RelateKnowledgeInput): Promise<KnowledgeStatus> {
+	async relate(input: RelateKnowledgeInput): Promise<KnowledgeRelateStatus> {
 		const sourcePath = await this.normalizeProjectPath(input.sourcePath);
 		const targetPath = await this.normalizeProjectPath(input.targetPath);
+		const gitignore = parseGitignore(this.repoRoot);
+		const warnings =
+			input.action === "add" &&
+			input.targetKind === "code" &&
+			gitignore.ignores(targetPath)
+				? [`${targetPath} is gitignored and will not participate in freshness tracking.`]
+				: [];
 		const entry = await this.knowledge.getKnowledgeEntry(this.projectId, sourcePath);
 		if (!entry || !primary(entry)) {
 			throw new Error(`Only primary knowledge can have durable relations: ${sourcePath}`);
@@ -464,13 +489,19 @@ export class KnowledgeService {
 						existing.relationKind === input.relationKind,
 				)
 			) {
-				return this.getStatus(entry);
+				return {
+					...(await this.getStatusWithGitignore(entry, gitignore)),
+					warnings,
+				};
 			}
 			await this.knowledge.upsertKnowledgeRelation(relation);
 		} else {
 			await this.knowledge.deleteKnowledgeRelation(this.projectId, relation);
 		}
-		return this.getStatus(entry);
+		return {
+			...(await this.getStatusWithGitignore(entry, gitignore)),
+			warnings,
+		};
 	}
 
 	async remove(inputPath: string): Promise<void> {
