@@ -367,8 +367,14 @@ idx wiki relate --path docs/auth.md --remove-code src/auth/legacy.ts
 idx wiki relate --path docs/auth.md --add-supersedes docs/auth-v1.md
 ```
 
-Only inferred edges are removable through the CLI. Source-explicit edges require
-editing the source document.
+Relation removal is identity-based on source path, target path/kind, and relation
+kind, so it removes matching inferred or source-explicit edges. A remove that
+matches no stored relation emits a warning and is reported as unchanged in JSON
+instead of claiming a successful update.
+
+Because source-explicit edges are derived from document text, a later `record`
+re-extracts and restores any removed edge that remains in the source. Edit the
+source document as well when the removal must persist across re-recording.
 
 Any effective relation-map change invalidates `fresh` until re-verification.
 Adding a gitignored code relation emits a warning that the target will not

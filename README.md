@@ -371,6 +371,9 @@ Important semantics:
   implementation/tests/evidence;
 - source, non-gitignored tracked input, or durable relation-map changes invalidate freshness; gitignored code
   relations remain documented but are excluded from verification baselines and emit a warning when added;
+- `wiki relate --remove-*` removes matching inferred or source-explicit relations by semantic identity and reports
+  unmatched removals as unchanged rather than silently claiming an update; re-recording restores explicit relations
+  that remain declared in the source document;
 - context packs omit related implementation/test paths that are absent from the current code index;
 - `impact` prefers task-scoped paths; uncovered paths require semantic review, but graph/vector similarity never creates
   a durable relation automatically;

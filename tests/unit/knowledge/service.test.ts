@@ -88,6 +88,7 @@ describe("KnowledgeService", () => {
 		await mkdir(path.join(root, "src"), { recursive: true });
 		await writeFile(path.join(root, "src/a.ts"), "export {}\n");
 		await writeFile(path.join(root, "src/b.ts"), "export {}\n");
+		await writeFile(path.join(root, "src/c.ts"), "export {}\n");
 		await writeFile(
 			path.join(root, "docs/a.md"),
 			"# A\n\n## Behavior\nA.\n\n`src/a.ts`\n",
@@ -107,7 +108,10 @@ describe("KnowledgeService", () => {
 			action: "add",
 		});
 
-		await writeFile(path.join(root, "docs/a.md"), "# A\n\n## Behavior\nA changed.\n");
+		await writeFile(
+			path.join(root, "docs/a.md"),
+			"# A\n\n## Behavior\nA changed.\n\n`src/c.ts`\n",
+		);
 		await service.record({
 			path: "docs/a.md",
 			classification: "spec",
@@ -123,7 +127,121 @@ describe("KnowledgeService", () => {
 				targetPath: "src/b.ts",
 				provenance: "inferred",
 			}),
+			expect.objectContaining({
+				targetPath: "src/c.ts",
+				provenance: "explicit",
+			}),
 		]);
+		await store.close();
+	});
+
+	it("removes an explicit relation by semantic identity", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs"), { recursive: true });
+		await mkdir(path.join(root, "src"), { recursive: true });
+		await writeFile(path.join(root, "src/a.ts"), "export {}\n");
+		await writeFile(path.join(root, "docs/a.md"), "# A\n\n`src/a.ts`\n");
+		await service.record({
+			path: "docs/a.md",
+			classification: "spec",
+			behaviorType: "as-is",
+			lifecycle: "active",
+			summary: "A contract.",
+		});
+
+		const result = await service.relate({
+			sourcePath: "docs/a.md",
+			targetPath: "src/a.ts",
+			targetKind: "code",
+			relationKind: "implements",
+			action: "remove",
+		});
+
+		expect(result).toMatchObject({ changed: true, warnings: [] });
+		expect(
+			await store.listKnowledgeRelations("project", { sourcePath: "docs/a.md" }),
+		).toEqual([]);
+		await store.close();
+	});
+
+	it("roundtrips code, test, and related relations through remove and add", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs"), { recursive: true });
+		await mkdir(path.join(root, "src"), { recursive: true });
+		await mkdir(path.join(root, "tests"), { recursive: true });
+		await writeFile(path.join(root, "docs/a.md"), "# A\n\n## Behavior\nA.\n");
+		await writeFile(path.join(root, "docs/related.md"), "# Related\n");
+		await writeFile(path.join(root, "src/a.ts"), "export {}\n");
+		await writeFile(path.join(root, "tests/a.test.ts"), "export {}\n");
+		await service.record({
+			path: "docs/a.md",
+			classification: "spec",
+			behaviorType: "as-is",
+			lifecycle: "active",
+			summary: "A contract.",
+		});
+
+		const relations = [
+			{
+				targetPath: "src/a.ts",
+				targetKind: "code" as const,
+				relationKind: "implements" as const,
+			},
+			{
+				targetPath: "tests/a.test.ts",
+				targetKind: "code" as const,
+				relationKind: "tests" as const,
+			},
+			{
+				targetPath: "docs/related.md",
+				targetKind: "knowledge" as const,
+				relationKind: "related" as const,
+			},
+		];
+		for (const relation of relations) {
+			await expect(
+				service.relate({ sourcePath: "docs/a.md", ...relation, action: "add" }),
+			).resolves.toMatchObject({ changed: true });
+			await expect(
+				service.relate({ sourcePath: "docs/a.md", ...relation, action: "remove" }),
+			).resolves.toMatchObject({ changed: true });
+			await expect(
+				service.relate({ sourcePath: "docs/a.md", ...relation, action: "add" }),
+			).resolves.toMatchObject({ changed: true });
+		}
+
+		expect(
+			await store.listKnowledgeRelations("project", { sourcePath: "docs/a.md" }),
+		).toHaveLength(3);
+		await store.close();
+	});
+
+	it("reports an unmatched remove as an unchanged warning", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs"), { recursive: true });
+		await writeFile(path.join(root, "docs/a.md"), "# A\n\n## Behavior\nA.\n");
+		await service.record({
+			path: "docs/a.md",
+			classification: "spec",
+			behaviorType: "as-is",
+			lifecycle: "active",
+			summary: "A contract.",
+		});
+
+		await expect(
+			service.relate({
+				sourcePath: "docs/a.md",
+				targetPath: "src/missing.ts",
+				targetKind: "code",
+				relationKind: "implements",
+				action: "remove",
+			}),
+		).resolves.toMatchObject({
+			changed: false,
+			warnings: [
+				"no matching relation: docs/a.md — implements src/missing.ts",
+			],
+		});
 		await store.close();
 	});
 
@@ -448,4 +566,3 @@ describe("KnowledgeService", () => {
 		await store.close();
 	});
 });
-

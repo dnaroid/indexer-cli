@@ -43,6 +43,7 @@ export interface KnowledgeStatus {
 }
 
 export interface KnowledgeRelateStatus extends KnowledgeStatus {
+	changed: boolean;
 	warnings: string[];
 }
 
@@ -491,17 +492,30 @@ export class KnowledgeService {
 			) {
 				return {
 					...(await this.getStatusWithGitignore(entry, gitignore)),
+					changed: false,
 					warnings,
 				};
 			}
 			await this.knowledge.upsertKnowledgeRelation(relation);
+			return {
+				...(await this.getStatusWithGitignore(entry, gitignore)),
+				changed: true,
+				warnings,
+			};
 		} else {
-			await this.knowledge.deleteKnowledgeRelation(this.projectId, relation);
+			const changed =
+				(await this.knowledge.deleteKnowledgeRelation(this.projectId, relation)) > 0;
+			if (!changed) {
+				warnings.push(
+					`no matching relation: ${sourcePath} — ${input.relationKind} ${targetPath}`,
+				);
+			}
+			return {
+				...(await this.getStatusWithGitignore(entry, gitignore)),
+				changed,
+				warnings,
+			};
 		}
-		return {
-			...(await this.getStatusWithGitignore(entry, gitignore)),
-			warnings,
-		};
 	}
 
 	async remove(inputPath: string): Promise<void> {
@@ -628,4 +642,3 @@ export class KnowledgeService {
 		return rendered;
 	}
 }
-

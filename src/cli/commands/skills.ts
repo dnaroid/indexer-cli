@@ -76,6 +76,10 @@ read the smallest returned ranges, and expand only for a named gap.
 - Gitignored code relations remain dependency documentation but do not participate
   in verified-input freshness tracking. Treat the relate warning as intentional;
   context code hints include only paths present in the current code index.
+- \`idx wiki relate --remove-*\` deletes matching inferred or explicit relations
+  by source/target/kind identity. Treat a no-matching-relation warning and
+  \`changed: false\` result as a no-op, not a successful update. Re-recording a
+  source re-extracts explicit relations that remain declared in its text.
 - After material behavior-changing implementation, run task-scoped
   \`idx wiki impact <changed paths...>\` even when the files are already known.
   Review uncovered paths plus new/moved/changed documents and semantic/graph

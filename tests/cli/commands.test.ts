@@ -1646,6 +1646,78 @@ describe.sequential("CLI e2e", () => {
 			expect(record.exitCode).toBe(0);
 			expect(record.stdout).toContain('"status": "unverified"');
 
+			const removeExplicit = runCLI(
+				[
+					"wiki",
+					"relate",
+					"--path",
+					"docs/session-contract.md",
+					"--remove-code",
+					"src/auth/session.ts",
+					"--json",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(removeExplicit.exitCode).toBe(0);
+			expect(removeExplicit.stdout).toContain('"action": "remove"');
+			expect(removeExplicit.stdout).toContain('"changed": true');
+			const showAfterRemove = runCLI(
+				["wiki", "show", "--path", "docs/session-contract.md", "--json"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(showAfterRemove.exitCode).toBe(0);
+			expect(showAfterRemove.stdout).not.toContain("src/auth/session.ts");
+
+			const removeMissingJson = runCLI(
+				[
+					"wiki",
+					"relate",
+					"--path",
+					"docs/session-contract.md",
+					"--remove-code",
+					"src/auth/session.ts",
+					"--json",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(removeMissingJson.exitCode).toBe(0);
+			expect(removeMissingJson.stdout).toContain('"changed": false');
+			expect(removeMissingJson.stdout).toContain(
+				"no matching relation: docs/session-contract.md — implements src/auth/session.ts",
+			);
+
+			const removeMissing = runCLI(
+				[
+					"wiki",
+					"relate",
+					"--path",
+					"docs/session-contract.md",
+					"--remove-code",
+					"src/auth/session.ts",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(removeMissing.exitCode).toBe(0);
+			expect(removeMissing.stdout).toContain(
+				"Warning: no matching relation: docs/session-contract.md — implements src/auth/session.ts",
+			);
+			expect(removeMissing.stdout).toContain("no relation changes:");
+			expect(removeMissing.stdout).not.toContain("updated relations:");
+
+			const addBack = runCLI(
+				[
+					"wiki",
+					"relate",
+					"--path",
+					"docs/session-contract.md",
+					"--add-code",
+					"src/auth/session.ts",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(addBack.exitCode).toBe(0);
+			expect(addBack.stdout).toContain("updated relations:");
+
 			mkdirSync(path.join(knowledgeRoot, "dist"), { recursive: true });
 			writeFileSync(path.join(knowledgeRoot, "dist", "main.js"), "export {};\n");
 			writeFileSync(

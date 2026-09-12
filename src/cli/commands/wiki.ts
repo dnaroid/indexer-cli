@@ -227,18 +227,18 @@ export function registerWikiCommand(program: Command): void {
 
 	const relate = wiki
 		.command("relate")
-		.description("Add/remove inferred knowledge↔code/spec relations")
+		.description("Add/remove knowledge↔code/spec relations")
 		.requiredOption("--path <path>", "primary knowledge source")
 		.option("--add-code <path>", "add implementation relation", collect, [])
-		.option("--remove-code <path>", "remove inferred implementation relation", collect, [])
+		.option("--remove-code <path>", "remove implementation relation", collect, [])
 		.option("--add-test <path>", "add test relation", collect, [])
-		.option("--remove-test <path>", "remove inferred test relation", collect, [])
+		.option("--remove-test <path>", "remove test relation", collect, [])
 		.option("--add-related-spec <path>", "add related knowledge relation", collect, [])
-		.option("--remove-related-spec <path>", "remove inferred related relation", collect, [])
+		.option("--remove-related-spec <path>", "remove related relation", collect, [])
 		.option("--add-supersedes <path>", "add supersedes relation", collect, [])
-		.option("--remove-supersedes <path>", "remove inferred supersedes relation", collect, [])
+		.option("--remove-supersedes <path>", "remove supersedes relation", collect, [])
 		.option("--add-superseded-by <path>", "add superseded-by relation", collect, [])
-		.option("--remove-superseded-by <path>", "remove inferred superseded-by relation", collect, [])
+		.option("--remove-superseded-by <path>", "remove superseded-by relation", collect, [])
 		.option("--json", "print JSON");
 
 	relate.action(async (options: Record<string, unknown> & { path: string; json?: boolean }) => {
@@ -266,6 +266,13 @@ export function registerWikiCommand(program: Command): void {
 				}
 				let status;
 				const warnings = new Set<string>();
+				const results: Array<{
+					action: "add" | "remove";
+					targetPath: string;
+					targetKind: "code" | "knowledge";
+					relationKind: KnowledgeRelationKind;
+					changed: boolean;
+				}> = [];
 				for (const operation of operations) {
 					for (const targetPath of operation.values) {
 						status = await service.relate({
@@ -276,13 +283,35 @@ export function registerWikiCommand(program: Command): void {
 							action: operation.action,
 						});
 						for (const warning of status.warnings) warnings.add(warning);
+						results.push({
+							action: operation.action,
+							targetPath,
+							targetKind: operation.targetKind,
+							relationKind: operation.relationKind,
+							changed: status.changed,
+						});
 					}
 				}
+				const changed = results.some((result) => result.changed);
 				if (options.json) {
-					console.log(JSON.stringify({ status, warnings: [...warnings] }, null, 2));
+					console.log(
+						JSON.stringify(
+							{
+								status: { ...status, changed },
+								warnings: [...warnings],
+								operations: results,
+							},
+							null,
+							2,
+						),
+					);
 				} else if (status) {
 					for (const warning of warnings) console.log(`Warning: ${warning}`);
-					console.log(`updated relations: ${options.path} — ${status.status}`);
+					if (changed) {
+						console.log(`updated relations: ${options.path} — ${status.status}`);
+					} else {
+						console.log(`no relation changes: ${options.path} — ${status.status}`);
+					}
 				}
 			});
 		} catch (error) {

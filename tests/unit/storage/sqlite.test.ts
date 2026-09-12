@@ -194,13 +194,22 @@ describe("SqliteMetadataStore", () => {
 				metadata: { level: 2 },
 			},
 		]);
-		await store.deleteKnowledgeRelation(PROJECT_ID, {
-			sourcePath: entry.path,
-			targetPath: "src/auth/refresh.ts",
-			targetKind: "code",
-			relationKind: "implements",
-			provenance: "explicit",
-		});
+		await expect(
+			store.deleteKnowledgeRelation(PROJECT_ID, {
+				sourcePath: entry.path,
+				targetPath: "src/auth/refresh.ts",
+				targetKind: "code",
+				relationKind: "implements",
+			}),
+		).resolves.toBe(1);
+		await expect(
+			store.deleteKnowledgeRelation(PROJECT_ID, {
+				sourcePath: entry.path,
+				targetPath: "src/auth/refresh.ts",
+				targetKind: "code",
+				relationKind: "implements",
+			}),
+		).resolves.toBe(0);
 		expect(await store.listKnowledgeRelations(PROJECT_ID)).toHaveLength(1);
 
 		await store.upsertKnowledgeEntry({

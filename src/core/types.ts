@@ -249,10 +249,11 @@ export interface KnowledgeStore {
 	): Promise<KnowledgeRelation[]>;
 	deleteKnowledgeRelation(
 		projectId: ProjectId,
-		relation: Omit<KnowledgeRelation, "projectId" | "metadata"> & {
-			metadata?: Record<string, unknown>;
-		},
-	): Promise<void>;
+		relation: Pick<
+			KnowledgeRelation,
+			"sourcePath" | "targetPath" | "targetKind" | "relationKind"
+		>,
+	): Promise<number>;
 	upsertKnowledgeVerifiedInput(input: KnowledgeVerifiedInput): Promise<void>;
 	listKnowledgeVerifiedInputs(
 		projectId: ProjectId,

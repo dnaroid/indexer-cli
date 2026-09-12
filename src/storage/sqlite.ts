@@ -376,16 +376,17 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 
 	async deleteKnowledgeRelation(
 		projectId: ProjectId,
-		relation: Omit<KnowledgeRelation, "projectId" | "metadata"> & {
-			metadata?: Record<string, unknown>;
-		},
-	): Promise<void> {
-		await this.transaction(async () => {
-			this.db
+		relation: Pick<
+			KnowledgeRelation,
+			"sourcePath" | "targetPath" | "targetKind" | "relationKind"
+		>,
+	): Promise<number> {
+		return this.transaction(async () => {
+			return this.db
 				.prepare(`
 					DELETE FROM knowledge_relations
 					WHERE project_id = ? AND source_path = ? AND target_path = ?
-					  AND target_kind = ? AND relation_kind = ? AND provenance = ?
+					  AND target_kind = ? AND relation_kind = ?
 				`)
 				.run(
 					projectId,
@@ -393,8 +394,7 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 					relation.targetPath,
 					relation.targetKind,
 					relation.relationKind,
-					relation.provenance,
-				);
+				).changes;
 		});
 	}
 
