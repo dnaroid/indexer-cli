@@ -11,46 +11,62 @@ installation behavior on macOS.
 The public package contract is the `package.json` engine range:
 
 ```json
-"node": "^22.19.0 || ^24.0.0 || ^26.0.0"
+"node": ">=22.19.0 <27"
 ```
 
-Therefore `indexer-cli` supports:
+Therefore `indexer-cli` accepts Node.js 22.19.0 through Node.js 26.x. The CI
+compatibility matrix explicitly exercises the lower supported boundary plus the
+primary even-numbered runtime lines:
 
-- Node.js 22 starting at 22.19.0 and remaining within the 22.x line;
+- Node.js 22.19.0;
 - Node.js 24.x;
 - Node.js 26.x.
 
-Node.js 23.x, 25.x, Node.js 22 before 22.19.0, and older major lines are
-outside the supported runtime contract. Dependency upgrades must not silently
-raise or broaden this range; changing supported runtime lines is an explicit
-contract change.
+Node.js before 22.19.0 and Node.js 27+ are outside the public package range.
+Dependency upgrades must not silently raise or broaden this range; changing it
+is an explicit contract change.
+
+## Source development runtime
+
+The repository does not pin a separate development Node major. Local commands
+use the active `node` and `npm` from `PATH`, subject to the same public engine
+range as the package. The repo contains native addons such as `better-sqlite3`
+and tree-sitter bindings, so intentionally changing Node major requires one
+clean local dependency rebuild (`rm -rf node_modules && npm ci`) before using
+the checkout under the new runtime.
 
 ## CI contract
 
 `.github/workflows/publish.yml` must build and run the unit suite on Node.js
-22.19.0, Node.js 24, and Node.js 26. Packaging smoke tests and npm publishing
-use Node.js 24. This makes the lower supported boundary, the preferred release
-runtime, and the newest supported even-numbered runtime executable CI evidence
-rather than documentation-only claims.
+22.19.0, Node.js 24, and Node.js 26. Packaging smoke tests and npm publishing use
+one supported CI runtime independently of the developer's local runtime. This
+makes the supported range executable CI evidence without pinning local tooling.
 
 ## Global installation from a source checkout
 
 `npm run install:global` is a developer convenience for installing the current
 source checkout globally on macOS. `scripts/install-global.sh` must:
 
-- require Homebrew `node@24` and print `brew install node@24` when it is absent;
-- run the build and global npm installation with that Homebrew Node 24 toolchain;
-- pin npm's global prefix to the Homebrew prefix even when the command was
-  launched from mise, nvm, asdf, or another Node version manager;
+- prefer a conventional system Node/npm pair when available (for example
+  Homebrew's stable `/opt/homebrew/bin` paths), otherwise fall back to the
+  caller's `PATH`, and reject only runtimes outside the public engine range;
+- run the build and global npm installation with the selected Node/npm pair;
+- use the selected npm's own global prefix rather than a version-manager prefix;
 - replace only launchers that are already owned by `indexer-cli`, refusing to
   overwrite an unrelated `idx` or `indexer-cli` executable;
-- write `idx` and `indexer-cli` wrappers with an absolute Homebrew Node 24 path,
-  so runtime execution does not depend on shell Node resolution or version-manager
-  reshimming.
+- write `idx` and `indexer-cli` wrappers bound to the selected system Node
+  executable so later PATH/version-manager changes cannot load native addons
+  under a different Node ABI. The path must not encode a specific Node version.
 
-This Homebrew requirement applies only to the source-checkout convenience command.
-The published npm package remains installable with any Node runtime allowed by the
-public engine range.
+The published npm package and the source-checkout convenience command therefore
+share the same Node range and do not require a particular version manager.
+
+`idx setup` follows the same preference: when a conventional system npm/global
+installation is available, it is preferred over a version-manager-specific npm
+prefix. The repair wrapper under `~/.local/bin/idx` checks system global
+locations before consulting the current npm prefix, so changing nvm/mise/asdf
+selection cannot silently route `idx` to a stale package installed under another
+Node tree.
 
 ## Evidence
 
@@ -58,5 +74,7 @@ public engine range.
 - Lockfile package metadata: `package-lock.json`
 - CI matrix and publish runtime: `.github/workflows/publish.yml`
 - Source global installer: `scripts/install-global.sh`
+- Setup/global wrapper selection: `src/core/idx-binary.ts`, `src/cli/commands/setup.ts`
 - User-facing prerequisites/install guidance: `README.md`
 - Published package launcher/install coverage: `tests/unit/bin/package-install.test.ts`
+- Setup/global wrapper coverage: `tests/unit/core/idx-binary.test.ts`, `tests/unit/cli/setup.test.ts`

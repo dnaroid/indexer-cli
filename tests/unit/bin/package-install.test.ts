@@ -38,9 +38,13 @@ describe("published package install metadata", () => {
 	it("publishes the supported Node runtime range", () => {
 		const pkg = JSON.parse(readFileSync(path.join(CLI_ROOT, "package.json"), "utf8")) as {
 			engines?: { node?: string };
+			devEngines?: unknown;
 		};
 
-		expect(pkg.engines?.node).toBe("^22.19.0 || ^24.0.0 || ^26.0.0");
+		expect(pkg.engines?.node).toBe(">=22.19.0 <27");
+		expect(pkg.devEngines).toBeUndefined();
+		expect(existsSync(path.join(CLI_ROOT, ".node-version"))).toBe(false);
+		expect(existsSync(path.join(CLI_ROOT, "mise.toml"))).toBe(false);
 	});
 
 	it("exposes both idx and indexer-cli bins", () => {

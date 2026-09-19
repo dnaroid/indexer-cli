@@ -101,14 +101,17 @@ function checkNode(): CheckResult {
 
 	try {
 		const version = run("node --version");
-		const major = parseInt(version.replace(/^v/, "").split(".")[0], 10);
-		if (major >= 18) {
+		const [major, minor] = version
+			.replace(/^v/, "")
+			.split(".")
+			.map((part) => parseInt(part, 10));
+		if ((major > 22 && major < 27) || (major === 22 && minor >= 19)) {
 			return { name: "Node.js", status: "ok", detail: version };
 		}
 		return {
 			name: "Node.js",
 			status: "failed",
-			detail: `${version} found, but 18+ required`,
+			detail: `${version} found, but >=22.19.0 <27 required`,
 		};
 	} catch {
 		return {

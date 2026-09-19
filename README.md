@@ -74,7 +74,12 @@ classification and verification remain explicit agent actions.
 
 - [Ollama](https://ollama.ai) installed manually. `idx setup` will verify it, start the daemon if needed,
   and prepare both the code (`jina-8k`) and multilingual knowledge (`nomic-embed-text-v2-moe`) embedding models.
-- Node.js 22.19+ (22.x), Node.js 24.x, or Node.js 26.x, plus build tools (python3, make, C++ compiler) for native dependencies.
+- Node.js >=22.19.0 and <27, plus build tools (python3, make, C++ compiler) for native dependencies.
+
+The source checkout uses the active `node` and `npm` from your `PATH`; no Node
+major is pinned by this repository. Because native addons are installed locally,
+if you intentionally switch Node majors, rebuild the checkout once with
+`rm -rf node_modules && npm ci`.
 
 The `setup` command handles global installation automatically: it installs indexer-cli via npm and ensures the
 `idx` wrapper is on your PATH.
@@ -96,9 +101,12 @@ npx indexer-cli@latest setup
 ```
 
 When installing the current source checkout globally on macOS, use `npm run install:global`.
-That developer command intentionally uses Homebrew `node@24` (install it with
-`brew install node@24`) and creates the global `idx` launcher with an absolute
-Node 24 path so mise/nvm/asdf do not affect its runtime.
+That developer command prefers a conventional system Node installation (for
+example Homebrew's `/opt/homebrew/bin/node`) when available and compatible,
+otherwise it falls back to the active `node`/`npm` from `PATH`. It does not
+require a particular Node major beyond the public engine range. The resulting
+global launcher stays bound to the selected system Node path so switching nvm,
+mise, or another version manager later cannot create a native-addon ABI mismatch.
 
 On Linux, `npm install -g indexer-cli@latest` now installs both `idx` and `indexer-cli`
 into your npm global `bin` directory immediately. If `idx` is still not found, verify your

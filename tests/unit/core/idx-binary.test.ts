@@ -14,6 +14,11 @@ import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const IDX_WRAPPER_CONTENT = `#!/bin/sh
+for system_idx in /opt/homebrew/bin/idx /usr/local/bin/idx; do
+	if [ -x "$system_idx" ]; then
+		exec "$system_idx" "$@"
+	fi
+done
 if command -v npm >/dev/null 2>&1; then
 	prefix="$(npm config get prefix 2>/dev/null)"
 	if [ -n "$prefix" ]; then
@@ -108,6 +113,7 @@ function createGlobalInstall(prefix: string): string {
 
 afterEach(async () => {
 	vi.clearAllMocks();
+	platformMock.mockReturnValue("aix" as any);
 	process.env.PATH = originalPath;
 
 	await Promise.all(
@@ -568,6 +574,7 @@ describe("installGlobal", () => {
 			{
 				stdio: "pipe",
 				encoding: "utf8",
+				env: process.env,
 			},
 		);
 	});

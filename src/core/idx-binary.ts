@@ -45,6 +45,11 @@ function isSelfRecursiveShellLauncher(
 
 function idxWrapperContent(): string {
 	return `#!/bin/sh
+for system_idx in /opt/homebrew/bin/idx /usr/local/bin/idx; do
+	if [ -x "$system_idx" ]; then
+		exec "$system_idx" "$@"
+	fi
+done
 if command -v npm >/dev/null 2>&1; then
 	prefix="$(npm config get prefix 2>/dev/null)"
 	if [ -n "$prefix" ]; then
@@ -67,6 +72,17 @@ echo "Run: idx setup" >&2
 echo "Or: npm install -g indexer-cli" >&2
 exit 1
 `;
+}
+
+function systemPrefixesOnPath(): string[] {
+	const pathEntries = new Set((process.env.PATH ?? "").split(":"));
+	const candidates =
+		os.platform() === "darwin"
+			? ["/opt/homebrew", "/usr/local"]
+			: os.platform() === "linux"
+				? ["/usr/local", "/usr"]
+				: [];
+	return candidates.filter((prefix) => pathEntries.has(path.join(prefix, "bin")));
 }
 
 function resolveExistingGlobalBin(prefix: string): string | null {
@@ -98,6 +114,11 @@ export type EnsureIdxBinaryResult = {
 };
 
 export function getNpmGlobalBinPath(): string | null {
+	for (const prefix of systemPrefixesOnPath()) {
+		const systemBin = resolveExistingGlobalBin(prefix);
+		if (systemBin) return systemBin;
+	}
+
 	try {
 		const prefix = execSync("npm config get prefix", {
 			encoding: "utf8",
@@ -216,9 +237,28 @@ export function ensureIdxBinary(): EnsureIdxBinaryResult {
 /** Install indexer-cli globally via npm. Returns true on success. */
 export function installGlobal(): boolean {
 	try {
-		execSync("npm install -g indexer-cli@latest", {
+		const systemPrefix = systemPrefixesOnPath().find((prefix) => {
+			try {
+				accessSync(path.join(prefix, "bin", "npm"), fsConstants.X_OK);
+				accessSync(path.join(prefix, "bin", "node"), fsConstants.X_OK);
+				return true;
+			} catch {
+				return false;
+			}
+		});
+		const npmCommand = systemPrefix
+			? `"${path.join(systemPrefix, "bin", "npm")}"`
+			: "npm";
+		const env = systemPrefix
+			? {
+					...process.env,
+					PATH: `${path.join(systemPrefix, "bin")}:${process.env.PATH ?? ""}`,
+			  }
+			: process.env;
+		execSync(`${npmCommand} install -g indexer-cli@latest`, {
 			stdio: "pipe",
 			encoding: "utf8",
+			env,
 		});
 		return true;
 	} catch {

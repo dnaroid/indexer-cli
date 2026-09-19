@@ -3,54 +3,50 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-find_brew() {
-	if [[ -n "${HOMEBREW_PREFIX:-}" && -x "${HOMEBREW_PREFIX}/bin/brew" ]]; then
-		printf '%s\n' "${HOMEBREW_PREFIX}/bin/brew"
-		return
-	fi
-	if [[ -x /opt/homebrew/bin/brew ]]; then
-		printf '%s\n' /opt/homebrew/bin/brew
-		return
-	fi
-	if [[ -x /usr/local/bin/brew ]]; then
-		printf '%s\n' /usr/local/bin/brew
-		return
-	fi
-	return 1
+runtime_supported() {
+	local node_bin="$1"
+	"$node_bin" -e '
+	const [major, minor] = process.versions.node.split(".").map(Number);
+	process.exit(major < 22 || (major === 22 && minor < 19) || major >= 27 ? 1 : 0);
+' >/dev/null 2>&1
 }
 
-BREW="$(find_brew || true)"
-if [[ -z "$BREW" ]]; then
-	echo "Error: Homebrew is required for npm run install:global." >&2
+NODE_BIN=""
+NPM_BIN=""
+for runtime_dir in /opt/homebrew/bin /usr/local/bin; do
+	if [[ -x "$runtime_dir/node" && -x "$runtime_dir/npm" ]] && runtime_supported "$runtime_dir/node"; then
+		NODE_BIN="$runtime_dir/node"
+		NPM_BIN="$runtime_dir/npm"
+		break
+	fi
+done
+
+if [[ -z "$NODE_BIN" ]]; then
+	NODE_BIN="$(command -v node || true)"
+	NPM_BIN="$(command -v npm || true)"
+fi
+
+if [[ -z "$NODE_BIN" || -z "$NPM_BIN" ]]; then
+	echo "Error: node and npm must be available on the system or PATH." >&2
 	exit 1
 fi
 
-BREW_PREFIX="$($BREW --prefix)"
-NODE_FORMULA="node@24"
-NODE_PREFIX="$($BREW --prefix "$NODE_FORMULA" 2>/dev/null || true)"
-NODE_BIN="${NODE_PREFIX}/bin/node"
-NPM_BIN="${NODE_PREFIX}/bin/npm"
-
-if [[ -z "$NODE_PREFIX" || ! -x "$NODE_BIN" || ! -x "$NPM_BIN" ]]; then
-	echo "Error: Homebrew Node 24 is required for the global idx installation." >&2
-	echo "Install it with: $BREW install $NODE_FORMULA" >&2
+NODE_VERSION="$($NODE_BIN -p 'process.versions.node')"
+if ! runtime_supported "$NODE_BIN"; then
+	echo "Error: Node $NODE_VERSION does not satisfy indexer-cli engines >=22.19.0 <27." >&2
 	exit 1
 fi
 
-# Keep the entire build/install process on Homebrew Node even when this script was
-# invoked from an npm managed by mise, nvm, asdf, or another version manager.
-export PATH="${NODE_PREFIX}/bin:${BREW_PREFIX}/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+RUNTIME_BIN_DIR="$(dirname "$NODE_BIN")"
+export PATH="$RUNTIME_BIN_DIR:$PATH"
 
-# npm run exports npm_config_prefix from the npm that launched this script. If
-# that npm belongs to mise, Homebrew npm would otherwise inherit the mise global
-# prefix even though the executable itself is Homebrew's npm. Pin both variants
-# explicitly to the Homebrew prefix.
-export npm_config_prefix="$BREW_PREFIX"
-export NPM_CONFIG_PREFIX="$BREW_PREFIX"
+# Use the active npm's own global prefix. Do not inherit a prefix injected by a
+# previously active version manager when the current npm comes from elsewhere.
+unset npm_config_prefix NPM_CONFIG_PREFIX
 
 cd "$REPO_ROOT"
 
-echo "→ Building with Homebrew Node 24 ($($NODE_BIN --version))..."
+echo "→ Building with system Node ($($NODE_BIN --version), $NODE_BIN)..."
 "$NPM_BIN" run build
 
 GLOBAL_PREFIX="$($NPM_BIN prefix -g)"
@@ -92,7 +88,7 @@ remove_managed_launcher() {
 remove_managed_launcher "${BIN_DIR}/idx"
 remove_managed_launcher "${BIN_DIR}/indexer-cli"
 
-echo "→ Installing indexer-cli into the Homebrew npm prefix..."
+echo "→ Installing indexer-cli into the selected npm global prefix..."
 "$NPM_BIN" install -g .
 
 if [[ ! -f "$CLI_ENTRY" ]]; then
@@ -110,14 +106,14 @@ EOF
 	chmod +x "$target"
 }
 
-# npm normally creates bin links whose package shebang is `#!/usr/bin/env node`.
-# Replace them with absolute Homebrew-Node launchers so runtime resolution cannot
-# fall back to mise (or any other Node version manager earlier in PATH).
+# Bind the global package to the system Node selected for installation. The path
+# is stable across ordinary upgrades (for example /opt/homebrew/bin/node) but is
+# not tied to a particular Node major or version-manager installation.
 write_wrapper "${BIN_DIR}/idx"
 write_wrapper "${BIN_DIR}/indexer-cli"
 
-echo "✓ Installed global idx without a mise runtime dependency"
-echo "  Node: $NODE_BIN"
+echo "✓ Installed global idx using the selected system Node"
+echo "  Node: $NODE_BIN ($NODE_VERSION)"
 echo "  Package: $PACKAGE_ROOT"
 echo "  idx: ${BIN_DIR}/idx"
 "${BIN_DIR}/idx" --version
