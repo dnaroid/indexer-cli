@@ -57,8 +57,16 @@ function skillRoot(projectRoot: string, target: SkillTarget): string {
 	return path.join(projectRoot, ...SKILL_TARGET_ROOTS[target]);
 }
 
-function skillIgnoreEntry(target: SkillTarget): string {
-	return target === "claude" ? ".claude/" : ".agents/";
+function skillIgnoreEntries(target: SkillTarget): string[] {
+	const skillRootPath = SKILL_TARGET_ROOTS[target].join("/");
+	return GENERATED_SKILL_DIRECTORIES.map(
+		(directory) => `${skillRootPath}/${directory}/`,
+	);
+}
+
+function normalizeRootIgnoreEntry(entry: string): string {
+	const trimmed = entry.trim();
+	return trimmed.startsWith("/") ? trimmed.slice(1) : trimmed;
 }
 
 function configuredTargetsFromValue(value: unknown): SkillTarget[] | undefined {
@@ -177,14 +185,19 @@ async function ensureGitignoreEntries(
 ): Promise<void> {
 	const gitignorePath = path.join(projectRoot, ".gitignore");
 
-	const missing = [...entries];
+	const missing = [...new Set(entries)];
 
 	if (await pathExists(gitignorePath)) {
 		const current = await readFile(gitignorePath, "utf8");
-		const lines = current.split(/\r?\n/).map((line) => line.trim());
+		const lines = new Set(
+			current
+				.split(/\r?\n/)
+				.map((line) => normalizeRootIgnoreEntry(line)),
+		);
 		for (const entry of entries) {
-			if (lines.includes(entry)) {
-				missing.splice(missing.indexOf(entry), 1);
+			if (lines.has(normalizeRootIgnoreEntry(entry))) {
+				const index = missing.indexOf(entry);
+				if (index >= 0) missing.splice(index, 1);
 			}
 		}
 		if (missing.length === 0) {
@@ -232,7 +245,7 @@ export async function installSkillTargets(
 	]);
 	await ensureGitignoreEntries(
 		projectRoot,
-		[".indexer-cli/", ...requested.map(skillIgnoreEntry)],
+		[".indexer-cli/", ...requested.flatMap(skillIgnoreEntries)],
 	);
 	await refreshSkillTargets(projectRoot, requested, options);
 	await persistSkillTargets(projectRoot, enabled);
@@ -246,7 +259,7 @@ export async function refreshEnabledSkillTargets(
 	const enabled = await getEnabledSkillTargets(projectRoot);
 	await ensureGitignoreEntries(projectRoot, [
 		".indexer-cli/",
-		...enabled.map(skillIgnoreEntry),
+		...enabled.flatMap(skillIgnoreEntries),
 	]);
 	await refreshSkillTargets(projectRoot, enabled, options);
 	await persistSkillTargets(projectRoot, enabled);
@@ -339,7 +352,7 @@ export async function performInit(
 			: requestedTargets;
 		await ensureGitignoreEntries(projectRoot, [
 			".indexer-cli/",
-			...gitignoreTargets.map(skillIgnoreEntry),
+			...gitignoreTargets.flatMap(skillIgnoreEntries),
 		]);
 		await ensurePostCommitHook(projectRoot);
 

@@ -1,8 +1,12 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	SqliteVecVectorStore,
 	REQUIRED_COLUMNS,
 } from "../../../src/storage/vectors.js";
+import { SqliteMetadataStore } from "../../../src/storage/sqlite.js";
 
 function createStore(
 	overrides: Partial<{ vectorSize: number }> = {},
@@ -269,6 +273,21 @@ describe("SqliteVecVectorStore upsert", () => {
 			snapshotId: "snap-1",
 		});
 		expect(results[0].filePath).toBe("src/updated.ts");
+		store.close();
+	});
+
+	it("keeps snapshot memberships when the same chunk is reused by a newer snapshot", async () => {
+		const store = createStore();
+		const shared = createVectorRecord(0);
+		await store.upsert([{ ...shared, snapshotId: "snap-old" }]);
+		await store.upsert([{ ...shared, snapshotId: "snap-new" }]);
+
+		expect(
+			await store.countVectors({ projectId: "project-1", snapshotId: "snap-old" }),
+		).toBe(1);
+		expect(
+			await store.countVectors({ projectId: "project-1", snapshotId: "snap-new" }),
+		).toBe(1);
 		store.close();
 	});
 });
@@ -614,6 +633,30 @@ describe("SqliteVecVectorStore deleteBySnapshot", () => {
 		expect(count2).toBe(1);
 		store.close();
 	});
+
+	it("keeps a shared embedding while another snapshot still references it", async () => {
+		const store = createStore();
+		const shared = createVectorRecord(0);
+		await store.upsert([{ ...shared, snapshotId: "snap-old" }]);
+		await store.copyVectors(
+			"project-1" as any,
+			"snap-old" as any,
+			"snap-new" as any,
+			[],
+		);
+
+		await store.deleteBySnapshot("project-1" as any, "snap-old" as any);
+
+		expect(
+			await store.countVectors({ projectId: "project-1", snapshotId: "snap-new" }),
+		).toBe(1);
+		const results = await store.search([0, 1, 2], 1, {
+			projectId: "project-1",
+			snapshotId: "snap-new",
+		});
+		expect(results).toHaveLength(1);
+		store.close();
+	});
 });
 
 describe("SqliteVecVectorStore copyVectors", () => {
@@ -646,6 +689,11 @@ describe("SqliteVecVectorStore copyVectors", () => {
 			snapshotId: "snap-new",
 		});
 		expect(newCount).toBe(1);
+		const oldCount = await store.countVectors({
+			projectId: "project-1",
+			snapshotId: "snap-old",
+		});
+		expect(oldCount).toBe(2);
 
 		const results = await store.search([0, 1, 2], 1, {
 			projectId: "project-1",
@@ -706,6 +754,116 @@ describe("SqliteVecVectorStore copyVectors", () => {
 		});
 		expect(count).toBe(2);
 		store.close();
+	});
+});
+
+describe("SqliteVecVectorStore schema migration", () => {
+	it("restores snapshot memberships from chunk metadata when upgrading the legacy global chunk primary key", async () => {
+		const tempDir = mkdtempSync(path.join(tmpdir(), "indexer-vector-migration-"));
+		const dbPath = path.join(tempDir, "db.sqlite");
+		const metadata = new SqliteMetadataStore(dbPath);
+		try {
+			await metadata.initialize();
+			const oldSnapshot = await metadata.createSnapshot("project-1" as any, {
+				headCommit: "old",
+				indexedAt: Date.now(),
+			});
+			const newSnapshot = await metadata.createSnapshot("project-1" as any, {
+				headCommit: "new",
+				indexedAt: Date.now(),
+			});
+			const chunk = {
+				chunkId: "shared-chunk",
+				startLine: 1,
+				endLine: 2,
+				contentHash: "hash-shared",
+				tokenEstimate: 3,
+				chunkType: "impl" as const,
+				primarySymbol: "shared",
+				hasOverlap: false,
+			};
+			await metadata.replaceChunks(
+				"project-1" as any,
+				oldSnapshot.id,
+				"src/shared.ts",
+				[chunk],
+			);
+			await metadata.replaceChunks(
+				"project-1" as any,
+				newSnapshot.id,
+				"src/shared.ts",
+				[chunk],
+			);
+			await metadata.close();
+
+			const store = new SqliteVecVectorStore({ dbPath, vectorSize: 3 });
+			const db = (store as any).db;
+			db.exec(`
+				CREATE TABLE vector_meta (
+					chunk_id TEXT PRIMARY KEY,
+					project_id TEXT NOT NULL,
+					snapshot_id TEXT NOT NULL,
+					file_path TEXT NOT NULL,
+					start_line INTEGER NOT NULL,
+					end_line INTEGER NOT NULL,
+					content_hash TEXT NOT NULL,
+					chunk_type TEXT NOT NULL DEFAULT '',
+					primary_symbol TEXT NOT NULL DEFAULT '',
+					file_domain TEXT NOT NULL DEFAULT 'code'
+				);
+				CREATE VIRTUAL TABLE vec_chunks USING vec0(
+					chunk_id TEXT PRIMARY KEY,
+					embedding float[3]
+				);
+			`);
+			db.prepare(`
+				INSERT INTO vector_meta (
+					chunk_id, project_id, snapshot_id, file_path, start_line, end_line,
+					content_hash, chunk_type, primary_symbol, file_domain
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`).run(
+				"shared-chunk",
+				"project-1",
+				newSnapshot.id,
+				"src/shared.ts",
+				1,
+				2,
+				"hash-shared",
+				"impl",
+				"shared",
+				"code",
+			);
+			db.prepare("INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)").run(
+				"shared-chunk",
+				new Float32Array([1, 0, 0]),
+			);
+
+			await store.initialize();
+
+			expect(
+				await store.countVectors({
+					projectId: "project-1",
+					snapshotId: oldSnapshot.id,
+				}),
+			).toBe(1);
+			expect(
+				await store.countVectors({
+					projectId: "project-1",
+					snapshotId: newSnapshot.id,
+				}),
+			).toBe(1);
+			const primaryKey = db
+				.prepare("PRAGMA table_info(vector_meta)")
+				.all()
+				.filter((column: any) => column.pk > 0)
+				.sort((left: any, right: any) => left.pk - right.pk)
+				.map((column: any) => column.name);
+			expect(primaryKey).toEqual(["project_id", "snapshot_id", "chunk_id"]);
+			await store.close();
+		} finally {
+			await metadata.close().catch(() => undefined);
+			rmSync(tempDir, { recursive: true, force: true });
+		}
 	});
 });
 

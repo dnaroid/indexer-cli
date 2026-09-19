@@ -1911,8 +1911,6 @@ export class IndexerEngine {
 		const errors: string[] = [];
 
 		try {
-			await this.metadata.clearProjectMetadata(projectId, snapshotId);
-			await this.deleteProjectVectorsWithRetry(projectId);
 			const filesToIndex = await this.scanFiles(repoRoot, (w) =>
 				errors.push(
 					`Warning: skipped unreadable directory ${w.path} (${w.code}: ${w.message})`,
@@ -1937,6 +1935,7 @@ export class IndexerEngine {
 					);
 				}
 				await this.metadata.updateSnapshotStatus(snapshotId, "completed");
+				await this.pruneHistoricalSnapshots(projectId, snapshotId);
 				return { snapshotId, filesIndexed: 0, errors };
 			}
 
@@ -1978,6 +1977,7 @@ export class IndexerEngine {
 				filesToIndex.length,
 				filesToIndex.length,
 			);
+			await this.pruneHistoricalSnapshots(projectId, snapshotId);
 			return { snapshotId, filesIndexed: filesToIndex.length, errors };
 		} catch (error) {
 			await this.metadata.updateSnapshotStatus(

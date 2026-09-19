@@ -498,16 +498,22 @@ export async function ensureIndexed(
 			});
 
 			const elapsedMs = Date.now() - startedAt;
-			const chunkCount = await vectors.countVectors({
-				projectId: DEFAULT_PROJECT_ID,
-				snapshotId: result.snapshotId,
-			});
+			const [chunkCount, embeddingCount] = await Promise.all([
+				metadata
+					.listChunks(DEFAULT_PROJECT_ID, result.snapshotId)
+					.then((chunks) => chunks.length),
+				vectors.countVectors({
+					projectId: DEFAULT_PROJECT_ID,
+					snapshotId: result.snapshotId,
+				}),
+			]);
 
 			if (!silent) {
 				console.error("Index updated.");
 				console.error(`  Snapshot: ${result.snapshotId}`);
 				console.error(`  Files indexed: ${result.filesIndexed}`);
 				console.error(`  Chunks created: ${chunkCount}`);
+				console.error(`  Embeddings: ${embeddingCount}`);
 				console.error(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
 			}
 

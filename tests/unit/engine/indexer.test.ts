@@ -1581,18 +1581,47 @@ describe("IndexerEngine internals", () => {
 				errors: [],
 			});
 			expect(options.git.getHeadCommit).toHaveBeenCalledWith("/repo");
-			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
-				"project-id",
-				"snapshot-1",
-			);
-			expect(options.vectors.deleteByProject).toHaveBeenCalledWith(
-				"project-id",
-			);
+			expect(options.metadata.clearProjectMetadata).not.toHaveBeenCalled();
+			expect(options.vectors.deleteByProject).not.toHaveBeenCalled();
 			expect(options.metadata.updateSnapshotStatus).toHaveBeenCalledWith(
 				"snapshot-1",
 				"completed",
 			);
 			expect(generateSpy).toHaveBeenCalledWith("project-id", "snapshot-1");
+		});
+
+		it("keeps the previous completed snapshot intact until a full reindex completes", async () => {
+			const callOrder: string[] = [];
+			const options = createMockOptions();
+			options.metadata.getLatestCompletedSnapshot.mockResolvedValue({
+				id: "snapshot-prev",
+			});
+			options.metadata.listSnapshots
+				.mockResolvedValueOnce([{ id: "snapshot-1" }, { id: "snapshot-prev" }])
+				.mockResolvedValueOnce([{ id: "snapshot-1" }]);
+			options.metadata.updateSnapshotStatus.mockImplementation(
+				async (_snapshotId: string, status: string) => {
+					if (status === "completed") callOrder.push("completed");
+				},
+			);
+			options.metadata.clearProjectMetadata.mockImplementation(async () => {
+				callOrder.push("pruned");
+			});
+			const engine = new IndexerEngine(options as any);
+			vi.spyOn(engine as any, "scanFiles").mockResolvedValue([]);
+			vi.spyOn((engine as any).architectureGenerator, "generate").mockResolvedValue(
+				undefined,
+			);
+
+			await engine.indexProject({ isFullReindex: true });
+
+			expect(options.vectors.deleteByProject).not.toHaveBeenCalled();
+			expect(options.metadata.clearProjectMetadata).toHaveBeenCalledWith(
+				"project-id",
+				"snapshot-1",
+				{ preserveActiveIndexing: true },
+			);
+			expect(callOrder).toEqual(["completed", "pruned"]);
 		});
 
 		it("scans and processes files during a populated full reindex", async () => {

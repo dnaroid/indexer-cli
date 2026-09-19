@@ -245,8 +245,9 @@ After running `setup`, restart your shell to ensure `idx` is on `PATH`.
 
 Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-vec vector store, add `.indexer-cli/`
 to `.gitignore`, and install a Git post-commit hook that automatically re-indexes changed files. Agent skills are
-opt-in: `--claude` writes under `.claude/skills/`, `--codex` writes under `.agents/skills/`, and only selected target roots
-are added to `.gitignore`. The first run may also start Ollama and download/create the `jina-8k` embedding model, so
+opt-in: `--claude` writes under `.claude/skills/`, `--codex` writes under `.agents/skills/`, and only idx-generated
+`repo-discovery` skill directories are added to `.gitignore`. Plain `idx init` never adds agent/context paths such as
+`.claude/`, `.agents/`, `CLAUDE.md`, or `AGENTS.md`. The first run may also start Ollama and download/create the `jina-8k` embedding model, so
 initial setup can take time.
 
 When run from a subdirectory of a Git project, `idx init` automatically initializes the Git project root.
@@ -544,7 +545,8 @@ Use `path::symbol` with `--mode calls` to focus on one callable symbol, for exam
 
 Remove the `.indexer-cli/` directory from the initialized project root. Also removes this CLI's generated
 `repo-discovery` directories from `.claude/skills/` and `.agents/skills/` when present, cleans this CLI's Git hook block,
-and removes its `.gitignore` entries when present. Prompts for confirmation unless `-f` is given.
+and removes its `.gitignore` entries when present. User-owned agent context/config entries are preserved for projects
+that did not enable idx skills. Prompts for confirmation unless `-f` is given.
 
 Deprecated generated skill directories such as `context-pack` are cleaned up when present.
 

@@ -5,7 +5,10 @@
 This specification defines retrieval and ranking semantics for `idx search` and
 for code retrieval performed by `idx context`. It covers candidate generation,
 ranking modes, score calibration, test/import handling, index maintenance, and
-the regression/evaluation evidence required before changing search behavior.
+the regression/evaluation evidence required before changing search behavior. It
+also defines snapshot isolation for vector retrieval, because search correctness
+depends on a completed snapshot remaining readable while a replacement snapshot
+is being built.
 
 ## Core invariant
 
@@ -116,6 +119,38 @@ The side index follows snapshot semantics:
 This prevents an upgraded repository from silently degrading `hybrid` into
 semantic-only retrieval.
 
+## Vector snapshot isolation
+
+Vector retrieval follows the same completed-snapshot contract as canonical
+chunk metadata and FTS. Starting an incremental or full reindex must not make
+the latest completed snapshot lose semantic candidates before the replacement
+snapshot is complete.
+
+The durable vector representation therefore separates the embedding identity
+from snapshot membership:
+
+- `vec_chunks` stores one embedding per `chunk_id`;
+- `vector_meta` may reference the same `chunk_id` from multiple snapshots and
+  uses `(project_id, snapshot_id, chunk_id)` as its identity;
+- copying unchanged vectors to a new snapshot adds snapshot membership instead
+  of moving/deleting the previous membership;
+- deleting/pruning a snapshot removes the physical embedding only when no
+  remaining snapshot metadata references that `chunk_id`;
+- a full reindex builds beside the previous completed snapshot and prunes old
+  snapshots only after the new snapshot is marked completed;
+- upgrading a legacy database with globally unique `vector_meta.chunk_id`
+  automatically rebuilds snapshot-aware metadata and restores missing snapshot
+  memberships from canonical code/document chunk tables when the embedding is
+  still present in `vec_chunks`.
+
+This repair path is metadata-only: unchanged embeddings are reused and do not
+require a full re-embed merely to restore snapshot membership.
+
+`idx index --status` reports canonical code `Chunks` separately from semantic
+`Embeddings`. `Chunks` must never be implemented as an alias for vector count;
+imports and other intentionally non-embedded chunks can make the two counts
+legitimately differ.
+
 ## CLI compatibility
 
 - Default CLI mode remains `hybrid`; `SearchEngine` API default remains
@@ -163,6 +198,10 @@ Coverage must include at least:
 - post-fusion source-vs-test preference;
 - independent `semantic`, `lexical`, and `symbol` mode behavior;
 - legacy FTS refresh detection and incremental FTS snapshot copying;
+- vector snapshot membership surviving incremental copy and pruning;
+- legacy vector metadata migration/backfill without re-embedding;
+- full reindex preserving the previous completed snapshot until commit;
+- index status reporting canonical chunks separately from embeddings;
 - existing natural-language domain ranking scenarios.
 
 Ranking changes should be judged on top-1/top-3 correctness plus candidate
@@ -175,6 +214,7 @@ baseline so multi-channel fusion must justify itself empirically.
 - Search pipeline: `src/engine/searcher.ts`
 - CLI behavior: `src/cli/commands/search.ts`
 - FTS storage/migration: `src/storage/sqlite.ts`
+- Vector storage/migration: `src/storage/vectors.ts`
 - Code indexing: `src/engine/indexer.ts`
 - Auto-index compatibility: `src/cli/commands/ensure-indexed.ts`
 - Unit ranking coverage: `tests/unit/engine/searcher.test.ts`

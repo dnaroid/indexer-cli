@@ -109,9 +109,14 @@ describe.sequential("CLI e2e", () => {
 			expect(config.skillTargets).toEqual([]);
 
 			const gitignore = readTextFile(path.join(TEMP_DIR, ".gitignore"));
-			expect(gitignore).toContain(".indexer-cli/");
-			expect(gitignore).not.toContain(".claude/");
-			expect(gitignore).not.toContain(".agents/");
+			const gitignoreLines = gitignore.split(/\r?\n/);
+			expect(gitignoreLines).toContain(".indexer-cli/");
+			expect(gitignoreLines).not.toContain(".claude/");
+			expect(gitignoreLines).not.toContain(".agents/");
+			expect(gitignoreLines).not.toContain(".claude/skills/repo-discovery/");
+			expect(gitignoreLines).not.toContain(".agents/skills/repo-discovery/");
+			expect(gitignoreLines).not.toContain("CLAUDE.md");
+			expect(gitignoreLines).not.toContain("AGENTS.md");
 
 			const hook = readTextFile(hookPath);
 			expect(hook).toContain("idx index");
@@ -147,8 +152,13 @@ describe.sequential("CLI e2e", () => {
 			expect(config.skillTargets).toEqual(["claude", "codex"]);
 
 			const gitignore = readTextFile(path.join(TEMP_DIR, ".gitignore"));
-			expect(gitignore).toContain(".claude/");
-			expect(gitignore).toContain(".agents/");
+			const gitignoreLines = gitignore.split(/\r?\n/);
+			expect(gitignoreLines).toContain(".claude/skills/repo-discovery/");
+			expect(gitignoreLines).toContain(".agents/skills/repo-discovery/");
+			expect(gitignoreLines).not.toContain(".claude/");
+			expect(gitignoreLines).not.toContain(".agents/");
+			expect(gitignoreLines).not.toContain("CLAUDE.md");
+			expect(gitignoreLines).not.toContain("AGENTS.md");
 		});
 
 		it("installs only the Codex skill when --codex is the only target", () => {
@@ -180,8 +190,12 @@ describe.sequential("CLI e2e", () => {
 				) as { skillTargets: string[] };
 				expect(config.skillTargets).toEqual(["codex"]);
 				const gitignore = readTextFile(path.join(tempRoot, ".gitignore"));
-				expect(gitignore).toContain(".agents/");
-				expect(gitignore).not.toContain(".claude/");
+				const gitignoreLines = gitignore.split(/\r?\n/);
+				expect(gitignoreLines).toContain(".agents/skills/repo-discovery/");
+				expect(gitignoreLines).not.toContain(".agents/");
+				expect(gitignoreLines).not.toContain(".claude/");
+				expect(gitignoreLines).not.toContain("CLAUDE.md");
+				expect(gitignoreLines).not.toContain("AGENTS.md");
 			} finally {
 				removeTempProject(tempRoot);
 			}
@@ -301,15 +315,17 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Snapshot:");
 			expect(result.stdout).toContain("Files indexed:");
 			expect(result.stdout).toContain("Chunks created:");
+			expect(result.stdout).toContain("Embeddings:");
 		});
 
 		it("reports status for all fixture files", () => {
 			const result = runCLI(["index", "--status"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
-			expect(result.stdout).toContain("Files: 32");
+			expect(result.stdout).toContain("Files: 36");
 			expect(result.stdout).toContain("Symbols:");
 			expect(result.stdout).toContain("Chunks:");
+			expect(result.stdout).toContain("Embeddings:");
 			expect(result.stdout).toContain("Languages: typescript: 36");
 		});
 
@@ -2069,6 +2085,8 @@ describe.sequential("CLI e2e", () => {
 			expect(gitignore).not.toContain(".indexer-cli/");
 			expect(gitignore).not.toContain(".claude/");
 			expect(gitignore).not.toContain(".agents/");
+			expect(gitignore).not.toContain(".claude/skills/repo-discovery/");
+			expect(gitignore).not.toContain(".agents/skills/repo-discovery/");
 
 			const hookPath = path.join(TEMP_DIR, ".git", "hooks", "post-commit");
 			if (fileExists(hookPath)) {
@@ -2081,6 +2099,56 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Nothing to remove");
+		});
+
+		it("preserves user agent context and gitignore entries for a no-skill project", () => {
+			const tempRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-no-skill-context-"),
+			);
+			removeTempProject(tempRoot);
+			createTempProject(tempRoot);
+			gitInit(tempRoot);
+			mkdirSync(path.join(tempRoot, ".claude"), { recursive: true });
+			mkdirSync(path.join(tempRoot, ".agents"), { recursive: true });
+			writeFileSync(
+				path.join(tempRoot, ".claude", "settings.json"),
+				'{"owner":"user"}\n',
+				"utf8",
+			);
+			writeFileSync(
+				path.join(tempRoot, ".agents", "settings.json"),
+				'{"owner":"user"}\n',
+				"utf8",
+			);
+			writeFileSync(
+				path.join(tempRoot, ".gitignore"),
+				".claude/\n.agents/\nCLAUDE.md\nAGENTS.md\n",
+				"utf8",
+			);
+
+			try {
+				const init = runCLI(["init"], { cwd: tempRoot });
+				expect(init.exitCode).toBe(0);
+				const uninstall = runCLI(["uninstall", "--force"], { cwd: tempRoot });
+				expect(uninstall.exitCode).toBe(0);
+
+				const gitignoreLines = readTextFile(path.join(tempRoot, ".gitignore")).split(
+					/\r?\n/,
+				);
+				expect(gitignoreLines).toContain(".claude/");
+				expect(gitignoreLines).toContain(".agents/");
+				expect(gitignoreLines).toContain("CLAUDE.md");
+				expect(gitignoreLines).toContain("AGENTS.md");
+				expect(gitignoreLines).not.toContain(".indexer-cli/");
+				expect(readTextFile(path.join(tempRoot, ".claude", "settings.json"))).toContain(
+					'"owner":"user"',
+				);
+				expect(readTextFile(path.join(tempRoot, ".agents", "settings.json"))).toContain(
+					'"owner":"user"',
+				);
+			} finally {
+				removeTempProject(tempRoot);
+			}
 		});
 
 		it("cleans stale generated artifacts from a subdirectory even without .indexer-cli", () => {

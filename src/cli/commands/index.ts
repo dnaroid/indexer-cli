@@ -230,8 +230,9 @@ export function registerIndexCommand(program: Command): void {
 							return;
 						}
 
-						const [files, symbols, dependencies] = await Promise.all([
+						const [files, chunks, symbols, dependencies] = await Promise.all([
 							metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, {}),
+							metadata.listChunks(DEFAULT_PROJECT_ID, snapshot.id),
 							metadata.listSymbols(DEFAULT_PROJECT_ID, snapshot.id),
 							metadata.listDependencies(DEFAULT_PROJECT_ID, snapshot.id),
 						]);
@@ -270,7 +271,7 @@ export function registerIndexCommand(program: Command): void {
 							`Created: ${snapshot.createdAt}  |  Git ref: ${snapshot.meta.headCommit ?? "unknown"}`,
 						);
 						console.log(
-							`Files: ${files.length}  |  Symbols: ${symbols.length}  |  Chunks: ${vectorCount}  |  Dependencies: ${dependencies.length}`,
+							`Files: ${files.length}  |  Symbols: ${symbols.length}  |  Chunks: ${chunks.length}  |  Embeddings: ${vectorCount}  |  Dependencies: ${dependencies.length}`,
 						);
 
 						if (languages.size > 0) {
@@ -474,12 +475,15 @@ export function registerIndexCommand(program: Command): void {
 						console.log("Index completed successfully.");
 						console.log(`  Snapshot: ${result.snapshotId}`);
 						console.log(`  Files indexed: ${result.filesIndexed}${totalFiles}`);
-						console.log(
-							`  Chunks created: ${await vectors.countVectors({
+						const [chunks, embeddingCount] = await Promise.all([
+							metadata.listChunks(DEFAULT_PROJECT_ID, result.snapshotId),
+							vectors.countVectors({
 								projectId: DEFAULT_PROJECT_ID,
 								snapshotId: result.snapshotId,
-							})}`,
-						);
+							}),
+						]);
+						console.log(`  Chunks created: ${chunks.length}`);
+						console.log(`  Embeddings: ${embeddingCount}`);
 						console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
 						console.log(`  Errors: ${result.errors.length}`);
 

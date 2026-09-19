@@ -15,14 +15,14 @@ async function loadInitInternals<T>(): Promise<T> {
 	);
 	const source = readFileSync(filePath, "utf8");
 	const match = source.match(
-		/async function pathExists[\s\S]*?(?=async function ensureGitignoreEntries)/,
+		/async function pathExists[\s\S]*?(?=async function persistSkillTargets)/,
 	);
 	if (!match) {
 		throw new Error(`Unable to extract init helpers from ${filePath}`);
 	}
 
 	const transpiled = ts.transpileModule(
-		`import { constants as fsConstants } from "node:fs";\nimport { access, mkdir, rm, writeFile } from "node:fs/promises";\nimport path from "node:path";\nconst GENERATED_SKILL_DIRECTORIES = [];\nconst GENERATED_SKILLS = [];\n${match[0]}\nexport { pathExists, writeSkillsForTarget, refreshSkillsForTarget, detectInstalledSkillTargets };`,
+		`import { constants as fsConstants } from "node:fs";\nimport { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";\nimport path from "node:path";\nconst GENERATED_SKILL_DIRECTORIES = ["repo-discovery"];\nconst GENERATED_SKILLS = [];\n${match[0]}\nexport { pathExists, writeSkillsForTarget, refreshSkillsForTarget, detectInstalledSkillTargets, ensureGitignoreEntries, skillIgnoreEntries };`,
 		{
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
@@ -46,6 +46,8 @@ const initInternals = await loadInitInternals<{
 	detectInstalledSkillTargets: (
 		projectRoot: string,
 	) => Promise<Array<"claude" | "codex">>;
+	ensureGitignoreEntries: (projectRoot: string, entries: string[]) => Promise<void>;
+	skillIgnoreEntries: (target: "claude" | "codex") => string[];
 }>();
 
 afterEach(async () => {
@@ -55,6 +57,28 @@ afterEach(async () => {
 });
 
 describe("init command helpers", () => {
+	it("scopes gitignore entries to idx-generated skill directories", () => {
+		expect(initInternals.skillIgnoreEntries("claude")).toEqual([
+			".claude/skills/repo-discovery/",
+		]);
+		expect(initInternals.skillIgnoreEntries("codex")).toEqual([
+			".agents/skills/repo-discovery/",
+		]);
+	});
+
+	it("treats root-anchored idx ignores as equivalent and preserves context entries", async () => {
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-"));
+		tempDirs.push(projectRoot);
+		const gitignorePath = path.join(projectRoot, ".gitignore");
+		writeFileSync(gitignorePath, "/.indexer-cli/\nCLAUDE.md\n", "utf8");
+
+		await initInternals.ensureGitignoreEntries(projectRoot, [".indexer-cli/"]);
+
+		expect(readFileSync(gitignorePath, "utf8")).toBe(
+			"/.indexer-cli/\nCLAUDE.md\n",
+		);
+	});
+
 	it("refreshes only this CLI's generated skill directories", async () => {
 		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-"));
 		tempDirs.push(projectRoot);

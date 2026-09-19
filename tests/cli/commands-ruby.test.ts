@@ -124,7 +124,9 @@ describe.sequential("CLI e2e Ruby", () => {
 
 			const gitignore = readTextFile(path.join(TEMP_DIR, ".gitignore"));
 			expect(gitignore).toContain(".indexer-cli/");
-			expect(gitignore).toContain(".claude/");
+			expect(gitignore.split(/\r?\n/)).toContain(
+				".claude/skills/repo-discovery/",
+			);
 
 			const hook = readTextFile(hookPath);
 			expect(hook).toContain("idx index");

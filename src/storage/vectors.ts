@@ -47,10 +47,6 @@ type VectorMetaRow = {
 	file_domain: FileDomain;
 };
 
-type VectorCopyRow = VectorMetaRow & {
-	embedding: unknown;
-};
-
 type VectorSearchRow = VectorMetaRow & {
 	distance: number;
 };
@@ -74,29 +70,7 @@ export class SqliteVecVectorStore implements VectorStore {
 
 		const db = this.getDb();
 		const initSchema = db.transaction(() => {
-			db.exec(`
-				CREATE TABLE IF NOT EXISTS vector_meta (
-					chunk_id TEXT PRIMARY KEY,
-					project_id TEXT NOT NULL,
-					snapshot_id TEXT NOT NULL,
-					file_path TEXT NOT NULL,
-					start_line INTEGER NOT NULL,
-					end_line INTEGER NOT NULL,
-					content_hash TEXT NOT NULL,
-					chunk_type TEXT NOT NULL DEFAULT '',
-					primary_symbol TEXT NOT NULL DEFAULT '',
-					file_domain TEXT NOT NULL DEFAULT 'code'
-				);
-
-				CREATE INDEX IF NOT EXISTS idx_vector_meta_snapshot_id
-				ON vector_meta(snapshot_id);
-
-				CREATE INDEX IF NOT EXISTS idx_vector_meta_project_id
-				ON vector_meta(project_id);
-
-				CREATE INDEX IF NOT EXISTS idx_vector_meta_file_path
-				ON vector_meta(file_path);
-			`);
+			this.ensureVectorMetaSchema(db);
 
 			const vecChunksExists = db
 				.prepare(
@@ -112,22 +86,157 @@ export class SqliteVecVectorStore implements VectorStore {
 				`);
 			}
 
-			const columns = db.prepare("PRAGMA table_info(vector_meta)").all() as Array<{
-				name: string;
-			}>;
-			if (!columns.some((column) => column.name === "file_domain")) {
-				db.exec(
-					"ALTER TABLE vector_meta ADD COLUMN file_domain TEXT NOT NULL DEFAULT 'code'",
-				);
-			}
-			db.exec(
-				"CREATE INDEX IF NOT EXISTS idx_vector_meta_file_domain ON vector_meta(file_domain)",
-			);
+			this.backfillSnapshotMemberships(db);
 		});
 
 		initSchema.immediate();
 
 		this.initialized = true;
+	}
+
+	private ensureVectorMetaSchema(db: Database.Database): void {
+		const exists = db
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vector_meta'",
+			)
+			.get();
+
+		if (!exists) {
+			this.createVectorMetaTable(db, "vector_meta");
+		} else {
+			let columns = db.prepare("PRAGMA table_info(vector_meta)").all() as Array<{
+				name: string;
+				pk: number;
+			}>;
+			if (!columns.some((column) => column.name === "file_domain")) {
+				db.exec(
+					"ALTER TABLE vector_meta ADD COLUMN file_domain TEXT NOT NULL DEFAULT 'code'",
+				);
+				columns = db.prepare("PRAGMA table_info(vector_meta)").all() as Array<{
+					name: string;
+					pk: number;
+				}>;
+			}
+
+			const primaryKey = columns
+				.filter((column) => column.pk > 0)
+				.sort((left, right) => left.pk - right.pk)
+				.map((column) => column.name);
+			const snapshotAware =
+				primaryKey.length === 3 &&
+				primaryKey[0] === "project_id" &&
+				primaryKey[1] === "snapshot_id" &&
+				primaryKey[2] === "chunk_id";
+
+			if (!snapshotAware) {
+				db.exec("DROP TABLE IF EXISTS vector_meta_snapshot_aware");
+				this.createVectorMetaTable(db, "vector_meta_snapshot_aware");
+				db.exec(`
+					INSERT OR IGNORE INTO vector_meta_snapshot_aware (
+						chunk_id, project_id, snapshot_id, file_path, start_line,
+						end_line, content_hash, chunk_type, primary_symbol, file_domain
+					)
+					SELECT
+						chunk_id, project_id, snapshot_id, file_path, start_line,
+						end_line, content_hash, chunk_type, primary_symbol, file_domain
+					FROM vector_meta;
+					DROP TABLE vector_meta;
+					ALTER TABLE vector_meta_snapshot_aware RENAME TO vector_meta;
+				`);
+			}
+		}
+
+		db.exec(`
+			CREATE INDEX IF NOT EXISTS idx_vector_meta_snapshot_id
+			ON vector_meta(snapshot_id);
+
+			CREATE INDEX IF NOT EXISTS idx_vector_meta_project_id
+			ON vector_meta(project_id);
+
+			CREATE INDEX IF NOT EXISTS idx_vector_meta_file_path
+			ON vector_meta(file_path);
+
+			CREATE INDEX IF NOT EXISTS idx_vector_meta_file_domain
+			ON vector_meta(file_domain);
+		`);
+	}
+
+	private createVectorMetaTable(db: Database.Database, tableName: string): void {
+		db.exec(`
+			CREATE TABLE ${tableName} (
+				chunk_id TEXT NOT NULL,
+				project_id TEXT NOT NULL,
+				snapshot_id TEXT NOT NULL,
+				file_path TEXT NOT NULL,
+				start_line INTEGER NOT NULL,
+				end_line INTEGER NOT NULL,
+				content_hash TEXT NOT NULL,
+				chunk_type TEXT NOT NULL DEFAULT '',
+				primary_symbol TEXT NOT NULL DEFAULT '',
+				file_domain TEXT NOT NULL DEFAULT 'code',
+				PRIMARY KEY (project_id, snapshot_id, chunk_id)
+			)
+		`);
+	}
+
+	private tableExists(db: Database.Database, tableName: string): boolean {
+		return Boolean(
+			db
+				.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+				.get(tableName),
+		);
+	}
+
+	private backfillSnapshotMemberships(db: Database.Database): void {
+		if (!this.tableExists(db, "vec_chunks")) return;
+
+		if (this.tableExists(db, "chunks")) {
+			db.exec(`
+				INSERT OR IGNORE INTO vector_meta (
+					chunk_id, project_id, snapshot_id, file_path, start_line,
+					end_line, content_hash, chunk_type, primary_symbol, file_domain
+				)
+				SELECT
+					c.chunk_id,
+					c.project_id,
+					c.snapshot_id,
+					c.file_path,
+					c.start_line,
+					c.end_line,
+					c.content_hash,
+					COALESCE(c.chunk_type, ''),
+					COALESCE(c.primary_symbol, ''),
+					'code'
+				FROM chunks c
+				WHERE EXISTS (
+					SELECT 1 FROM vec_chunks vc WHERE vc.chunk_id = c.chunk_id
+				)
+			`);
+		}
+
+		if (this.tableExists(db, "knowledge_chunks")) {
+			db.exec(`
+				INSERT OR IGNORE INTO vector_meta (
+					chunk_id, project_id, snapshot_id, file_path, start_line,
+					end_line, content_hash, chunk_type, primary_symbol, file_domain
+				)
+				SELECT
+					k.chunk_id,
+					k.project_id,
+					k.snapshot_id,
+					k.file_path,
+					k.start_line,
+					k.end_line,
+					k.content_hash,
+					COALESCE(k.chunk_type, ''),
+					COALESCE(k.heading, ''),
+					'document'
+				FROM knowledge_chunks k
+				WHERE EXISTS (
+					SELECT 1 FROM vec_chunks vc WHERE vc.chunk_id = k.chunk_id
+				)
+			`);
+		}
 	}
 
 	async close(): Promise<void> {
@@ -150,7 +259,7 @@ export class SqliteVecVectorStore implements VectorStore {
 			"DELETE FROM vec_chunks WHERE chunk_id = ?",
 		);
 		const deleteMetaStatement = db.prepare(
-			"DELETE FROM vector_meta WHERE chunk_id = ?",
+			"DELETE FROM vector_meta WHERE project_id = ? AND snapshot_id = ? AND chunk_id = ?",
 		);
 		const insertMetaStatement = db.prepare(`
 			INSERT INTO vector_meta (
@@ -173,7 +282,11 @@ export class SqliteVecVectorStore implements VectorStore {
 		const upsertBatch = db.transaction((batch: VectorRecord[]) => {
 			for (const vector of batch) {
 				deleteVectorStatement.run(vector.chunkId);
-				deleteMetaStatement.run(vector.chunkId);
+				deleteMetaStatement.run(
+					vector.projectId,
+					vector.snapshotId,
+					vector.chunkId,
+				);
 				insertMetaStatement.run(
 					vector.chunkId,
 					vector.projectId,
@@ -283,17 +396,25 @@ export class SqliteVecVectorStore implements VectorStore {
 		await this.initialize();
 		const db = this.getDb();
 
+		const rows = db
+			.prepare(
+				"SELECT chunk_id FROM vector_meta WHERE project_id = ? AND snapshot_id = ?",
+			)
+			.all(projectId, snapshotId) as Array<{ chunk_id: string }>;
+
 		db.transaction(() => {
-			db.prepare(`
-				DELETE FROM vec_chunks
-				WHERE chunk_id IN (
-					SELECT chunk_id FROM vector_meta
-					WHERE project_id = ? AND snapshot_id = ?
-				)
-			`).run(projectId, snapshotId);
 			db.prepare(
 				"DELETE FROM vector_meta WHERE project_id = ? AND snapshot_id = ?",
 			).run(projectId, snapshotId);
+			const hasReference = db.prepare(
+				"SELECT 1 FROM vector_meta WHERE chunk_id = ? LIMIT 1",
+			);
+			const deleteVector = db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?");
+			for (const row of rows) {
+				if (!hasReference.get(row.chunk_id)) {
+					deleteVector.run(row.chunk_id);
+				}
+			}
 		})();
 	}
 
@@ -316,25 +437,21 @@ export class SqliteVecVectorStore implements VectorStore {
 
 		const rows = db
 			.prepare(`
-				SELECT vm.*, vc.embedding
+				SELECT vm.*
 				FROM vector_meta vm
-				JOIN vec_chunks vc ON vc.chunk_id = vm.chunk_id
 				WHERE ${conditions.join(" AND ")}
+					AND EXISTS (
+						SELECT 1 FROM vec_chunks vc WHERE vc.chunk_id = vm.chunk_id
+					)
 			`)
-			.all(...values) as VectorCopyRow[];
+			.all(...values) as VectorMetaRow[];
 
 		if (rows.length === 0) {
 			return;
 		}
 
-		const deleteVectorStatement = db.prepare(
-			"DELETE FROM vec_chunks WHERE chunk_id = ?",
-		);
-		const deleteMetaStatement = db.prepare(
-			"DELETE FROM vector_meta WHERE chunk_id = ?",
-		);
 		const insertMetaStatement = db.prepare(`
-			INSERT INTO vector_meta (
+			INSERT OR IGNORE INTO vector_meta (
 				chunk_id,
 				project_id,
 				snapshot_id,
@@ -347,14 +464,8 @@ export class SqliteVecVectorStore implements VectorStore {
 				file_domain
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`);
-		const insertVectorStatement = db.prepare(
-			"INSERT INTO vec_chunks (chunk_id, embedding) VALUES (?, ?)",
-		);
-
-		const copyBatch = db.transaction((batch: VectorCopyRow[]) => {
+		const copyBatch = db.transaction((batch: VectorMetaRow[]) => {
 			for (const row of batch) {
-				deleteVectorStatement.run(row.chunk_id);
-				deleteMetaStatement.run(row.chunk_id);
 				insertMetaStatement.run(
 					row.chunk_id,
 					row.project_id,
@@ -366,10 +477,6 @@ export class SqliteVecVectorStore implements VectorStore {
 					row.chunk_type,
 					row.primary_symbol,
 					row.file_domain,
-				);
-				insertVectorStatement.run(
-					row.chunk_id,
-					this.normalizeStoredEmbedding(row.embedding),
 				);
 			}
 		});
@@ -384,14 +491,21 @@ export class SqliteVecVectorStore implements VectorStore {
 		await this.initialize();
 		const db = this.getDb();
 
+		const rows = db
+			.prepare("SELECT DISTINCT chunk_id FROM vector_meta WHERE project_id = ?")
+			.all(projectId) as Array<{ chunk_id: string }>;
+
 		db.transaction(() => {
-			db.prepare(`
-				DELETE FROM vec_chunks
-				WHERE chunk_id IN (
-					SELECT chunk_id FROM vector_meta WHERE project_id = ?
-				)
-			`).run(projectId);
 			db.prepare("DELETE FROM vector_meta WHERE project_id = ?").run(projectId);
+			const hasReference = db.prepare(
+				"SELECT 1 FROM vector_meta WHERE chunk_id = ? LIMIT 1",
+			);
+			const deleteVector = db.prepare("DELETE FROM vec_chunks WHERE chunk_id = ?");
+			for (const row of rows) {
+				if (!hasReference.get(row.chunk_id)) {
+					deleteVector.run(row.chunk_id);
+				}
+			}
 		})();
 	}
 

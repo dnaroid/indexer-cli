@@ -36,11 +36,37 @@ async function isDirEmpty(dirPath: string): Promise<boolean> {
 	return entries.length === 0;
 }
 
+type AgentRoot = ".claude" | ".agents";
+
+interface GeneratedSkillRemovalResult {
+	removedAny: boolean;
+	removedGenerated: boolean;
+}
+
+async function configuredAgentRoots(dataDir: string): Promise<Set<AgentRoot>> {
+	const configPath = path.join(dataDir, "config.json");
+	if (!(await pathExists(configPath))) return new Set();
+
+	try {
+		const parsed = JSON.parse(await readFile(configPath, "utf8")) as {
+			skillTargets?: unknown;
+		};
+		if (!Array.isArray(parsed.skillTargets)) return new Set();
+		const roots = new Set<AgentRoot>();
+		if (parsed.skillTargets.includes("claude")) roots.add(".claude");
+		if (parsed.skillTargets.includes("codex")) roots.add(".agents");
+		return roots;
+	} catch {
+		return new Set();
+	}
+}
+
 async function removeGeneratedSkillsAtRoot(
 	projectRoot: string,
-	agentRoot: ".claude" | ".agents",
-): Promise<boolean> {
+	agentRoot: AgentRoot,
+): Promise<GeneratedSkillRemovalResult> {
 	let removedAny = false;
+	let removedGenerated = false;
 
 	for (const skillDirectory of [
 		...GENERATED_SKILL_DIRECTORIES,
@@ -56,6 +82,7 @@ async function removeGeneratedSkillsAtRoot(
 			await rm(skillDir, { recursive: true, force: true });
 			console.log(`Removed ${skillDir}`);
 			removedAny = true;
+			removedGenerated = true;
 		}
 	}
 
@@ -80,7 +107,7 @@ async function removeGeneratedSkillsAtRoot(
 		} catch {}
 	}
 
-	return removedAny;
+	return { removedAny, removedGenerated };
 }
 
 async function removeFromGitignore(
@@ -140,6 +167,7 @@ async function removePostCommitHook(projectRoot: string): Promise<boolean> {
 export async function performUninstall(projectRoot: string): Promise<void> {
 	const dataDir = path.join(projectRoot, ".indexer-cli");
 	let removedAny = false;
+	const configuredRoots = await configuredAgentRoots(dataDir);
 
 	if (await pathExists(dataDir)) {
 		await rm(dataDir, { recursive: true, force: true });
@@ -147,16 +175,25 @@ export async function performUninstall(projectRoot: string): Promise<void> {
 		removedAny = true;
 	}
 
+	const claudeRemoval = await removeGeneratedSkillsAtRoot(projectRoot, ".claude");
+	const codexRemoval = await removeGeneratedSkillsAtRoot(projectRoot, ".agents");
+	removedAny = claudeRemoval.removedAny || removedAny;
+	removedAny = codexRemoval.removedAny || removedAny;
+	const gitignoreEntries = [
+		".indexer-cli/",
+		...GENERATED_SKILL_DIRECTORIES.flatMap((directory) => [
+			`.claude/skills/${directory}/`,
+			`.agents/skills/${directory}/`,
+		]),
+	];
+	if (configuredRoots.has(".claude") || claudeRemoval.removedGenerated) {
+		gitignoreEntries.push(".claude/");
+	}
+	if (configuredRoots.has(".agents") || codexRemoval.removedGenerated) {
+		gitignoreEntries.push(".agents/");
+	}
 	removedAny =
-		(await removeGeneratedSkillsAtRoot(projectRoot, ".claude")) || removedAny;
-	removedAny =
-		(await removeGeneratedSkillsAtRoot(projectRoot, ".agents")) || removedAny;
-	removedAny =
-		(await removeFromGitignore(projectRoot, [
-			".indexer-cli/",
-			".claude/",
-			".agents/",
-		])) ||
+		(await removeFromGitignore(projectRoot, gitignoreEntries)) ||
 		removedAny;
 	removedAny = (await removePostCommitHook(projectRoot)) || removedAny;
 
