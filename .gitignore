@@ -18,8 +18,6 @@ target/
 /.sisyphus/
 /.indexer-cli/
 /.claude/
-.indexer-cli/
-.claude/
 .pi/
 .omo/
 .pi
