@@ -35,6 +35,14 @@ afterEach(() => {
 });
 
 describe("published package install metadata", () => {
+	it("publishes the supported Node runtime range", () => {
+		const pkg = JSON.parse(readFileSync(path.join(CLI_ROOT, "package.json"), "utf8")) as {
+			engines?: { node?: string };
+		};
+
+		expect(pkg.engines?.node).toBe("^22.19.0 || ^24.0.0 || ^26.0.0");
+	});
+
 	it("exposes both idx and indexer-cli bins", () => {
 		const pkg = JSON.parse(readFileSync(path.join(CLI_ROOT, "package.json"), "utf8")) as {
 			bin?: Record<string, string>;
