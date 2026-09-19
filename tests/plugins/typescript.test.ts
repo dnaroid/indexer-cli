@@ -454,7 +454,7 @@ describe("TypeScriptPlugin", () => {
 	});
 
 	describe("extractSymbols() signature extraction", () => {
-		it("extracts function signature as first line of declaration", () => {
+		it("extracts a body-free function signature", () => {
 			const parsed = parseInline(
 				"inline/sig-func.ts",
 				[
@@ -469,7 +469,7 @@ describe("TypeScriptPlugin", () => {
 			const fn = symbols.find((s) => s.name === "processData");
 			expect(fn).toBeDefined();
 			expect(fn!.signature).toBe(
-				"export async function processData(input: string, opts?: Options): Promise<Result> {",
+				"export async function processData(input: string, opts?: Options): Promise<Result>",
 			);
 		});
 
@@ -510,8 +510,59 @@ describe("TypeScriptPlugin", () => {
 			);
 			expect(method).toBeDefined();
 			expect(method!.signature).toBe(
-				"public async connect(host: string, port: number): Promise<void> {",
+				"public async connect(host: string, port: number): Promise<void>",
 			);
+		});
+
+		it("keeps multiline callable types and defaults while excluding bodies", () => {
+			const parsed = parseInline(
+				"inline/sig-multiline.ts",
+				[
+					"export async function configure(",
+					"  options: { retries: number; onError: (error: Error) => void },",
+					"  transform = (value: string) => ({ value }),",
+					"): Promise<{ ok: boolean; values: string[] }> {",
+					"  const hiddenBodyValue = transform(\"ready\");",
+					"  return { ok: true, values: [hiddenBodyValue.value] };",
+					"}",
+					"",
+					"export class Service {",
+					"  async execute(",
+					"    handler: (input: { id: string }) => Promise<{ accepted: boolean }>,",
+					"    defaults = { retry: true },",
+					"  ): Promise<{ result: string }> {",
+					"    const methodBodyValue = await handler({ id: \"1\" });",
+					"    return { result: String(methodBodyValue.accepted) };",
+					"  }",
+					"}",
+				].join("\n"),
+			);
+
+			const symbols = plugin.extractSymbols(parsed);
+			const configure = symbols.find((symbol) => symbol.name === "configure");
+			const execute = symbols.find(
+				(symbol) => symbol.name === "execute" && symbol.kind === "method",
+			);
+
+			expect(configure?.signature).toBe(
+				[
+					"export async function configure(",
+					"  options: { retries: number; onError: (error: Error) => void },",
+					"  transform = (value: string) => ({ value }),",
+					"): Promise<{ ok: boolean; values: string[] }>",
+				].join("\n"),
+			);
+			expect(execute?.signature).toContain(
+				"handler: (input: { id: string }) => Promise<{ accepted: boolean }>",
+			);
+			expect(execute?.signature).toContain(
+				"): Promise<{ result: string }>",
+			);
+			for (const signature of [configure?.signature, execute?.signature]) {
+				expect(signature).not.toContain("hiddenBodyValue");
+				expect(signature).not.toContain("methodBodyValue");
+				expect(signature).not.toMatch(/\{\s*$/);
+			}
 		});
 
 		it("extracts interface signature", () => {

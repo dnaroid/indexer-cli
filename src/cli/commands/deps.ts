@@ -4,6 +4,7 @@ import type { Command } from "commander";
 import {
 	Node,
 	SyntaxKind,
+	type Identifier,
 	type SourceFile as TypeScriptSourceFile,
 } from "ts-morph";
 import { config } from "../../core/config.js";
@@ -41,6 +42,13 @@ interface CallEdge {
 type ParsedFileCacheEntry = {
 	parsed: ParsedFile;
 	plugin: LanguagePlugin;
+};
+
+type CalledReference = {
+	name: string;
+	receiver?:
+		| { kind: "this"; className: string; isStatic: boolean }
+		| { kind: "class" | "instanceClass"; className: string };
 };
 
 type CallGraphIndexes = {
@@ -206,38 +214,154 @@ function nodeStartsInSymbolRange(
 	);
 }
 
-function calledNameFromTypeScriptExpression(
-	expression: Node,
-): string | undefined {
-	if (Node.isIdentifier(expression)) return expression.getText();
-	if (Node.isPropertyAccessExpression(expression)) return expression.getName();
+function typeScriptThisReceiver(
+	callExpression: Node,
+): CalledReference["receiver"] | undefined {
+	for (const ancestor of callExpression.getAncestors()) {
+		if (Node.isArrowFunction(ancestor)) continue;
+		if (Node.isMethodDeclaration(ancestor)) {
+			// Object-literal methods also use MethodDeclaration. Only a method
+			// directly owned by a class has the class's `this` binding.
+			const owner = ancestor.getParent();
+			const classDeclaration = Node.isClassDeclaration(owner) ? owner : undefined;
+			const className = classDeclaration?.getName();
+			if (!className) return undefined;
+			return {
+				kind: "this",
+				className,
+				isStatic: ancestor.hasModifier(SyntaxKind.StaticKeyword),
+			};
+		}
+		// A normal nested function has its own `this`; resolving it to the
+		// enclosing class would create a false edge.
+		if (
+			Node.isFunctionDeclaration(ancestor) ||
+			Node.isFunctionExpression(ancestor)
+		) {
+			return undefined;
+		}
+	}
 	return undefined;
 }
 
-function calledNamesInTypeScript(
+function calledReferenceFromTypeScriptExpression(
+	callExpression: Node,
+): CalledReference | undefined {
+	const expression = Node.isCallExpression(callExpression)
+		? callExpression.getExpression()
+		: Node.isNewExpression(callExpression)
+			? callExpression.getExpression()
+			: undefined;
+	if (!expression) return undefined;
+	if (Node.isIdentifier(expression)) return { name: expression.getText() };
+	if (!Node.isPropertyAccessExpression(expression)) return undefined;
+
+	const receiver = expression.getExpression();
+	if (receiver.getKind() === SyntaxKind.ThisKeyword) {
+		const thisReceiver = typeScriptThisReceiver(callExpression);
+		return thisReceiver ? { name: expression.getName(), receiver: thisReceiver } : undefined;
+	}
+	if (Node.isIdentifier(receiver)) {
+		const instanceClassName = receiverClassFromLocalInitializer(
+			callExpression,
+			receiver,
+		);
+		if (instanceClassName) {
+			return {
+				name: expression.getName(),
+				receiver: { kind: "instanceClass", className: instanceClassName },
+			};
+		}
+		// An unresolved local is not a static class reference merely because its
+		// spelling matches a class elsewhere. Respect the identifier's binding.
+		const declarations = receiver.getSymbol()?.getDeclarations() ?? [];
+		if (!declarations.some((declaration) =>
+			Node.isClassDeclaration(declaration) ||
+			Node.isImportSpecifier(declaration) ||
+			Node.isImportClause(declaration)
+		)) return undefined;
+		return {
+			name: expression.getName(),
+			receiver: { kind: "class", className: receiver.getText() },
+		};
+	}
+	// Arbitrary object receivers need type information. Do not guess based only
+	// on a property name.
+	return undefined;
+}
+
+function receiverClassFromLocalInitializer(
+	callExpression: Node,
+	receiver: Identifier,
+): string | undefined {
+	const symbol = receiver.getSymbol();
+	if (!symbol) return undefined;
+	const declaration = symbol
+		.getDeclarations()
+		.find(
+			(candidate) =>
+				Node.isVariableDeclaration(candidate) ||
+				Node.isParameterDeclaration(candidate),
+		);
+	if (!declaration || declaration.getStart() >= callExpression.getStart()) {
+		return undefined;
+	}
+
+	// A direct assignment can change the instance independently of its declared
+	// type or initializer. Without control-flow analysis, omit the edge.
+	const binding = symbol.compilerSymbol;
+	const reassigned = callExpression
+		.getSourceFile()
+		.getDescendantsOfKind(SyntaxKind.BinaryExpression)
+		.some((assignment) => {
+			if (assignment.getStart() >= callExpression.getStart()) return false;
+			if (assignment.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) {
+				return false;
+			}
+			const left = assignment.getLeft();
+			return (
+				Node.isIdentifier(left) &&
+				left.getSymbol()?.compilerSymbol === binding
+			);
+		});
+	if (reassigned) return undefined;
+
+	const initializer = Node.isVariableDeclaration(declaration)
+		? declaration.getInitializer()
+		: undefined;
+	if (initializer && Node.isNewExpression(initializer)) {
+		const expression = initializer.getExpression();
+		if (Node.isIdentifier(expression)) return expression.getText();
+	}
+
+	const typeName = Node.isParameterDeclaration(declaration)
+		? declaration.getTypeNode()?.getText()
+		: undefined;
+	return typeName && /^[A-Za-z_$][\w$]*$/.test(typeName)
+		? typeName
+		: undefined;
+}
+
+function calledReferencesInTypeScript(
 	sourceFile: TypeScriptSourceFile,
 	symbol: SymbolRecord,
-): Set<string> {
-	const names = new Set<string>();
+): CalledReference[] {
+	const references: CalledReference[] = [];
 	for (const callExpression of sourceFile.getDescendantsOfKind(
 		SyntaxKind.CallExpression,
 	)) {
 		if (!nodeStartsInSymbolRange(sourceFile, callExpression, symbol)) continue;
-		const calledName = calledNameFromTypeScriptExpression(
-			callExpression.getExpression(),
-		);
-		if (calledName) names.add(calledName);
+		const reference = calledReferenceFromTypeScriptExpression(callExpression);
+		if (reference) references.push(reference);
 	}
 	for (const newExpression of sourceFile.getDescendantsOfKind(
 		SyntaxKind.NewExpression,
 	)) {
 		if (!nodeStartsInSymbolRange(sourceFile, newExpression, symbol)) continue;
-		const calledName = calledNameFromTypeScriptExpression(
-			newExpression.getExpression(),
-		);
-		if (calledName) names.add(calledName);
+		const reference = calledReferenceFromTypeScriptExpression(newExpression);
+		if (reference) references.push(reference);
 	}
-	return names;
+	return references;
 }
 
 function treeSitterChildren(node: TreeSitterNodeLike): TreeSitterNodeLike[] {
@@ -415,17 +539,37 @@ function calledNamesInTreeSitter(
 	return names;
 }
 
-function calledNamesInParsedFile(
+function calledReferencesInParsedFile(
 	entry: ParsedFileCacheEntry,
 	symbol: SymbolRecord,
-): Set<string> {
+): CalledReference[] {
 	if (entry.plugin.id === "typescript") {
-		return calledNamesInTypeScript(
+		return calledReferencesInTypeScript(
 			entry.parsed.ast as TypeScriptSourceFile,
 			symbol,
 		);
 	}
-	return calledNamesInTreeSitter(entry.parsed, symbol);
+	return [...calledNamesInTreeSitter(entry.parsed, symbol)].map((name) => ({
+		name,
+	}));
+}
+
+function typeScriptMethodIsStatic(
+	sourceFile: TypeScriptSourceFile,
+	symbol: SymbolRecord,
+): boolean | undefined {
+	if (!symbol.containerName) return undefined;
+	const method = sourceFile
+		.getClasses()
+		.find((classDeclaration) => classDeclaration.getName() === symbol.containerName)
+		?.getMethods()
+		.find(
+			(candidate) =>
+				candidate.getName() === symbol.name &&
+				sourceFile.getLineAndColumnAtPos(candidate.getStart()).line ===
+					symbol.range.start.line,
+		);
+	return method?.hasModifier(SyntaxKind.StaticKeyword);
 }
 
 function createCallGraphIndexes(
@@ -434,6 +578,7 @@ function createCallGraphIndexes(
 	dependencies: DependencyRecord[],
 ): CallGraphIndexes {
 	const callableSymbols = symbols.filter(isCallableSymbol);
+	const classSymbols = symbols.filter((symbol) => symbol.kind === "class");
 	const symbolsByFileAndName = new Map<string, Map<string, SymbolRecord[]>>();
 	for (const symbol of callableSymbols) {
 		let symbolsByName = symbolsByFileAndName.get(symbol.filePath);
@@ -466,6 +611,55 @@ function createCallGraphIndexes(
 	const callersByCallee = new Map<string, SymbolRecord[]>();
 	const processedCallers = new Set<string>();
 
+	const calleeMatchesReference = async (
+		reference: CalledReference,
+		callee: SymbolRecord,
+		candidateFiles: string[],
+		callerFilePath: string,
+	): Promise<boolean> => {
+		if (!reference.receiver) return true;
+		const receiver = reference.receiver;
+		if (receiver.kind === "this") {
+			if (
+				callee.filePath !== callerFilePath ||
+				callee.containerName !== receiver.className
+			) {
+				return false;
+			}
+		} else {
+			const matchingClasses = classSymbols.filter(
+				(symbol) =>
+					symbol.name === receiver.className &&
+					candidateFiles.includes(symbol.filePath),
+			);
+			// Without import/type resolution, a duplicated class name is ambiguous.
+			if (
+				matchingClasses.length !== 1 ||
+				callee.filePath !== matchingClasses[0].filePath ||
+				callee.containerName !== receiver.className
+			) {
+				return false;
+			}
+		}
+
+		const calleeEntry = await getParsedFile(
+			repoRoot,
+			languagePlugins,
+			fileCache,
+			callee.filePath,
+		);
+		if (calleeEntry.plugin.id !== "typescript") return false;
+		const calleeIsStatic = typeScriptMethodIsStatic(
+			calleeEntry.parsed.ast as TypeScriptSourceFile,
+			callee,
+		);
+		if (calleeIsStatic === undefined) return false;
+		if (receiver.kind === "this") {
+			return calleeIsStatic === receiver.isStatic;
+		}
+		return receiver.kind === "class" ? calleeIsStatic : !calleeIsStatic;
+	};
+
 	const processCaller = async (caller: SymbolRecord): Promise<void> => {
 		if (processedCallers.has(caller.id)) return;
 		processedCallers.add(caller.id);
@@ -475,20 +669,30 @@ function createCallGraphIndexes(
 			fileCache,
 			caller.filePath,
 		);
-		const calledNames = calledNamesInParsedFile(parsedEntry, caller);
+		const calledReferences = calledReferencesInParsedFile(parsedEntry, caller);
 		const importedFiles =
 			internalImportsByFile.get(caller.filePath) ?? new Set<string>();
 		const candidateFiles = [caller.filePath, ...importedFiles];
 		const callees: SymbolRecord[] = [];
-		for (const calledName of calledNames) {
+		const callerFilePath = caller.filePath;
+		for (const reference of calledReferences) {
 			for (const candidateFile of candidateFiles) {
 				const candidates = symbolsByFileAndName
 					.get(candidateFile)
-					?.get(calledName);
+					?.get(reference.name);
 				if (!candidates) continue;
 
 				for (const callee of candidates) {
 					if (callee.id === caller.id) continue;
+					if (
+						!(await calleeMatchesReference(
+							reference,
+							callee,
+							candidateFiles,
+							callerFilePath,
+						))
+					)
+						continue;
 
 					callees.push(callee);
 					const callers = callersByCallee.get(callee.id) ?? [];

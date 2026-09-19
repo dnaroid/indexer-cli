@@ -192,7 +192,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 				filePath: sourceFile.getFilePath(),
 				range: this.getRange(f),
 				exported: isExportedSafe(f),
-				signature: this.firstLine(f.getText()),
+				signature: this.callableSignature(f),
 			});
 		}
 
@@ -240,7 +240,7 @@ export class TypeScriptPlugin implements LanguagePlugin {
 					range: this.getRange(m),
 					containerName: c.getName(),
 					exported: isExportedSafe(m),
-					signature: this.firstLine(m.getText()),
+					signature: this.callableSignature(m),
 				});
 			}
 		}
@@ -725,6 +725,20 @@ export class TypeScriptPlugin implements LanguagePlugin {
 		if (!trimmed) return trimmed;
 		const newlineIndex = trimmed.indexOf("\n");
 		return newlineIndex === -1 ? trimmed : trimmed.slice(0, newlineIndex);
+	}
+
+	/**
+	 * Returns only the declaration portion of a callable. The AST body boundary
+	 * is necessary here: braces also occur in parameter and return types, as
+	 * well as in default values, so textual brace splitting is not reliable.
+	 */
+	private callableSignature(node: Node): string {
+		const callable = node as Node & { getBody?: () => Node | undefined };
+		const body = callable.getBody?.();
+		const text = node.getText();
+		if (!body) return text.trim();
+
+		return text.slice(0, body.getStart() - node.getStart()).trimEnd();
 	}
 }
 

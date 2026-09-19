@@ -3,7 +3,8 @@ import { readFile } from "node:fs/promises";
 import type { Command } from "commander";
 import { config } from "../../core/config.js";
 import { initLogger } from "../../core/logger.js";
-import { DEFAULT_PROJECT_ID } from "../../core/types.js";
+import { DEFAULT_PROJECT_ID, type SymbolRecord } from "../../core/types.js";
+import { TypeScriptPlugin } from "../../languages/typescript.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { formatAutoIndexResult } from "../format/compact.js";
@@ -36,6 +37,58 @@ async function readBodyPreview(
 	const start = Math.max(0, startLine - 1);
 	const end = Math.min(lines.length, Math.min(endLine, startLine + maxLines - 1));
 	return lines.slice(start, end).map((line, index) => `${startLine + index} ${line}`);
+}
+
+/**
+ * Repairs a legacy first-line-only TS/JS callable signature at display time.
+ * Snapshots remain immutable, but a package upgrade must not require a user to
+ * rebuild solely to read a multi-line declaration.
+ */
+export async function refreshCallableSignatureForDisplay(
+	repoRoot: string,
+	symbol: Pick<
+		SymbolRecord,
+		"filePath" | "kind" | "name" | "containerName" | "range" | "signature"
+	>,
+): Promise<string | undefined> {
+	if (
+		(symbol.kind !== "function" && symbol.kind !== "method") ||
+		!/\.(?:[cm]?[jt]s|[jt]sx)$/i.test(symbol.filePath) ||
+		!symbol.signature
+	) {
+		return symbol.signature;
+	}
+
+	try {
+		const content = await readFile(path.join(repoRoot, symbol.filePath), "utf8");
+		const plugin = new TypeScriptPlugin();
+		const liveSymbol = plugin
+			.extractSymbols(plugin.parse({ path: symbol.filePath, content }))
+			.find(
+				(candidate) =>
+					candidate.kind === symbol.kind &&
+					candidate.name === symbol.name &&
+					candidate.containerName === symbol.containerName &&
+					candidate.range.startLine === symbol.range.start.line,
+			);
+
+		// Legacy storage used the first source line: either an incomplete header
+		// or a complete header followed by an executable body.
+		if (
+			liveSymbol?.signature &&
+			liveSymbol.signature !== symbol.signature &&
+			(liveSymbol.signature.startsWith(symbol.signature) ||
+				(symbol.signature.startsWith(liveSymbol.signature) &&
+					/^\s*\{/.test(symbol.signature.slice(liveSymbol.signature.length))))
+		) {
+			return liveSymbol.signature;
+		}
+	} catch {
+		// The indexed signature remains useful when the working-tree file is absent
+		// or cannot be parsed.
+	}
+
+	return symbol.signature;
 }
 
 export function registerExplainCommand(program: Command): void {
@@ -298,7 +351,7 @@ export function registerExplainCommand(program: Command): void {
 
 					const results = await Promise.all(
 						finalMatches.map(async (sym) => {
-							const [deps, dependents] = await Promise.all([
+							const [deps, dependents, signature] = await Promise.all([
 								metadata.listDependencies(
 									DEFAULT_PROJECT_ID,
 									snapshot.id,
@@ -309,6 +362,7 @@ export function registerExplainCommand(program: Command): void {
 									snapshot.id,
 									sym.filePath,
 								),
+								refreshCallableSignatureForDisplay(resolvedProjectPath, sym),
 							]);
 
 							return {
@@ -320,7 +374,7 @@ export function registerExplainCommand(program: Command): void {
 									end: sym.range.end.line,
 								},
 								exported: sym.exported,
-								signature: sym.signature,
+								signature,
 								docComment: sym.docComment ?? null,
 								callers: dependents
 									.map((d) => d.fromPath)
