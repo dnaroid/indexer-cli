@@ -40,7 +40,8 @@ read the smallest returned ranges, and expand only for a named gap.
 ## Compact tool guidance
 
 - \`repo_search\` guidance applies directly: search behavior, not a pile of
-  synonyms. Keep hybrid ranking unless lexical matches mislead. First pass is at
+  synonyms. Keep hybrid ranking for behavior discovery; it independently combines
+  semantic, lexical, symbol, and path candidates. First pass is at
   most 3 results and no \`--include-content\`. Scope with \`--path-prefix\` or
   \`--dedupe-file\` when useful. After finding causal code, stop broad search.
 - Read returned ranges instead of whole files. Do not mechanically chain
@@ -87,13 +88,21 @@ read the smallest returned ranges, and expand only for a named gap.
   require semantic review. Similarity never creates a durable relation by itself.
 - A reviewed no-impact outcome is valid. Never invent a relation merely to make
   coverage non-empty.
-- New/moved/changed document candidates must be classified. For low-signal docs
-  that normal discovery may miss, use \`idx wiki discover --all-unclassified\`.
+- New/moved unclassified document candidates must be read and classified. For
+  low-signal docs that normal discovery may miss, use
+  \`idx wiki discover --all-unclassified\`; this mode intentionally excludes
+  already-recorded entries.
+- A changed candidate with \`knownClassification\` is already registered project
+  knowledge. Review its source plus existing classification/metadata instead of
+  describing it as unregistered. Re-run \`idx wiki record\` when confirming or
+  updating that metadata; primary knowledge still uses the separate verify
+  lifecycle after evidence review.
 - When \`idx wiki status\`, \`idx wiki audit\`, \`idx wiki search\`, or
   \`idx context\` reports a candidate-review recommendation, explicitly tell the
-  user that unreviewed candidates remain, run \`idx wiki discover\`, read each
-  source, and classify it with \`idx wiki record\`. Candidates are not registered
-  knowledge until they have been reviewed.
+  user which unclassified and/or changed-classified review obligations remain,
+  run \`idx wiki discover\`, and read each source. Classify unclassified sources
+  with \`idx wiki record\`; review already-classified changed sources without
+  claiming that their existing knowledge registration disappeared.
 - When a primary spec moves, establish/classify the new path, preserve or repair
   evidence-backed code/test/spec relations, verify the new path after semantic
   review, and remove old metadata only after the new authority is established.

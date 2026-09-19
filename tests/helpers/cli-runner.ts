@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -33,9 +33,8 @@ export function runCLI(
 ): CLIRunResult {
 	const entry = resolveCliEntry();
 	const isTs = entry.endsWith(".ts");
-	const command = isTs
-		? `npx tsx "${entry}" ${args.join(" ")}`
-		: `node "${entry}" ${args.join(" ")}`;
+	const executable = isTs ? "npx" : process.execPath;
+	const executableArgs = isTs ? ["tsx", entry, ...args] : [entry, ...args];
 
 	try {
 		const env = {
@@ -44,7 +43,7 @@ export function runCLI(
 			FORCE_COLOR: "0",
 			INDEXER_CLI_HOME: path.join(os.tmpdir(), "indexer-cli-test-home"),
 		};
-		const stdout = execSync(command, {
+		const stdout = execFileSync(executable, executableArgs, {
 			cwd: options?.cwd,
 			encoding: "utf-8",
 			env,

@@ -32,6 +32,7 @@ function createMetadataStoreMock(
 		getFile: vi.fn(),
 		replaceChunks: vi.fn(),
 		listChunks: vi.fn(),
+		searchCodeChunks: vi.fn().mockResolvedValue([]),
 		replaceSymbols: vi.fn(),
 		listSymbols: vi.fn(),
 		searchSymbols: vi.fn(),

@@ -10,29 +10,55 @@ changed document candidates.
 
 - When one or more candidates require review, human-readable output includes an
   explicit `Recommendation:` alongside the command response.
-- The recommendation tells the agent to run `idx wiki discover`, read each
-  candidate's source, and classify it with `idx wiki record`.
-- The recommendation explicitly tells the agent to inform the user that
-  unreviewed candidates remain.
-- The recommendation warns that a candidate is not registered project knowledge
-  until its source has been reviewed.
-- JSON output from `status`, `audit`, and `search` includes the equivalent
-  `recommendation` string when the candidate count is greater than zero.
+- Candidate review distinguishes two categories from normal discovery:
+  - an **unclassified candidate** has no `knownClassification` and must be read
+    and classified with `idx wiki record` before it is registered project
+    knowledge;
+  - a **changed classified candidate** has `knownClassification` and
+    `changedSinceClassification: true`; it remains registered project knowledge,
+    but its changed source requires review against the existing
+    classification/metadata.
+- Recommendations tell the agent to run `idx wiki discover` and read each source,
+  but the follow-up action depends on the category. Unclassified candidates get
+  the hard classify-with-`idx wiki record` guidance. Changed classified
+  candidates get review-existing-classification/metadata guidance and may be
+  re-recorded to confirm or update that metadata.
+- For non-primary classifications such as `guide`, `design-only`, `meta-index`,
+  and `other`, re-recording after review refreshes the recorded source hash; they
+  do not have a separate verify lifecycle. Primary knowledge keeps the distinct
+  `record` versus `verify` lifecycle, and `verify` is still allowed only after
+  evidence review.
+- Mixed candidate sets describe both obligations separately. They must not imply
+  that changed classified candidates became unregistered merely because their
+  source hash changed.
+- The recommendation explicitly tells the agent to inform the user that the
+  applicable candidate reviews remain.
+- `status`/`audit` JSON exposes `candidateCount`,
+  `unclassifiedCandidateCount`, and `changedClassifiedCandidateCount`. `search`
+  JSON exposes the same review counts alongside its results. JSON includes the
+  equivalent `recommendation` string when either review category is non-zero.
 - When no candidates require review, human-readable output does not print a
   recommendation and JSON output omits the `recommendation` property. This
   applies independently to each covered command.
+- Normal `idx wiki discover` continues to surface changed already-classified
+  documents. `idx wiki discover --all-unclassified` continues to exclude every
+  existing knowledge entry, even when its source has changed.
 
 ## Rationale
 
-A candidate count alone can be mistaken for an empty or already-maintained
-knowledge base. The command must make the required follow-up action explicit so
-an agent does not silently ignore unreviewed project documents.
+A combined candidate count alone hides whether work is new classification or
+maintenance of already-registered knowledge. The command must make the relevant
+follow-up action explicit without weakening the maintenance signal for changed
+guides, design references, meta indexes, historical specs, or other recorded
+documents.
 
 ## Evidence
 
+- Candidate counting: `src/knowledge/service.ts`
 - CLI implementation: `src/cli/commands/wiki.ts`
 - Context implementation: `src/cli/commands/context.ts`
 - Shared recommendation: `src/cli/format/knowledge.ts`
 - CLI coverage: `tests/cli/commands.test.ts`
+- Service coverage: `tests/unit/knowledge/service.test.ts`
 - Agent guidance: `src/cli/commands/skills.ts`
 - User documentation: `README.md`

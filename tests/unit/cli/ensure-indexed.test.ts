@@ -14,7 +14,7 @@ async function loadEnsureIndexedInternals<T>(): Promise<T> {
 	);
 	const source = readFileSync(filePath, "utf8");
 	const match = source.match(
-		/const CODE_EXTENSIONS[\s\S]*?(?=\nasync function getIndexPlan\()/,
+		/const CODE_EXTENSIONS[\s\S]*?(?=\nexport async function ensureIndexed\()/,
 	);
 	if (!match) {
 		throw new Error(
@@ -71,7 +71,7 @@ async function scanProjectDocuments(rootPath) {
 }
 function matchesPathPatterns() { return false; }
 ${match[0]}
-export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles, useExistingIndexOnLockHeld, workspaceAlreadyIndexed };`,
+export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles, useExistingIndexOnLockHeld, workspaceAlreadyIndexed, getIndexPlan };`,
 		{
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
@@ -140,6 +140,32 @@ const ensureIndexedInternals = await loadEnsureIndexedInternals<{
 			deleted: string[];
 		},
 	) => Promise<boolean>;
+	getIndexPlan: (
+		git: {
+			getHeadCommit: (repoRoot: string) => Promise<string | undefined>;
+			getWorkingTreeChanges: (repoRoot: string) => Promise<{
+				added: string[];
+				modified: string[];
+				deleted: string[];
+			}>;
+			getChangedFiles: (
+				repoRoot: string,
+				base: string,
+			) => Promise<{ added: string[]; modified: string[]; deleted: string[] }>;
+		},
+		repoRoot: string,
+		metadata: {
+			codeSearchIndexNeedsRefresh: (
+				projectId: string,
+				snapshotId: string,
+			) => Promise<boolean>;
+		},
+		snapshot: { id: string; meta: { headCommit?: string } } | undefined,
+	) => Promise<
+		| { isFullReindex: true; changedFiles: undefined }
+		| { isFullReindex: false; changedFiles: unknown }
+		| null
+	>;
 }>();
 
 function computeTestHash(text: string): string {
@@ -163,6 +189,34 @@ function metadataFromRecords(records = new Map<string, { sha256: string }>()) {
 }
 
 describe("ensureIndexed error formatting", () => {
+	it("forces a full reindex before Git diffing when the code lexical side index is incomplete", async () => {
+		let gitWasRead = false;
+		const plan = await ensureIndexedInternals.getIndexPlan(
+			{
+				getHeadCommit: async () => {
+					gitWasRead = true;
+					return "head";
+				},
+				getWorkingTreeChanges: async () => {
+					gitWasRead = true;
+					return { added: [], modified: [], deleted: [] };
+				},
+				getChangedFiles: async () => {
+					gitWasRead = true;
+					return { added: [], modified: [], deleted: [] };
+				},
+			},
+			"/repo",
+			{
+				codeSearchIndexNeedsRefresh: async () => true,
+			},
+			{ id: "snapshot-1", meta: { headCommit: "base" } },
+		);
+
+		expect(plan).toEqual({ isFullReindex: true, changedFiles: undefined });
+		expect(gitWasRead).toBe(false);
+	});
+
 	it("collects system error details from structured errors", () => {
 		const error = Object.assign(new Error("Invalid argument"), {
 			code: "EINVAL",

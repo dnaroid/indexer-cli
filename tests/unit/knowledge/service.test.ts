@@ -526,6 +526,61 @@ describe("KnowledgeService", () => {
 		await store.close();
 	});
 
+	it("separates unclassified candidates from changed classified candidates", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs"), { recursive: true });
+		await writeFile(
+			path.join(root, "docs/overview.md"),
+			"# Specs index\n\nDocumentation index for project behavior.\n\n[a](a.md) [b](b.md) [c](c.md) [d](d.md)\n",
+		);
+		await service.record({
+			path: "docs/overview.md",
+			classification: "meta-index",
+		});
+		await writeFile(
+			path.join(root, "docs/overview.md"),
+			"# Specs index\n\nUpdated documentation index for project behavior.\n\n[a](a.md) [b](b.md) [c](c.md) [d](d.md)\n",
+		);
+		await writeFile(
+			path.join(root, "docs/new-contract.md"),
+			"# New contract\n\n## Behavior\nNew behavior requires classification.\n",
+		);
+
+		const candidates = await service.discover();
+		expect(candidates).toEqual([
+			expect.objectContaining({
+				path: "docs/new-contract.md",
+				knownClassification: undefined,
+			}),
+			expect.objectContaining({
+				path: "docs/overview.md",
+				knownClassification: "meta-index",
+				changedSinceClassification: true,
+			}),
+		]);
+		expect(
+			(await service.discover({ allUnclassified: true })).map((candidate) => candidate.path),
+		).toEqual(["docs/new-contract.md"]);
+
+		const audit = await service.audit();
+		expect(audit).toMatchObject({
+			candidateCount: 2,
+			unclassifiedCandidateCount: 1,
+			changedClassifiedCandidateCount: 1,
+		});
+
+		await service.record({
+			path: "docs/overview.md",
+			classification: "meta-index",
+		});
+		expect(await service.audit()).toMatchObject({
+			candidateCount: 1,
+			unclassifiedCandidateCount: 1,
+			changedClassifiedCandidateCount: 0,
+		});
+		await store.close();
+	});
+
 	it("writes a compact catalog artifact and blocks direct symlink escape", async () => {
 		const { root, store, service } = await setup();
 		await mkdir(path.join(root, "docs"), { recursive: true });

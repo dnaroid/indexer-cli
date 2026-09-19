@@ -59,6 +59,31 @@ export interface KnowledgeCandidate {
 	changedSinceClassification?: boolean;
 }
 
+export interface KnowledgeCandidateReviewSummary {
+	candidateCount: number;
+	unclassifiedCandidateCount: number;
+	changedClassifiedCandidateCount: number;
+}
+
+export function summarizeKnowledgeCandidates(
+	candidates: readonly KnowledgeCandidate[],
+): KnowledgeCandidateReviewSummary {
+	let unclassifiedCandidateCount = 0;
+	let changedClassifiedCandidateCount = 0;
+	for (const candidate of candidates) {
+		if (!candidate.knownClassification) {
+			unclassifiedCandidateCount += 1;
+		} else if (candidate.changedSinceClassification) {
+			changedClassifiedCandidateCount += 1;
+		}
+	}
+	return {
+		candidateCount: candidates.length,
+		unclassifiedCandidateCount,
+		changedClassifiedCandidateCount,
+	};
+}
+
 export interface RecordKnowledgeInput {
 	path: string;
 	classification: KnowledgeClassification;
@@ -534,6 +559,8 @@ export class KnowledgeService {
 		uncoveredActiveAsIsSpecs: string[];
 		statuses: KnowledgeStatus[];
 		candidateCount: number;
+		unclassifiedCandidateCount: number;
+		changedClassifiedCandidateCount: number;
 		candidates: KnowledgeCandidate[];
 	}> {
 		const [entries, statuses, candidates, relations] = await Promise.all([
@@ -560,6 +587,7 @@ export class KnowledgeService {
 		const primaryStatuses = statuses.filter((status) =>
 			PRIMARY_KNOWLEDGE_CLASSIFICATIONS.has(status.classification),
 		);
+		const candidateSummary = summarizeKnowledgeCandidates(candidates);
 		return {
 			primarySpecCount: primaryEntries.length,
 			currentPrimarySpecCount: primaryEntries.filter(currentLifecycle).length,
@@ -581,7 +609,7 @@ export class KnowledgeService {
 			uncoveredActiveAsIsCount: uncoveredActiveAsIsSpecs.length,
 			uncoveredActiveAsIsSpecs,
 			statuses: primaryStatuses.sort((a, b) => a.path.localeCompare(b.path)),
-			candidateCount: candidates.length,
+			...candidateSummary,
 			candidates,
 		};
 	}

@@ -1,0 +1,84 @@
+[
+  {
+    "id": "exact-production-symbol",
+    "query": "HybridNeedleIndex",
+    "mode": "hybrid",
+    "expectedPaths": ["src/search/hybrid-needle.ts"]
+  },
+  {
+    "id": "exact-symbol-mode",
+    "query": "HybridNeedleIndex",
+    "mode": "symbol",
+    "expectedPaths": ["src/search/hybrid-needle.ts"]
+  },
+  {
+    "id": "lexical-only-sentinel",
+    "query": "zephyr quartz sentinel",
+    "mode": "lexical",
+    "expectedPaths": ["src/search/hybrid-needle.ts"]
+  },
+  {
+    "id": "unicode-lexical-window",
+    "query": "восстанавливает геометрию окна подключённый монитор",
+    "mode": "lexical",
+    "expectedPaths": ["src/search/window-layout.ts"]
+  },
+  {
+    "id": "exact-project-relative-path",
+    "query": "src/search/hybrid-needle.ts",
+    "mode": "hybrid",
+    "expectedPaths": ["src/search/hybrid-needle.ts"]
+  },
+  {
+    "id": "explicit-test-intent",
+    "query": "HybridNeedleIndex test fixture",
+    "mode": "hybrid",
+    "expectedPaths": ["tests/search/hybrid-needle.test.ts"]
+  },
+  {
+    "id": "semantic-looking-decoy",
+    "query": "recover cached lookup index state after detached worker restarts",
+    "mode": "hybrid",
+    "expectedPaths": ["src/search/hybrid-decoy.ts"]
+  },
+  {
+    "id": "auth-session-domain",
+    "query": "auth session login token user access",
+    "mode": "hybrid",
+    "expectedPaths": ["src/auth/session.ts"]
+  },
+  {
+    "id": "game-session-domain",
+    "query": "game round match players scoreboard session",
+    "mode": "hybrid",
+    "expectedPaths": ["src/game/session.ts"]
+  },
+  {
+    "id": "error-hierarchy",
+    "query": "error handling exceptions validation auth not found",
+    "mode": "hybrid",
+    "expectedPaths": ["src/utils/errors.ts"]
+  },
+  {
+    "id": "order-orchestration",
+    "query": "create order inventory reserve payment",
+    "mode": "hybrid",
+    "expectedPaths": ["src/services/order.ts"]
+  },
+  {
+    "id": "inventory-tracking",
+    "query": "track stock inventory reservation changes",
+    "mode": "hybrid",
+    "expectedPaths": ["src/inventory/tracker.ts"]
+  },
+  {
+    "id": "payment-provider-family",
+    "query": "payment processing provider charge refund checkout",
+    "mode": "hybrid",
+    "expectedPaths": [
+      "src/payments/stripe.ts",
+      "src/payments/paypal.ts",
+      "src/payments/processor.ts"
+    ]
+  }
+]

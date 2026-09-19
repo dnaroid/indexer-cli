@@ -1702,6 +1702,7 @@ export class IndexerEngine {
 				primarySymbol: chunk.primarySymbol,
 				hasOverlap: false,
 				metadata: chunk.metadata,
+				searchText: chunk.content,
 			});
 			chunksContent.set(chunkId, chunk.content);
 		}

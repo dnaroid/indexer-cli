@@ -34,7 +34,7 @@ describe("SqliteMetadataStore", () => {
 			.prepare("PRAGMA table_info(symbols)")
 			.all() as Array<{ name: string }>;
 
-		expect(migrationRow.version).toBe(2);
+		expect(migrationRow.version).toBe(4);
 		expect(symbolColumns.map((column) => column.name)).toContain(
 			"metadata_json",
 		);
@@ -46,6 +46,13 @@ describe("SqliteMetadataStore", () => {
 			db
 				.prepare(
 					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_entries'",
+				)
+				.get(),
+		).toBeDefined();
+		expect(
+			db
+				.prepare(
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'code_search_fts'",
 				)
 				.get(),
 		).toBeDefined();
@@ -84,7 +91,7 @@ describe("SqliteMetadataStore", () => {
 			(migratedDb
 				.prepare("SELECT MAX(version) AS version FROM schema_migrations")
 				.get() as { version: number }).version,
-		).toBe(2);
+		).toBe(4);
 		const columns = migratedDb
 			.prepare("PRAGMA table_info(files)")
 			.all() as Array<{ name: string }>;
@@ -401,6 +408,8 @@ describe("SqliteMetadataStore", () => {
 				chunkType: "impl",
 				primarySymbol: "foo",
 				hasOverlap: true,
+				searchText:
+					"export function foo(): string { return 'payment'; } // платёжная обработка",
 			},
 			{
 				chunkId: "chunk-2",
@@ -408,6 +417,7 @@ describe("SqliteMetadataStore", () => {
 				endLine: 8,
 				contentHash: "content-2",
 				tokenEstimate: 5,
+				searchText: "export const fallbackValue = 'secondary';",
 			},
 		]);
 
@@ -419,6 +429,7 @@ describe("SqliteMetadataStore", () => {
 				contentHash: "content-3",
 				tokenEstimate: 3,
 				chunkType: "full_file",
+				searchText: "export const unrelated = true;",
 			},
 		]);
 
@@ -451,11 +462,34 @@ describe("SqliteMetadataStore", () => {
 			],
 		);
 		expect(await store.listChunks(PROJECT_ID, snapshot.id)).toHaveLength(3);
+		expect(await store.codeSearchIndexNeedsRefresh(PROJECT_ID, snapshot.id)).toBe(false);
+		expect(
+			await store.searchCodeChunks(PROJECT_ID, snapshot.id, ["foo"], { limit: 5 }),
+		).toEqual([
+			expect.objectContaining({
+				chunkId: "chunk-1",
+				filePath: "src/a.ts",
+				primarySymbol: "foo",
+				rank: 1,
+			}),
+		]);
+		expect(
+			await store.searchCodeChunks(PROJECT_ID, snapshot.id, ["платёжная"], {
+				limit: 5,
+			}),
+		).toEqual([
+			expect.objectContaining({ chunkId: "chunk-1", filePath: "src/a.ts" }),
+		]);
 
 		await store.replaceChunks(PROJECT_ID, snapshot.id, "src/a.ts", []);
 		expect(await store.listChunks(PROJECT_ID, snapshot.id, "src/a.ts")).toEqual(
 			[],
 		);
+		expect(
+			await store.searchCodeChunks(PROJECT_ID, snapshot.id, ["платёжная"], {
+				limit: 5,
+			}),
+		).toEqual([]);
 		expect(await store.getChunk(PROJECT_ID, snapshot.id, "chunk-3")).toEqual({
 			snapshotId: snapshot.id,
 			chunkId: "chunk-3",
@@ -469,6 +503,21 @@ describe("SqliteMetadataStore", () => {
 			hasOverlap: false,
 		});
 		expect(await store.getChunk(PROJECT_ID, snapshot.id, "missing")).toBeNull();
+	});
+
+	it("flags legacy chunks without lexical search rows for reindex", async () => {
+		const snapshot = await createSnapshot();
+		await store.replaceChunks(PROJECT_ID, snapshot.id, "src/legacy.ts", [
+			{
+				chunkId: "legacy-chunk",
+				startLine: 1,
+				endLine: 2,
+				contentHash: "legacy",
+				tokenEstimate: 3,
+				chunkType: "impl",
+			},
+		]);
+		expect(await store.codeSearchIndexNeedsRefresh(PROJECT_ID, snapshot.id)).toBe(true);
 	});
 
 	it("replaces, lists, and searches symbols", async () => {
@@ -666,6 +715,8 @@ describe("SqliteMetadataStore", () => {
 				contentHash: "chunk-hash",
 				tokenEstimate: 8,
 				chunkType: "impl",
+				primarySymbol: "copied",
+				searchText: "export function copied() { return 'incremental lexical proof'; }",
 			},
 		]);
 		await store.replaceSymbols(PROJECT_ID, sourceSnapshot.id, "src/a.ts", [
@@ -751,6 +802,23 @@ describe("SqliteMetadataStore", () => {
 		expect(await store.listChunks(PROJECT_ID, targetSnapshot.id)).toHaveLength(
 			1,
 		);
+		expect(
+			await store.searchCodeChunks(
+				PROJECT_ID,
+				targetSnapshot.id,
+				["incremental", "lexical", "proof"],
+				{ limit: 5 },
+			),
+		).toEqual([
+			expect.objectContaining({
+				chunkId: "chunk-1",
+				filePath: "src/a.ts",
+				primarySymbol: "copied",
+			}),
+		]);
+		expect(
+			await store.codeSearchIndexNeedsRefresh(PROJECT_ID, targetSnapshot.id),
+		).toBe(false);
 		expect(await store.listSymbols(PROJECT_ID, targetSnapshot.id)).toHaveLength(
 			1,
 		);

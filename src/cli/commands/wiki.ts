@@ -13,7 +13,10 @@ import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SimpleGitOperations } from "../../engine/git.js";
 import { KnowledgeImpactEngine } from "../../knowledge/impact.js";
 import { KnowledgeSearchEngine } from "../../knowledge/search.js";
-import { KnowledgeService } from "../../knowledge/service.js";
+import {
+	KnowledgeService,
+	summarizeKnowledgeCandidates,
+} from "../../knowledge/service.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { candidateReviewRecommendation } from "../format/knowledge.js";
@@ -387,11 +390,10 @@ export function registerWikiCommand(program: Command): void {
 					await withWikiRuntime(async ({ service }) => {
 						const audit = await service.audit();
 						const candidateLimit = Number.parseInt(options?.candidateLimit ?? "20", 10);
+						const recommendation = candidateReviewRecommendation(audit);
 						const payload = {
 							...audit,
-							...(audit.candidateCount > 0
-								? { recommendation: candidateReviewRecommendation(audit.candidateCount) }
-								: {}),
+							...(recommendation ? { recommendation } : {}),
 							candidates: audit.candidates.slice(
 								0,
 								Number.isFinite(candidateLimit) && candidateLimit > 0 ? candidateLimit : 20,
@@ -402,7 +404,7 @@ export function registerWikiCommand(program: Command): void {
 							return;
 						}
 						console.log(
-							`primary specs: ${payload.primarySpecCount} (${payload.currentPrimarySpecCount} current/proposed) | fresh: ${payload.freshCount} | unverified: ${payload.unverifiedCount} | needs review: ${payload.needsReviewCount} | unresolved refs: ${payload.unresolvedReferenceCount} | uncovered active as-is: ${payload.uncoveredActiveAsIsCount} | new/changed candidates: ${payload.candidateCount}`,
+							`primary specs: ${payload.primarySpecCount} (${payload.currentPrimarySpecCount} current/proposed) | fresh: ${payload.freshCount} | unverified: ${payload.unverifiedCount} | needs review: ${payload.needsReviewCount} | unresolved refs: ${payload.unresolvedReferenceCount} | uncovered active as-is: ${payload.uncoveredActiveAsIsCount} | candidates: ${payload.candidateCount} (${payload.unclassifiedCandidateCount} unclassified, ${payload.changedClassifiedCandidateCount} changed classified)`,
 						);
 						if (payload.recommendation) {
 							console.log(`Recommendation: ${payload.recommendation}`);
@@ -499,14 +501,17 @@ export function registerWikiCommand(program: Command): void {
 								}),
 								service.discover(),
 							]);
-							const recommendation =
-								candidates.length > 0
-									? candidateReviewRecommendation(candidates.length)
-									: undefined;
+							const candidateSummary = summarizeKnowledgeCandidates(candidates);
+							const recommendation = candidateReviewRecommendation(candidateSummary);
 							if (options?.json) {
 								console.log(
 									JSON.stringify(
-										{ query, ...(recommendation ? { recommendation } : {}), results },
+										{
+											query,
+											...candidateSummary,
+											...(recommendation ? { recommendation } : {}),
+											results,
+										},
 										null,
 										2,
 									),

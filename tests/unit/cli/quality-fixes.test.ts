@@ -110,6 +110,7 @@ function createMetadataStoreMock(): MetadataStore {
 		getFile: vi.fn(async () => null),
 		replaceChunks: vi.fn(async () => undefined),
 		listChunks: vi.fn(async () => []),
+		searchCodeChunks: vi.fn(async () => []),
 		replaceSymbols: vi.fn(async () => undefined),
 		listSymbols: vi.fn(async () => []),
 		searchSymbols: vi.fn(async () => []),

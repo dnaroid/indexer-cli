@@ -111,7 +111,7 @@ export function registerSearchCommand(program: Command): void {
 		)
 		.option(
 			"--min-score <number>",
-			"filter out results below the final ranking score (semantic is usually 0..1; hybrid may exceed 1; default: from config)",
+			"filter out results below the calibrated final relevance score (0..1; default: from config)",
 		)
 		.option(
 			"--include-content",
@@ -159,6 +159,7 @@ export function registerSearchCommand(program: Command): void {
 
 				initLogger(dataDir);
 				config.load(dataDir);
+				const mode = parseSearchMode(options?.mode);
 
 				const metadata = new SqliteMetadataStore(dbPath);
 				const vectors = new SqliteVecVectorStore({
@@ -189,7 +190,9 @@ export function registerSearchCommand(program: Command): void {
 						process.exitCode = 1;
 						return;
 					}
-					await Promise.all([vectors.initialize(), embedder.initialize()]);
+					if (mode === "semantic" || mode === "hybrid") {
+						await Promise.all([vectors.initialize(), embedder.initialize()]);
+					}
 
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
@@ -204,7 +207,6 @@ export function registerSearchCommand(program: Command): void {
 						options?.minScore,
 						config.get("searchMinScore"),
 					);
-					const mode = parseSearchMode(options?.mode);
 					const chunkTypes = parseChunkTypes(options?.chunkTypes);
 
 					let effectivePathPrefix = normalizePathPrefix(options?.pathPrefix);

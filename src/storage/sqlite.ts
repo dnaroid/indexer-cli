@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import type {
 	ArtifactRecord,
 	ChunkRecord,
+	CodeLexicalSearchResult,
 	DependencyRecord,
 	FileMetricsRecord,
 	FileRecord,
@@ -23,6 +24,28 @@ import type {
 import { SystemLogger } from "../core/logger.js";
 
 const logger = new SystemLogger("storage-sqlite");
+
+function splitSearchTokens(value: string): string[] {
+	return value
+		.normalize("NFKC")
+		.replace(/([\p{Ll}\p{N}])([\p{Lu}])/gu, "$1 $2")
+		.replace(/[_\-./\\]+/g, " ")
+		.toLocaleLowerCase()
+		.split(/[^\p{L}\p{N}]+/u)
+		.map((token) => token.trim())
+		.filter(Boolean);
+}
+
+function expandedSearchField(value: string): string {
+	const expanded = splitSearchTokens(value).join(" ");
+	return expanded && expanded !== value.toLocaleLowerCase()
+		? `${value} ${expanded}`
+		: value;
+}
+
+function escapeLike(value: string): string {
+	return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
 
 type TxCtx = { depth: number; spSeq: number };
 const txCtx = new AsyncLocalStorage<TxCtx>();
@@ -183,6 +206,43 @@ const migrations: Migration[] = [
 			CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_file
 				ON knowledge_chunks(project_id, snapshot_id, file_path);
 		`);
+		},
+	},
+	{
+		version: 3,
+		name: "add_code_search_fts",
+		up: (db) => {
+			db.exec(`
+				CREATE VIRTUAL TABLE IF NOT EXISTS code_search_fts USING fts5(
+					project_id UNINDEXED,
+					snapshot_id UNINDEXED,
+					chunk_id UNINDEXED,
+					source_path UNINDEXED,
+					file_path,
+					primary_symbol,
+					content,
+					tokenize = 'unicode61 remove_diacritics 2'
+				);
+			`);
+		},
+	},
+	{
+		version: 4,
+		name: "rebuild_code_search_fts_with_source_path",
+		up: (db) => {
+			db.exec(`
+				DROP TABLE IF EXISTS code_search_fts;
+				CREATE VIRTUAL TABLE code_search_fts USING fts5(
+					project_id UNINDEXED,
+					snapshot_id UNINDEXED,
+					chunk_id UNINDEXED,
+					source_path UNINDEXED,
+					file_path,
+					primary_symbol,
+					content,
+					tokenize = 'unicode61 remove_diacritics 2'
+				);
+			`);
 		},
 	},
 ];
@@ -812,6 +872,11 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 			(nextChunks: Omit<ChunkRecord, "snapshotId" | "filePath">[]) => {
 				this.db
 					.prepare(
+						"DELETE FROM code_search_fts WHERE project_id = ? AND snapshot_id = ? AND source_path = ?",
+					)
+					.run(projectId, snapshotId, filePath);
+				this.db
+					.prepare(
 						"DELETE FROM chunks WHERE project_id = ? AND snapshot_id = ? AND file_path = ?",
 					)
 					.run(projectId, snapshotId, filePath);
@@ -835,6 +900,11 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
           has_overlap
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 				);
+				const insertSearchStmt = this.db.prepare(
+					`INSERT INTO code_search_fts (
+						project_id, snapshot_id, chunk_id, source_path, file_path, primary_symbol, content
+					) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				);
 
 				for (const chunk of nextChunks) {
 					insertStmt.run(
@@ -850,6 +920,17 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 						chunk.primarySymbol ?? null,
 						chunk.hasOverlap ? 1 : 0,
 					);
+					if (typeof chunk.searchText === "string") {
+						insertSearchStmt.run(
+							projectId,
+							snapshotId,
+							chunk.chunkId,
+							filePath,
+							expandedSearchField(filePath),
+							expandedSearchField(chunk.primarySymbol ?? ""),
+							chunk.searchText,
+						);
+					}
 				}
 			},
 		);
@@ -897,6 +978,112 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 			primarySymbol: row.primary_symbol ?? undefined,
 			hasOverlap: Boolean(row.has_overlap),
 		}));
+	}
+
+	async searchCodeChunks(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		terms: string[],
+		options: {
+			limit?: number;
+			pathPrefix?: string;
+			filePath?: string;
+			chunkTypes?: string[];
+		} = {},
+	): Promise<CodeLexicalSearchResult[]> {
+		const normalizedTerms = [
+			...new Set(
+				terms
+					.map((term) => term.normalize("NFKC").trim())
+					.filter(Boolean),
+			),
+		];
+		if (normalizedTerms.length === 0) return [];
+
+		const matchQuery = normalizedTerms
+			.map((term) => `"${term.replace(/"/g, '""')}"`)
+			.join(" OR ");
+		const conditions = [
+			"code_search_fts MATCH ?",
+			"c.project_id = ?",
+			"c.snapshot_id = ?",
+		];
+		const params: Array<string | number> = [matchQuery, projectId, snapshotId];
+		if (options.filePath) {
+			conditions.push("c.file_path = ?");
+			params.push(options.filePath);
+		}
+		if (options.pathPrefix) {
+			const prefix = options.pathPrefix.replace(/\\/g, "/").replace(/\/+$/, "");
+			conditions.push("(c.file_path = ? OR c.file_path LIKE ? ESCAPE '\\')");
+			params.push(prefix, `${escapeLike(prefix)}/%`);
+		}
+		if (options.chunkTypes && options.chunkTypes.length > 0) {
+			conditions.push(
+				`c.chunk_type IN (${options.chunkTypes.map(() => "?").join(", ")})`,
+			);
+			params.push(...options.chunkTypes);
+		}
+
+		const limit = Math.max(1, options.limit ?? 40);
+		const rows = this.db
+			.prepare(
+				`SELECT
+					c.chunk_id,
+					c.file_path,
+					c.start_line,
+					c.end_line,
+					c.chunk_type,
+					c.primary_symbol,
+					code_search_fts.content,
+					bm25(code_search_fts, 0.0, 0.0, 0.0, 0.0, 4.0, 8.0, 1.0) AS lexical_rank
+				FROM code_search_fts
+				JOIN chunks c
+					ON c.project_id = code_search_fts.project_id
+					AND c.snapshot_id = code_search_fts.snapshot_id
+					AND c.chunk_id = code_search_fts.chunk_id
+				WHERE ${conditions.join(" AND ")}
+				ORDER BY lexical_rank ASC, c.file_path ASC, c.start_line ASC
+				LIMIT ?`,
+			)
+			.all(...params, limit) as Array<{
+			chunk_id: string;
+			file_path: string;
+			start_line: number;
+			end_line: number;
+			chunk_type: ChunkRecord["chunkType"] | null;
+			primary_symbol: string | null;
+			content: string;
+			lexical_rank: number;
+		}>;
+
+		return rows.map((row, index) => ({
+			chunkId: row.chunk_id,
+			filePath: row.file_path,
+			startLine: row.start_line,
+			endLine: row.end_line,
+			chunkType: row.chunk_type ?? "full_file",
+			primarySymbol: row.primary_symbol ?? undefined,
+			content: row.content,
+			rank: index + 1,
+		}));
+	}
+
+	async codeSearchIndexNeedsRefresh(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+	): Promise<boolean> {
+		const chunkRow = this.db
+			.prepare(
+				"SELECT COUNT(*) AS count FROM chunks WHERE project_id = ? AND snapshot_id = ?",
+			)
+			.get(projectId, snapshotId) as { count: number };
+		const searchRow = this.db
+			.prepare(
+				"SELECT COUNT(*) AS count FROM code_search_fts WHERE project_id = ? AND snapshot_id = ?",
+			)
+			.get(projectId, snapshotId) as { count: number };
+		return chunkRow.count !== searchRow.count;
 	}
 
 	async getChunk(
@@ -1276,6 +1463,17 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 
 			this.db
 				.prepare(
+					`INSERT INTO code_search_fts (
+						project_id, snapshot_id, chunk_id, source_path, file_path, primary_symbol, content
+					)
+					SELECT ?, ?, chunk_id, source_path, file_path, primary_symbol, content
+					FROM code_search_fts
+					WHERE project_id = ? AND snapshot_id = ? AND source_path IN (${placeholders})`,
+				)
+				.run(...params);
+
+			this.db
+				.prepare(
 					`INSERT INTO chunks (
             project_id,
             chunk_id,
@@ -1453,6 +1651,13 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 			}
 
 			this.db.prepare(sql).run(...params);
+			this.db
+				.prepare(
+					`DELETE FROM code_search_fts
+					 WHERE project_id = ?
+					   AND snapshot_id NOT IN (SELECT id FROM snapshots WHERE project_id = ?)`,
+				)
+				.run(projectId, projectId);
 		});
 	}
 
@@ -1698,6 +1903,17 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
         ON chunks(file_path);
       CREATE INDEX IF NOT EXISTS idx_chunks_primary_symbol
         ON chunks(primary_symbol);
+
+			CREATE VIRTUAL TABLE IF NOT EXISTS code_search_fts USING fts5(
+				project_id UNINDEXED,
+				snapshot_id UNINDEXED,
+				chunk_id UNINDEXED,
+				source_path UNINDEXED,
+				file_path,
+				primary_symbol,
+				content,
+				tokenize = 'unicode61 remove_diacritics 2'
+			);
 
       CREATE INDEX IF NOT EXISTS idx_dependencies_from_path
         ON dependencies(from_path);

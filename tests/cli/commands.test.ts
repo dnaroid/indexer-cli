@@ -310,7 +310,7 @@ describe.sequential("CLI e2e", () => {
 			expect(result.stdout).toContain("Files: 32");
 			expect(result.stdout).toContain("Symbols:");
 			expect(result.stdout).toContain("Chunks:");
-			expect(result.stdout).toContain("Languages: typescript: 32");
+			expect(result.stdout).toContain("Languages: typescript: 36");
 		});
 
 		it("shows the indexed file tree", () => {
@@ -688,6 +688,28 @@ describe.sequential("CLI e2e", () => {
 				["search", "auth session", "--mode", "semantic", "--max-files", "2"],
 				{ cwd: TEMP_DIR },
 			);
+			const lexical = runCLI(
+				[
+					"search",
+					"zephyr quartz sentinel",
+					"--mode",
+					"lexical",
+					"--max-files",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const symbol = runCLI(
+				[
+					"search",
+					"HybridNeedleIndex",
+					"--mode",
+					"symbol",
+					"--max-files",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
 			const invalid = runCLI(
 				[
 					"search",
@@ -702,10 +724,90 @@ describe.sequential("CLI e2e", () => {
 
 			expect(semantic.exitCode).toBe(0);
 			expect(semantic.stdout).toContain("why=");
+			expect(lexical.exitCode).toBe(0);
+			expect(lexical.stdout).toContain("rank=lexical");
+			expect(lexical.stdout).toContain("src/search/hybrid-needle.ts");
+			expect(lexical.stdout).not.toContain("WARN no-results");
+			expect(symbol.exitCode).toBe(0);
+			expect(symbol.stdout).toContain("rank=symbol");
+			expect(parseSearchResults(symbol.stdout)[0]?.filePath).toBe(
+				"src/search/hybrid-needle.ts",
+			);
 			expect(invalid.exitCode).toBe(1);
 			expect(invalid.stderr).toContain(
 				"--mode must be one of: hybrid, semantic, lexical, symbol.",
 			);
+		});
+
+		it("prefers a production exact-symbol definition over an equally named test double", () => {
+			const result = runCLI(
+				["search", "HybridNeedleIndex", "--max-files", "5", "--min-score", "0"],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results[0]?.filePath).toBe("src/search/hybrid-needle.ts");
+			const testIndex = firstResultIndex(results, "tests/search/hybrid-needle.test.ts");
+			if (testIndex >= 0) {
+				expect(testIndex).toBeGreaterThan(0);
+			}
+		});
+
+		it("honors explicit test intent when the test double is the requested target", () => {
+			const result = runCLI(
+				[
+					"search",
+					"HybridNeedleIndex test fixture",
+					"--max-files",
+					"5",
+					"--min-score",
+					"0",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results[0]?.filePath).toBe("tests/search/hybrid-needle.test.ts");
+		});
+
+		it("retrieves Cyrillic lexical evidence without relying on semantic similarity", () => {
+			const result = runCLI(
+				[
+					"search",
+					"восстанавливает геометрию окна подключённый монитор",
+					"--mode",
+					"lexical",
+					"--max-files",
+					"3",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results[0]?.filePath).toBe("src/search/window-layout.ts");
+			expect(results[0]?.score).toBeGreaterThanOrEqual(0.55);
+		});
+
+		it("uses exact file paths as first-class hybrid retrieval evidence", () => {
+			const result = runCLI(
+				[
+					"search",
+					"src/search/hybrid-needle.ts",
+					"--max-files",
+					"3",
+					"--min-score",
+					"0",
+				],
+				{ cwd: TEMP_DIR },
+			);
+			const results = parseSearchResults(result.stdout);
+
+			expect(result.exitCode).toBe(0);
+			expect(results[0]?.filePath).toBe("src/search/hybrid-needle.ts");
+			expect(result.stdout).toContain("why=");
 		});
 
 		it("respects --path-prefix", () => {
@@ -1129,7 +1231,7 @@ describe.sequential("CLI e2e", () => {
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 32");
+			expect(result.stdout).toContain("typescript: 36");
 			expect(result.stdout).toContain("src/index.ts");
 			expect(result.stdout).toContain("Module dependency graph");
 			expect(result.stdout).toMatch(/payments|services|auth/);
@@ -1169,7 +1271,7 @@ describe.sequential("CLI e2e", () => {
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).not.toContain("not found in indexed files");
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 32");
+			expect(result.stdout).toContain("typescript: 36");
 		});
 
 		it("detects multiple entrypoints including workers", () => {
@@ -1204,7 +1306,7 @@ describe.sequential("CLI e2e", () => {
 				"Showing results for the entire project instead.",
 			);
 			expect(result.stdout).toContain("File stats by language");
-			expect(result.stdout).toContain("typescript: 32");
+			expect(result.stdout).toContain("typescript: 36");
 		});
 
 		it("does not fall back when --path-prefix matches files", () => {
@@ -1796,6 +1898,157 @@ describe.sequential("CLI e2e", () => {
 			expect(catalog.exitCode).toBe(0);
 			expect(catalog.stdout).toContain("# Knowledge Catalog");
 			expect(catalog.stdout).toContain("docs/session-contract.md");
+			} finally {
+				removeTempProject(knowledgeRoot);
+			}
+		});
+
+		it("distinguishes changed classified review from unclassified candidate review", () => {
+			const knowledgeRoot = mkdtempSync(
+				path.join(os.tmpdir(), "indexer-cli-e2e-candidate-review-"),
+			);
+			removeTempProject(knowledgeRoot);
+			createTempProject(knowledgeRoot);
+			gitInit(knowledgeRoot);
+			const init = runCLI(["init"], { cwd: knowledgeRoot });
+			expect(init.exitCode).toBe(0);
+			mkdirSync(path.join(knowledgeRoot, "docs"), { recursive: true });
+
+			const guidePath = path.join(knowledgeRoot, "docs", "release-guide.md");
+			writeFileSync(guidePath, "# Release guide\n\nHow to publish a release.\n", "utf8");
+			const firstRecord = runCLI(
+				[
+					"wiki",
+					"record",
+					"--path",
+					"docs/release-guide.md",
+					"--classification",
+					"guide",
+					"--json",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(firstRecord.exitCode).toBe(0);
+
+			try {
+				writeFileSync(
+					guidePath,
+					"# Release guide\n\nHow to publish a release safely after validation.\n",
+					"utf8",
+				);
+				const changedAudit = runCLI(["wiki", "audit", "--json"], {
+					cwd: knowledgeRoot,
+				});
+				expect(changedAudit.exitCode).toBe(0);
+				expect(changedAudit.stdout).toContain('"candidateCount": 1');
+				expect(changedAudit.stdout).toContain('"unclassifiedCandidateCount": 0');
+				expect(changedAudit.stdout).toContain('"changedClassifiedCandidateCount": 1');
+				expect(changedAudit.stdout).toContain("previously classified");
+				expect(changedAudit.stdout).toContain("already registered project knowledge");
+				expect(changedAudit.stdout).not.toContain(
+					"do not treat candidates as registered knowledge before review",
+				);
+
+				const changedStatus = runCLI(["wiki", "status"], { cwd: knowledgeRoot });
+				expect(changedStatus.exitCode).toBe(0);
+				expect(changedStatus.stdout).toContain(
+					"candidates: 1 (0 unclassified, 1 changed classified)",
+				);
+				expect(changedStatus.stdout).toContain("already registered project knowledge");
+
+				const changedSearch = runCLI(["wiki", "search", "release", "--json"], {
+					cwd: knowledgeRoot,
+				});
+				expect(changedSearch.exitCode).toBe(0);
+				expect(changedSearch.stdout).toContain('"candidateCount": 1');
+				expect(changedSearch.stdout).toContain('"unclassifiedCandidateCount": 0');
+				expect(changedSearch.stdout).toContain('"changedClassifiedCandidateCount": 1');
+				expect(changedSearch.stdout).toContain("already registered project knowledge");
+
+				const changedContext = runCLI(["context", "release guide"], {
+					cwd: knowledgeRoot,
+				});
+				expect(changedContext.exitCode).toBe(0);
+				expect(changedContext.stdout).toContain("Recommendation:");
+				expect(changedContext.stdout).toContain("already registered project knowledge");
+				expect(changedContext.stdout).not.toContain(
+					"do not treat candidates as registered knowledge before review",
+				);
+
+				const allUnclassified = runCLI(
+					["wiki", "discover", "--all-unclassified", "--json"],
+					{ cwd: knowledgeRoot },
+				);
+				expect(allUnclassified.exitCode).toBe(0);
+				expect(allUnclassified.stdout).toContain('"total": 0');
+				expect(allUnclassified.stdout).not.toContain("docs/release-guide.md");
+
+				const newPath = path.join(knowledgeRoot, "docs", "new-contract.md");
+				writeFileSync(
+					newPath,
+					"# New behavior contract\n\n## Behavior\nThis source still needs classification.\n",
+					"utf8",
+				);
+				const mixedAudit = runCLI(["wiki", "audit", "--json"], {
+					cwd: knowledgeRoot,
+				});
+				expect(mixedAudit.exitCode).toBe(0);
+				expect(mixedAudit.stdout).toContain('"candidateCount": 2');
+				expect(mixedAudit.stdout).toContain('"unclassifiedCandidateCount": 1');
+				expect(mixedAudit.stdout).toContain('"changedClassifiedCandidateCount": 1');
+				expect(mixedAudit.stdout).toContain(
+					"is unclassified and requires review and classification",
+				);
+				expect(mixedAudit.stdout).toContain("previously classified");
+				expect(mixedAudit.stdout).toContain(
+					"only unclassified candidates are not yet registered",
+				);
+
+				const rerecordGuide = runCLI(
+					[
+						"wiki",
+						"record",
+						"--path",
+						"docs/release-guide.md",
+						"--classification",
+						"guide",
+						"--json",
+					],
+					{ cwd: knowledgeRoot },
+				);
+				expect(rerecordGuide.exitCode).toBe(0);
+				const unclassifiedOnly = runCLI(["wiki", "status", "--json"], {
+					cwd: knowledgeRoot,
+				});
+				expect(unclassifiedOnly.exitCode).toBe(0);
+				expect(unclassifiedOnly.stdout).toContain('"candidateCount": 1');
+				expect(unclassifiedOnly.stdout).toContain('"unclassifiedCandidateCount": 1');
+				expect(unclassifiedOnly.stdout).toContain('"changedClassifiedCandidateCount": 0');
+				expect(unclassifiedOnly.stdout).toContain("idx wiki discover");
+				expect(unclassifiedOnly.stdout).toContain("idx wiki record");
+				expect(unclassifiedOnly.stdout).toContain(
+					"do not treat unclassified candidates as registered project knowledge before review",
+				);
+
+				const recordNew = runCLI(
+					[
+						"wiki",
+						"record",
+						"--path",
+						"docs/new-contract.md",
+						"--classification",
+						"guide",
+						"--json",
+					],
+					{ cwd: knowledgeRoot },
+				);
+				expect(recordNew.exitCode).toBe(0);
+				const cleanStatus = runCLI(["wiki", "status", "--json"], {
+					cwd: knowledgeRoot,
+				});
+				expect(cleanStatus.exitCode).toBe(0);
+				expect(cleanStatus.stdout).toContain('"candidateCount": 0');
+				expect(cleanStatus.stdout).not.toContain('"recommendation":');
 			} finally {
 				removeTempProject(knowledgeRoot);
 			}

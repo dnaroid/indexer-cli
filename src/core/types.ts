@@ -81,6 +81,19 @@ export interface ChunkRecord {
 	primarySymbol?: string;
 	hasOverlap?: boolean;
 	metadata?: ChunkMetadata;
+	/** Search-only text persisted in the lexical FTS side index; omitted by readers. */
+	searchText?: string;
+}
+
+export interface CodeLexicalSearchResult {
+	chunkId: ChunkId;
+	filePath: string;
+	startLine: number;
+	endLine: number;
+	chunkType?: ChunkRecord["chunkType"];
+	primarySymbol?: string;
+	content: string;
+	rank: number;
 }
 
 export interface ChunkMetadata {
@@ -339,6 +352,17 @@ export interface MetadataStore {
 		snapshotId: SnapshotId,
 		filePath?: string,
 	): Promise<ChunkRecord[]>;
+	searchCodeChunks(
+		projectId: ProjectId,
+		snapshotId: SnapshotId,
+		terms: string[],
+		options?: {
+			limit?: number;
+			pathPrefix?: string;
+			filePath?: string;
+			chunkTypes?: string[];
+		},
+	): Promise<CodeLexicalSearchResult[]>;
 	replaceSymbols(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,

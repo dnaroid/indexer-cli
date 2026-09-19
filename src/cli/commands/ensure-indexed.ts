@@ -317,6 +317,15 @@ async function getIndexPlan(
 	}
 
 	if (
+		await metadata.codeSearchIndexNeedsRefresh(
+			DEFAULT_PROJECT_ID,
+			snapshot.id,
+		)
+	) {
+		return { isFullReindex: true, changedFiles: undefined };
+	}
+
+	if (
 		await knowledgeSnapshotNeedsRefresh(
 			metadata,
 			DEFAULT_PROJECT_ID,

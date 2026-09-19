@@ -410,10 +410,13 @@ Default ranking:
 The calling agent still semantically reranks the compact candidates before using
 them as authoritative sources.
 
-When discovery has new or changed document candidates, search output also tells
-the calling agent to report that review obligation to the user and classify the
-sources before treating them as registered knowledge. JSON output carries the
-same recommendation.
+When discovery has document candidates, search output also tells the calling
+agent to report the applicable review obligation to the user. Unclassified
+sources must be read and classified before they become registered knowledge;
+changed sources with an existing classification remain registered knowledge and
+instead require review of that classification/metadata. JSON output carries the
+same category-aware recommendation plus separate unclassified and changed-
+classified candidate counts.
 
 ## `idx wiki status` / `idx wiki audit`
 
@@ -427,7 +430,8 @@ Report:
 - active as-is specs with no tracked implementation inputs.
 
 When candidates exist, status/audit output includes the same explicit user-facing
-review and classification recommendation as knowledge search.
+category-aware review recommendation as knowledge search, and reports separate
+unclassified versus changed-classified candidate counts.
 
 ## `idx wiki impact`
 

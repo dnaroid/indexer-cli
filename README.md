@@ -379,10 +379,11 @@ Important semantics:
   a durable relation automatically;
 - historical/superseded knowledge remains searchable but active knowledge wins ranking ties;
 - active as-is specs with no tracked code/test inputs are reported as relation gaps;
-- when `status`, `audit`, `search`, or `context` finds new or changed document candidates, the response tells the agent
-  to report the unreviewed candidates to the user, run `idx wiki discover`, read each source, and classify it with
-  `idx wiki record`; JSON output from wiki commands carries the same recommendation, and candidates are not registered
-  knowledge until reviewed;
+- when `status`, `audit`, `search`, or `context` finds document candidates, the response distinguishes unclassified
+  documents from already-classified documents whose source changed. Unclassified candidates must be read and recorded;
+  changed classified candidates remain registered knowledge and require review of their existing classification/metadata.
+  `status`/`audit`/`search` JSON exposes separate candidate-category counts, and `--all-unclassified` continues to exclude
+  existing entries;
 - legacy `.spec-wiki` state is not read, imported, or trusted.
 
 `idx wiki search` uses the existing local document embeddings plus lexical metadata/path/relation evidence, so
@@ -390,7 +391,10 @@ multilingual paraphrases do not require manual English query expansion.
 
 ### `idx search <query>`
 
-Run a semantic search against the indexed codebase. Automatically re-indexes changed files if needed.
+Run local code retrieval against the indexed codebase. The default `hybrid` mode
+unions independent semantic-vector, FTS lexical, symbol-index, and path candidates
+before code-aware fusion/ranking; a lexical/symbol/path hit can therefore be found
+even when vector retrieval misses it. Automatically re-indexes changed files if needed.
 
 If you run `idx search` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
@@ -400,9 +404,9 @@ project root. If no `.indexer-cli/` data exists yet, it stops and tells you to r
 | `--max-files <number>`   | 3       | Number of results to return                                                                                  |
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter. Types: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types`; aliases: `api`, `impl`, `tests`, `imports` |
-| `--mode <mode>`          | hybrid  | Ranking mode: `hybrid`, `semantic`, `lexical`, or `symbol`                                                   |
+| `--mode <mode>`          | hybrid  | Retriever/ranking mode: `hybrid`, `semantic`, `lexical`, or `symbol`                                         |
 | `--include-imports`      | —       | Include `imports`/`preamble` chunks (excluded by default)                                                    |
-| `--min-score <number>`   | 0.55    | Filter out results below the final ranking score. Semantic scores are usually 0..1; hybrid scores may exceed 1 |
+| `--min-score <number>`   | 0.55    | Filter out results below the calibrated final relevance score (`0..1`)                                      |
 | `--include-content`      | —       | Include matched code content in output (omitted by default to save tokens)                                   |
 | `--dedupe-file`          | —       | Return at most one result per file                                                                           |
 | `--dedupe-symbol`        | —       | Return at most one result per file/symbol pair                                                               |
@@ -410,12 +414,20 @@ project root. If no `.indexer-cli/` data exists yet, it stops and tells you to r
 | `--exclude-tests`        | —       | Exclude test files from search results                                                                       |
 | `--include-tests`        | —       | Include test files without the default test penalty                                                          |
 
+`hybrid` is true multi-channel retrieval rather than vector-only reranking. `lexical`
+uses the local SQLite FTS index, `symbol` uses durable parsed symbols (including
+types/classes, not only functions), and lexical/symbol modes do not require a query
+embedding when the code index is already current. Query tokenization is Unicode-aware.
+Tests are down-ranked after fusion by default so an exact test double does not beat
+the production definition merely through lexical/symbol boosts; explicit test intent
+or `--include-tests` removes that preference.
+
 `idx search` prints compact diagnostics when a query is likely too broad, a path prefix is missing, or a high
 `--min-score` filters every result. Each result includes a line range, `rank=<mode>`, and compact `why=` reason codes.
 The final line suggests the cheapest file ranges to read next. Example:
 
 ```text
-src/cli/commands/search.ts:93-169 (score: 2.24, rank=hybrid, function: registerSearchCommand, why=symbol+path+text+semantic)
+src/cli/commands/search.ts:93-169 (score: 0.91, rank=hybrid, function: registerSearchCommand, why=symbol+path+text+semantic)
 Read next: src/cli/commands/search.ts:93-169
 ```
 
