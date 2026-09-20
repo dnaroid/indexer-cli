@@ -1704,23 +1704,33 @@ describe.sequential("CLI e2e", () => {
 			});
 			expect(candidateStatus.exitCode).toBe(0);
 			expect(candidateStatus.stdout).toContain("Recommendation:");
-			expect(candidateStatus.stdout).toMatch(/requires? review/);
+			expect(candidateStatus.stdout).toContain("Bootstrap: no registered primary specs yet");
+			expect(candidateStatus.stdout).toContain("default-trusted");
 			expect(candidateStatus.stdout).toContain("idx wiki discover");
-			expect(candidateStatus.stdout).toContain("idx wiki record");
+			expect(candidateStatus.stdout).toContain("durable primary-spec semantics");
 
 			const candidateStatusJson = runCLI(["wiki", "status", "--json"], {
 				cwd: knowledgeRoot,
 			});
 			expect(candidateStatusJson.exitCode).toBe(0);
 			expect(candidateStatusJson.stdout).toContain('"recommendation":');
-			expect(candidateStatusJson.stdout).toMatch(/requires? review/);
+			expect(candidateStatusJson.stdout).toContain('"specCandidateCount":');
+			expect(candidateStatusJson.stdout).toContain("default-trusted");
+
+			const bootstrapTrust = runCLI(["wiki", "trust", "--all", "--json"], {
+				cwd: knowledgeRoot,
+			});
+			expect(bootstrapTrust.exitCode).toBe(0);
+			expect(bootstrapTrust.stdout).toContain('"results": []');
+			expect(bootstrapTrust.stdout).toContain('"defaultTrustedUnclassifiedCandidateCount":');
+			expect(bootstrapTrust.stdout).toContain("already trusted by default for retrieval");
 
 			const candidateSearch = runCLI(["wiki", "search", "session"], {
 				cwd: knowledgeRoot,
 			});
 			expect(candidateSearch.exitCode).toBe(0);
 			expect(candidateSearch.stdout).toContain("Recommendation:");
-			expect(candidateSearch.stdout).toContain("Tell the user");
+			expect(candidateSearch.stdout).toContain("trusted by default for retrieval");
 
 			const candidateSearchJson = runCLI(
 				["wiki", "search", "session", "--json"],
@@ -1728,14 +1738,14 @@ describe.sequential("CLI e2e", () => {
 			);
 			expect(candidateSearchJson.exitCode).toBe(0);
 			expect(candidateSearchJson.stdout).toContain('"recommendation":');
-			expect(candidateSearchJson.stdout).toContain("Tell the user");
+			expect(candidateSearchJson.stdout).toContain('"trust": "default"');
 
 			const candidateContext = runCLI(["context", "session ownership"], {
 				cwd: knowledgeRoot,
 			});
 			expect(candidateContext.exitCode).toBe(0);
 			expect(candidateContext.stdout).toContain("Recommendation:");
-			expect(candidateContext.stdout).toContain("Tell the user");
+			expect(candidateContext.stdout).toContain("Indexed knowledge (unreviewed):");
 
 			const record = runCLI(
 				[
@@ -1858,6 +1868,29 @@ describe.sequential("CLI e2e", () => {
 				"Warning: dist/main.js is gitignored and will not participate in freshness tracking.",
 			);
 
+			const trust = runCLI(
+				[
+					"wiki",
+					"trust",
+					"--path",
+					"docs/session-contract.md",
+					"--rationale",
+					"Imported project knowledge is trusted.",
+					"--json",
+				],
+				{ cwd: knowledgeRoot },
+			);
+			expect(trust.exitCode).toBe(0);
+			expect(trust.stdout).toContain('"trust": "explicit"');
+			expect(trust.stdout).toContain('"explicit": true');
+			const trustedShow = runCLI(
+				["wiki", "show", "--path", "docs/session-contract.md", "--json"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(trustedShow.exitCode).toBe(0);
+			expect(trustedShow.stdout).toContain('"status": "unverified"');
+			expect(trustedShow.stdout).toContain('"trust": "explicit"');
+
 			const preparedReceipt = runCLI(
 				["wiki", "prepare", "--path", "docs/session-contract.md", "--json"],
 				{ cwd: knowledgeRoot },
@@ -1885,6 +1918,7 @@ describe.sequential("CLI e2e", () => {
 			);
 			expect(verify.exitCode).toBe(0);
 			expect(verify.stdout).toContain('"status": "fresh"');
+			expect(verify.stdout).toContain('"trust": "verified"');
 			writeFileSync(
 				path.join(knowledgeRoot, "dist", "main.js"),
 				"export const rebuilt = true;\n",
@@ -1897,6 +1931,7 @@ describe.sequential("CLI e2e", () => {
 			expect(search.exitCode).toBe(0);
 			expect(search.stdout).toContain("docs/session-contract.md");
 			expect(search.stdout).toContain('"status": "fresh"');
+			expect(search.stdout).toContain('"trust": "verified"');
 			expect(search.stdout).not.toContain('"recommendation":');
 
 			const context = runCLI(
@@ -1935,6 +1970,7 @@ describe.sequential("CLI e2e", () => {
 			expect(catalog.exitCode).toBe(0);
 			expect(catalog.stdout).toContain("# Knowledge Catalog");
 			expect(catalog.stdout).toContain("docs/session-contract.md");
+			expect(catalog.stdout).toContain("trust=verified");
 			} finally {
 				removeTempProject(knowledgeRoot);
 			}

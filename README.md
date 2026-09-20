@@ -355,8 +355,12 @@ idx context "payment cancellation" --path-prefix src/payments/
 | `--path-prefix <path>`    | —       | Limit implementation discovery to a code area    |
 | `--include-secondary`     | —       | Allow `design-only` secondary knowledge retrieval |
 
-The command reports non-fresh knowledge explicitly. `unverified`, `spec-changed`, `inputs-changed`, and related states
-are warnings to the calling agent, not reasons to silently trust or suppress the source.
+The command reports non-fresh knowledge explicitly. Registered knowledge and
+indexed unclassified documents are trusted by default for retrieval, but
+`unverified`, `spec-changed`, `inputs-changed`, and `unreviewed` remain warnings
+that verification/classification may be absent or stale. A fresh repository can
+therefore answer from indexed Markdown before any `wiki record` step. Default
+trust never changes freshness or creates registered primary knowledge.
 
 ### `idx wiki`
 
@@ -372,6 +376,9 @@ idx wiki record --path docs/auth.md --classification spec --type as-is --lifecyc
 idx wiki prepare --path docs/auth.md --output auth-review.json
 # Review the source and evidence; fill the receipt's reviewer, rationale and bindings.
 idx wiki verify --path docs/auth.md --receipt auth-review.json
+idx wiki trust --all --rationale "Imported project documentation is trusted"
+idx wiki trust --path docs/auth.md
+idx wiki trust --all --clear # return to default trust policy
 idx wiki relate --path docs/auth.md --add-code src/auth/refresh.ts
 idx wiki status
 idx wiki audit
@@ -389,6 +396,16 @@ idx wiki manifest apply --file knowledge.json
 Important semantics:
 
 - `record` means semantic classification/index metadata only; it does **not** establish `fresh`;
+- registered knowledge is trusted by default for retrieval. `wiki trust`
+  records explicit user trust without claiming verification. Explicit trust is
+  bound to the current source hash; later source changes fall back to default
+  trust and continue to warn. `--clear` removes explicit trust. A current
+  attested verification reports `trust=verified`;
+- indexed documents that have not been recorded are also trusted by default for
+  retrieval and remain clearly `unreviewed`. If a project has no registered
+  entries yet, `wiki search`/`context` still use these documents up to their
+  normal result limits. `wiki trust --all` reports that state instead of silently
+  succeeding on an empty registered catalog;
 - `prepare` produces current hashes, not an accepted verification. `verify --receipt` requires an explicitly
   reviewed, versioned receipt bound to current source, relations and evidence. A source changed since `record`
   must be recorded again first. Baseline and receipt are committed atomically;

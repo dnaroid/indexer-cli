@@ -13,6 +13,7 @@ import { SimpleGitOperations } from "../../engine/git.js";
 import { KnowledgeImpactEngine } from "../../knowledge/impact.js";
 import { KnowledgeReviewService } from "../../knowledge/review.js";
 import { KnowledgeSearchEngine } from "../../knowledge/search.js";
+import { summarizeKnowledgeCandidates } from "../../knowledge/service.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { SqliteKnowledgeReviewStore } from "../../storage/knowledge-reviews.js";
 import { candidateReviewRecommendation } from "../format/knowledge.js";
@@ -174,6 +175,84 @@ export function registerWikiCommand(program: Command): void {
 			}
 		});
 
+	wiki
+		.command("trust")
+		.description("Explicitly trust registered knowledge; unclassified indexed docs are already trusted by default")
+		.option("--path <path>", "recorded knowledge path; repeatable", collect, [])
+		.option("--all", "apply to all currently recorded knowledge entries")
+		.option("--clear", "remove explicit trust and return to default-trust policy")
+		.option("--rationale <text>", "optional trust rationale")
+		.option("--json", "print JSON")
+		.action(async (options: {
+			path?: string[];
+			all?: boolean;
+			clear?: boolean;
+			rationale?: string;
+			json?: boolean;
+		}) => {
+			try {
+				const requestedPaths = options.path ?? [];
+				if (options.all && requestedPaths.length > 0) {
+					throw new Error("--all and --path are mutually exclusive.");
+				}
+				if (!options.all && requestedPaths.length === 0) {
+					throw new Error("Use --all or at least one --path.");
+				}
+				await withWikiRuntime(async ({ metadata, service }) => {
+					const paths = options.all
+						? (await metadata.listKnowledgeEntries(DEFAULT_PROJECT_ID)).map((entry) => entry.path)
+						: requestedPaths;
+					const candidateSummary = options.all
+						? summarizeKnowledgeCandidates(await service.discover())
+						: undefined;
+					const results = [];
+					const errors: Array<{ path: string; error: string }> = [];
+					for (const filePath of [...new Set(paths)].sort()) {
+						try {
+							results.push(await service.trust(filePath, {
+								clear: options.clear,
+								rationale: options.rationale,
+							}));
+						} catch (error) {
+							errors.push({
+								path: filePath,
+								error: error instanceof Error ? error.message : String(error),
+							});
+						}
+					}
+					if (options.json) {
+						console.log(JSON.stringify({
+							action: options.clear ? "clear" : "trust",
+							results,
+							errors,
+							...(candidateSummary ? {
+								defaultTrustedUnclassifiedCandidateCount: candidateSummary.unclassifiedCandidateCount,
+								specCandidateCount: candidateSummary.specCandidateCount,
+							} : {}),
+							...(options.all && paths.length === 0 ? {
+								note: "No registered knowledge entries exist. Indexed unclassified documents are already trusted by default for retrieval; use wiki record only to promote selected documents to durable registered knowledge.",
+							} : {}),
+						}, null, 2));
+					} else {
+						for (const result of results) {
+							console.log(`${options.clear ? "default-trust" : "trusted"} ${result.path} — trust=${result.trust}`);
+						}
+						if (options.all && paths.length === 0) {
+							console.log("No registered knowledge entries to mark explicitly trusted.");
+							console.log(
+								`Indexed unclassified documents are already trusted by default for retrieval: ${candidateSummary?.unclassifiedCandidateCount ?? 0} review candidates (${candidateSummary?.specCandidateCount ?? 0} heuristic spec candidates).`,
+							);
+							console.log("Use `idx wiki search` / `idx context` now; use `idx wiki record` only for durable registered primary knowledge.");
+						}
+						for (const error of errors) console.error(`Trust failed: ${error.path}: ${error.error}`);
+					}
+					if (errors.length > 0) process.exitCode = 1;
+				});
+			} catch (error) {
+				reportFailure(error);
+			}
+		});
+
 	registerWikiVerificationCommands(wiki);
 
 	const relate = wiki
@@ -310,7 +389,7 @@ export function registerWikiCommand(program: Command): void {
 						return;
 					}
 					console.log(
-						`${entry.path} — ${entry.classification}/${entry.behaviorType}/${entry.lifecycle} — ${status.status}`,
+						`${entry.path} — ${entry.classification}/${entry.behaviorType}/${entry.lifecycle} — ${status.status} — trust=${status.trust}`,
 					);
 					if (entry.summary) console.log(`  ${entry.summary}`);
 					for (const relation of relations) {
@@ -357,15 +436,18 @@ export function registerWikiCommand(program: Command): void {
 							return;
 						}
 						console.log(
-							`primary specs: ${payload.primarySpecCount} (${payload.currentPrimarySpecCount} current/proposed) | fresh: ${payload.freshCount} | unverified: ${payload.unverifiedCount} | needs review: ${payload.needsReviewCount} | unresolved refs: ${payload.unresolvedReferenceCount} | uncovered active as-is: ${payload.uncoveredActiveAsIsCount} | candidates: ${payload.candidateCount} (${payload.unclassifiedCandidateCount} unclassified, ${payload.changedClassifiedCandidateCount} changed classified)`,
+							`registered primary specs: ${payload.primarySpecCount} (${payload.currentPrimarySpecCount} current/proposed) | fresh: ${payload.freshCount} | unverified: ${payload.unverifiedCount} | needs review: ${payload.needsReviewCount} | trust verified/explicit/default: ${payload.verifiedTrustCount}/${payload.explicitTrustCount}/${payload.defaultTrustCount} | unresolved refs: ${payload.unresolvedReferenceCount} | uncovered active as-is: ${payload.uncoveredActiveAsIsCount} | candidates: ${payload.candidateCount} (${payload.specCandidateCount} spec-like, ${payload.unclassifiedCandidateCount} unclassified, ${payload.changedClassifiedCandidateCount} changed classified)`,
 						);
+						if (payload.primarySpecCount === 0 && payload.unclassifiedCandidateCount > 0) {
+							console.log("Bootstrap: no registered primary specs yet; indexed documents are still available to search/context as default-trusted, unreviewed knowledge.");
+						}
 						if (payload.recommendation) {
 							console.log(`Recommendation: ${payload.recommendation}`);
 						}
 						for (const status of payload.statuses) {
 							if (status.status === "fresh" || status.lifecycle === "historical" || status.lifecycle === "superseded") continue;
 							console.log(
-								`  ${status.status.padEnd(24)} ${status.path}${status.reasons.length ? ` — ${status.reasons.join(", ")}` : ""}`,
+								`  ${status.status.padEnd(24)} ${status.path} trust=${status.trust}${status.reasons.length ? ` — ${status.reasons.join(", ")}` : ""}`,
 							);
 						}
 						for (const sourcePath of payload.uncoveredActiveAsIsSpecs) {

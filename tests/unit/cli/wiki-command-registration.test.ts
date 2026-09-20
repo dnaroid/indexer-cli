@@ -8,11 +8,14 @@ describe("wiki command registration", () => {
 		registerWikiCommand(program);
 		const wiki = program.commands.find((command) => command.name() === "wiki");
 		expect(wiki?.commands.map((command) => command.name())).toEqual(
-			expect.arrayContaining(["prepare", "verify", "search"]),
+			expect.arrayContaining(["prepare", "verify", "search", "trust"]),
 		);
 		expect(wiki?.commands.find((command) => command.name() === "verify")?.options.map((option) => option.long)).toEqual(
 			expect.arrayContaining(["--path", "--receipt"]),
 		);
 		expect(wiki?.commands.find((command) => command.name() === "search")?.options.map((option) => option.long)).toContain("--mode");
+		expect(wiki?.commands.find((command) => command.name() === "trust")?.options.map((option) => option.long)).toEqual(
+			expect.arrayContaining(["--path", "--all", "--clear", "--rationale"]),
+		);
 	});
 });

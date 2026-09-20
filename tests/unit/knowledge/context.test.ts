@@ -13,10 +13,12 @@ import type { KnowledgeSearchResult } from "../../../src/knowledge/search.js";
 const SPEC: KnowledgeSearchResult = {
 	path: "docs/auth.md",
 	title: "Auth session contract",
+	authority: "registered",
 	classification: "spec",
 	behaviorType: "as-is",
 	lifecycle: "active",
 	status: "fresh",
+	trust: "verified",
 	score: 18,
 	semanticScore: 0.9,
 	lexicalScore: 7,
@@ -24,6 +26,32 @@ const SPEC: KnowledgeSearchResult = {
 	topics: ["auth", "refresh"],
 	reasonCodes: ["semantic", "title:1"],
 	bestRanges: [{ startLine: 10, endLine: 24, score: 0.9 }],
+};
+
+const UNREVIEWED: KnowledgeSearchResult = {
+	path: "docs/draft-auth-notes.md",
+	title: "Draft auth notes",
+	authority: "unreviewed-indexed",
+	classification: "unclassified",
+	behaviorType: "unknown",
+	lifecycle: "unknown",
+	status: "unreviewed",
+	trust: "default",
+	score: 6,
+	semanticScore: 0,
+	lexicalScore: 6,
+	summary: "Retry behavior noted in an indexed document that has not been reviewed.",
+	topics: [],
+	reasonCodes: ["unreviewed-indexed", "body:1.00"],
+	bestRanges: [{ startLine: 4, endLine: 8, score: 1 }],
+};
+
+const UNREVIEWED_TWO: KnowledgeSearchResult = {
+	...UNREVIEWED,
+	path: "docs/draft-session-notes.md",
+	title: "Draft session notes",
+	summary: "Indexed session notes that have not been reviewed.",
+	bestRanges: [{ startLine: 12, endLine: 18, score: 0.8 }],
 };
 
 function relation(
@@ -141,7 +169,7 @@ describe("KnowledgeContextEngine", () => {
 	});
 
 	it("surfaces non-fresh knowledge and keeps formatted output bounded", async () => {
-		const stale = { ...SPEC, status: "inputs-changed" as const };
+		const stale = { ...SPEC, status: "inputs-changed" as const, trust: "default" as const };
 		const engine = new KnowledgeContextEngine(
 			"default",
 			"snap",
@@ -154,12 +182,69 @@ describe("KnowledgeContextEngine", () => {
 			{ search: async () => [] },
 		);
 		const pack = await engine.build("auth refresh");
-		expect(pack.warnings).toEqual(["docs/auth.md: inputs-changed"]);
+		expect(pack.warnings).toEqual([
+			"docs/auth.md: inputs-changed; trusted by default, verification may be stale or absent",
+		]);
 
 		const output = formatKnowledgeContext(pack, 200);
 		expect(output).toContain("docs/auth.md: inputs-changed");
 		expect(output).toContain("Primary knowledge:");
 		expect(output).toContain("Read: docs/auth.md:10-24");
+	});
+
+	it("keeps unreviewed indexed documents separate from primary knowledge", async () => {
+		const engine = new KnowledgeContextEngine(
+			"default",
+			"snap",
+			{
+				listFiles: async () => [],
+				listDependencies: async () => [],
+			} as unknown as MetadataStore,
+			{ listKnowledgeRelations: async () => [] } as unknown as KnowledgeStore,
+			{ search: async () => [UNREVIEWED, UNREVIEWED_TWO] },
+			{ search: async () => [] },
+		);
+
+		const pack = await engine.build("auth retry behavior", { maxSpecs: 2 });
+		expect(pack.specs).toEqual([]);
+		expect(pack.unreviewed).toEqual([UNREVIEWED, UNREVIEWED_TWO]);
+		expect(pack.relations).toEqual([]);
+		expect(pack.warnings).toContain(
+			"docs/draft-auth-notes.md: trusted by default but unreviewed indexed document; content may be stale or incorrect",
+		);
+		expect(pack.warnings).toContain(
+			"No registered primary knowledge matched the query; using 2 default-trusted unreviewed indexed documents as knowledge evidence.",
+		);
+		expect(pack.readNext).toContain("docs/draft-auth-notes.md:4-8");
+		expect(pack.readNext).toContain("docs/draft-session-notes.md:12-18");
+
+		const output = formatKnowledgeContext(pack, 300);
+		expect(output).toContain("Indexed knowledge (unreviewed):");
+		expect(output).toContain("Read (unreviewed): docs/draft-auth-notes.md:4-8");
+		expect(output).not.toContain("Primary knowledge:");
+	});
+
+	it("shows unreviewed fallback alongside primary knowledge without using its relations", async () => {
+		const relations = [relation("src/auth/refresh.ts", "implements")];
+		const engine = new KnowledgeContextEngine(
+			"default",
+			"snap",
+			{
+				listFiles: async () => [],
+				listDependencies: async () => [],
+			} as unknown as MetadataStore,
+			{ listKnowledgeRelations: async () => relations } as unknown as KnowledgeStore,
+			{ search: async () => [SPEC, UNREVIEWED] },
+			{ search: async () => [] },
+		);
+
+		const pack = await engine.build("auth retry behavior", { maxSpecs: 1 });
+		expect(pack.specs).toEqual([SPEC]);
+		expect(pack.unreviewed).toEqual([UNREVIEWED]);
+		expect(pack.relations).toEqual(relations);
+		expect(pack.warnings).toContain(
+			"docs/draft-auth-notes.md: trusted by default but unreviewed indexed document; content may be stale or incorrect",
+		);
 	});
 
 	it("omits relation targets that are absent from the current code index", async () => {

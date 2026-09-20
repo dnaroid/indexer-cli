@@ -11,6 +11,7 @@ import type {
 } from "../core/types.js";
 import type {
 	KnowledgeFreshnessStatus,
+	KnowledgeTrustState,
 	KnowledgeService,
 } from "./service.js";
 import { knowledgeQueryEmbeddingText } from "./embedding.js";
@@ -19,10 +20,13 @@ import { KnowledgeLexicalIndex, lexicalTerms } from "./lexical-index.js";
 export interface KnowledgeSearchResult {
 	path: string;
 	title: string;
-	classification: KnowledgeEntry["classification"];
+	/** Registered entries are reviewed routing metadata; unreviewed-indexed is fallback evidence only. */
+	authority: "registered" | "unreviewed-indexed";
+	classification: KnowledgeEntry["classification"] | "unclassified";
 	behaviorType: KnowledgeEntry["behaviorType"];
 	lifecycle: KnowledgeEntry["lifecycle"];
-	status: KnowledgeFreshnessStatus;
+	status: KnowledgeFreshnessStatus | "unreviewed";
+	trust: KnowledgeTrustState | "unreviewed";
 	score: number;
 	semanticScore: number;
 	lexicalScore: number;
@@ -45,6 +49,10 @@ export interface KnowledgeSearchOptions {
 	mode?: "hybrid" | "semantic" | "lexical";
 	/** Vector scores below this are abstained from rather than treated as relevant. */
 	semanticMinScore?: number;
+	/** Fill remaining result slots with indexed documents that have no knowledge entry. */
+	includeUnreviewedFallback?: boolean;
+	/** Maximum labeled fallback documents to reserve when reviewed results also match. */
+	unreviewedFallbackLimit?: number;
 }
 
 export interface KnowledgeSearchDiagnostics {
@@ -53,6 +61,7 @@ export interface KnowledgeSearchDiagnostics {
 	semanticError?: string;
 	lexicalCandidates: number;
 	vectorCandidates: number;
+	unreviewedCandidates: number;
 	note?: string;
 }
 
@@ -146,6 +155,29 @@ function lifecycleBias(entry: KnowledgeEntry): number {
 	}[entry.lifecycle];
 }
 
+function pathMatchesPrefix(filePath: string, prefix?: string): boolean {
+	if (!prefix) return true;
+	const normalized = prefix.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+	return filePath === normalized || filePath.startsWith(`${normalized}/`);
+}
+
+function fallbackTitle(filePath: string, heading?: string): string {
+	if (heading?.trim()) return heading.trim();
+	const name = path.basename(filePath, path.extname(filePath));
+	return name.replace(/[-_]+/g, " ").trim() || filePath;
+}
+
+function fallbackSummary(value: unknown): string {
+	if (typeof value !== "string") {
+		return "Indexed document content has not been classified or reviewed as project knowledge.";
+	}
+	const normalized = value.replace(/\s+/g, " ").trim();
+	if (!normalized) {
+		return "Indexed document content has not been classified or reviewed as project knowledge.";
+	}
+	return normalized.length <= 240 ? normalized : `${normalized.slice(0, 239).trimEnd()}…`;
+}
+
 export class KnowledgeSearchEngine {
 	constructor(
 		private readonly projectId: ProjectId,
@@ -167,6 +199,7 @@ export class KnowledgeSearchEngine {
 		if (!query.trim()) throw new Error("Knowledge search query must not be empty.");
 		const limit = Math.max(1, options.limit ?? 8);
 		const mode = options.mode ?? "hybrid";
+		const includeUnreviewedFallback = options.includeUnreviewedFallback ?? true;
 		const [entries, relations, lexicalHits] = await Promise.all([
 			this.knowledge.listKnowledgeEntries(this.projectId),
 			this.knowledge.listKnowledgeRelations(this.projectId),
@@ -180,7 +213,9 @@ export class KnowledgeSearchEngine {
 			return options.includeSecondary && entry.classification === "design-only";
 		});
 		const allowedPaths = new Set(allowed.map((entry) => entry.path));
+		const registeredPaths = new Set(entries.map((entry) => entry.path));
 		let vectorResults: Awaited<ReturnType<VectorStore["search"]>> = [];
+		let unreviewedVectorResults: Awaited<ReturnType<VectorStore["search"]>> = [];
 		let semanticError: string | undefined;
 		if (mode !== "lexical") {
 			try {
@@ -188,11 +223,18 @@ export class KnowledgeSearchEngine {
 				const embedding = await this.embedder.embed([knowledgeQueryEmbeddingText(query)]);
 				if (!embedding[0]) throw new Error("failed to generate query embedding");
 				vectorResults = await this.vectors.search(embedding[0], Math.max(limit * 8, 40), { projectId: this.projectId, snapshotId: this.snapshotId, filePaths: [...allowedPaths], pathPrefix: options.pathPrefix, domain: "document" });
+				if (includeUnreviewedFallback) {
+					unreviewedVectorResults = await this.vectors.search(
+						embedding[0],
+						Math.max(limit * 12, 60),
+						{ projectId: this.projectId, snapshotId: this.snapshotId, pathPrefix: options.pathPrefix, domain: "document" },
+					);
+				}
 			} catch (error) { semanticError = error instanceof Error ? error.message : String(error); }
 		}
 		if (mode === "semantic" && semanticError) throw new Error(`Semantic knowledge search unavailable: ${semanticError}`);
 		const coverage = mode === "semantic" ? undefined : await this.lexical.coverage(this.projectId, this.snapshotId);
-		this.diagnostics = { mode, semanticAvailable: !semanticError && mode !== "lexical", semanticError, lexicalCandidates: lexicalHits.length, vectorCandidates: vectorResults.length, note: mode === "lexical" ? `Lexical retrieval uses ${coverage?.chunks ?? 0} indexed document chunks from snapshot ${this.snapshotId}; it is bounded and not exhaustive.` : semanticError && mode === "hybrid" ? `Semantic retrieval degraded to lexical: ${coverage?.chunks ?? 0} indexed document chunks from snapshot ${this.snapshotId}; it is bounded and not exhaustive.` : undefined };
+		this.diagnostics = { mode, semanticAvailable: !semanticError && mode !== "lexical", semanticError, lexicalCandidates: lexicalHits.length, vectorCandidates: vectorResults.length, unreviewedCandidates: 0, note: mode === "lexical" ? `Lexical retrieval uses ${coverage?.chunks ?? 0} indexed document chunks from snapshot ${this.snapshotId}; it is bounded and not exhaustive.` : semanticError && mode === "hybrid" ? `Semantic retrieval degraded to lexical: ${coverage?.chunks ?? 0} indexed document chunks from snapshot ${this.snapshotId}; it is bounded and not exhaustive.` : undefined };
 		const vectorsByPath = new Map<
 			string,
 			Array<{ startLine: number; endLine: number; score: number }>
@@ -254,10 +296,12 @@ export class KnowledgeSearchEngine {
 					return {
 						path: entry.path,
 						title: entry.title,
+						authority: "registered" as const,
 						classification: entry.classification,
 						behaviorType: entry.behaviorType,
 						lifecycle: entry.lifecycle,
 						status: "unverified" as KnowledgeFreshnessStatus,
+						trust: "default" as KnowledgeTrustState,
 						score: Number(score.toFixed(3)),
 						semanticScore: Number(acceptedSemantic.toFixed(3)),
 						lexicalScore: Number((mode === "semantic" ? 0 : lexical.score + bodyScore * 6).toFixed(3)),
@@ -272,7 +316,7 @@ export class KnowledgeSearchEngine {
 					};
 				});
 
-		const selected = scored
+		const rankedRegistered = scored
 			.filter((result) => result.semanticScore > 0 || result.lexicalScore > 0)
 			.filter((result) => options.minScore === undefined || result.score >= options.minScore)
 			.sort(
@@ -280,12 +324,111 @@ export class KnowledgeSearchEngine {
 					right.score - left.score ||
 					left.title.localeCompare(right.title) ||
 					left.path.localeCompare(right.path),
-			)
-			.slice(0, limit);
+			);
+		if (!includeUnreviewedFallback) {
+			const selected = rankedRegistered.slice(0, limit);
+			const selectedEntries = selected.map((result) => allowed.find((entry) => entry.path === result.path)!);
+			const batch = this.service as KnowledgeService & { getStatuses?: (values: KnowledgeEntry[]) => Promise<Array<{ path: string; status: KnowledgeFreshnessStatus; trust: KnowledgeTrustState }>> };
+			const statuses = batch.getStatuses ? await batch.getStatuses(selectedEntries) : await Promise.all(selectedEntries.map((entry) => this.service.getStatus(entry)));
+			const byPath = new Map(statuses.map((status) => [status.path, status]));
+			return selected.map((result) => ({
+				...result,
+				status: byPath.get(result.path)?.status ?? "unverified",
+				trust: byPath.get(result.path)?.trust ?? "default",
+			}));
+		}
+
+		const fallbackVectorsByPath = new Map<string, Array<{ startLine: number; endLine: number; score: number; heading?: string }>>();
+		for (const result of unreviewedVectorResults) {
+			if (registeredPaths.has(result.filePath) || !pathMatchesPrefix(result.filePath, options.pathPrefix)) continue;
+			const values = fallbackVectorsByPath.get(result.filePath) ?? [];
+			values.push({ startLine: result.startLine, endLine: result.endLine, score: result.score, heading: result.primarySymbol });
+			fallbackVectorsByPath.set(result.filePath, values);
+		}
+		const fallbackLexicalByPath = new Map<string, Array<{ startLine: number; endLine: number; score: number }>>();
+		for (const hit of lexicalHits) {
+			if (registeredPaths.has(hit.filePath) || !pathMatchesPrefix(hit.filePath, options.pathPrefix)) continue;
+			const values = fallbackLexicalByPath.get(hit.filePath) ?? [];
+			values.push(hit);
+			fallbackLexicalByPath.set(hit.filePath, values);
+		}
+		const fallbackPaths = new Set([...fallbackVectorsByPath.keys(), ...fallbackLexicalByPath.keys()]);
+		const fallbackScored = [...fallbackPaths].map((filePath) => {
+			const ranges = (fallbackVectorsByPath.get(filePath) ?? []).sort((a, b) => b.score - a.score || a.startLine - b.startLine);
+			const semanticScore = ranges[0]?.score ?? 0;
+			const acceptedRanges = ranges.filter((range) => range.score > (options.semanticMinScore ?? 0.5));
+			const acceptedSemantic = acceptedRanges[0]?.score ?? 0;
+			const bodyRanges = (fallbackLexicalByPath.get(filePath) ?? []).sort((a, b) => b.score - a.score || a.startLine - b.startLine);
+			const bodyScore = mode === "semantic" ? 0 : (bodyRanges[0]?.score ?? 0);
+			const score = acceptedSemantic * 10 + bodyScore * 6;
+			return {
+				filePath,
+				score: Number(score.toFixed(3)),
+				semanticScore: Number(acceptedSemantic.toFixed(3)),
+				lexicalScore: Number((bodyScore * 6).toFixed(3)),
+				reasonCodes: [
+					"unreviewed-indexed",
+					...(acceptedSemantic > 0 ? ["semantic"] : semanticScore > 0 ? ["semantic-abstained"] : []),
+					...(bodyScore > 0 ? [`body:${bodyScore.toFixed(2)}`] : []),
+				],
+				bestRanges: [...acceptedRanges, ...(mode === "semantic" ? [] : bodyRanges)]
+					.sort((a, b) => b.score - a.score || a.startLine - b.startLine)
+					.slice(0, 3),
+				heading: acceptedRanges[0]?.heading ?? ranges[0]?.heading,
+			};
+		}).filter((result) => result.semanticScore > 0 || result.lexicalScore > 0)
+			.filter((result) => options.minScore === undefined || result.score >= options.minScore)
+			.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath));
+		this.diagnostics.unreviewedCandidates = fallbackScored.length;
+		const defaultFallbackLimit = rankedRegistered.length === 0 ? limit : 1;
+		const requestedFallbackLimit = Math.max(
+			0,
+			Math.floor(options.unreviewedFallbackLimit ?? defaultFallbackLimit),
+		);
+		const fallbackLimit = fallbackScored.length === 0 || requestedFallbackLimit === 0
+			? 0
+			: rankedRegistered.length === 0
+				? Math.min(limit, requestedFallbackLimit, fallbackScored.length)
+				: limit <= 1
+					? 0
+					: Math.min(limit - 1, requestedFallbackLimit, fallbackScored.length);
+		const selected = rankedRegistered.slice(0, limit - fallbackLimit);
 		const selectedEntries = selected.map((result) => allowed.find((entry) => entry.path === result.path)!);
-		const batch = this.service as KnowledgeService & { getStatuses?: (values: KnowledgeEntry[]) => Promise<Array<{ path: string; status: KnowledgeFreshnessStatus }>> };
+		const batch = this.service as KnowledgeService & { getStatuses?: (values: KnowledgeEntry[]) => Promise<Array<{ path: string; status: KnowledgeFreshnessStatus; trust: KnowledgeTrustState }>> };
 		const statuses = batch.getStatuses ? await batch.getStatuses(selectedEntries) : await Promise.all(selectedEntries.map((entry) => this.service.getStatus(entry)));
-		const byPath = new Map(statuses.map((status) => [status.path, status.status]));
-		return selected.map((result) => ({ ...result, status: byPath.get(result.path) ?? "unverified" }));
+		const byPath = new Map(statuses.map((status) => [status.path, status]));
+		const registeredResults = selected.map((result) => ({
+			...result,
+			status: byPath.get(result.path)?.status ?? "unverified",
+			trust: byPath.get(result.path)?.trust ?? "default",
+		}));
+		if (fallbackLimit === 0) return registeredResults;
+
+		const unreviewedResults = await Promise.all(fallbackScored.slice(0, fallbackLimit).map(async (result): Promise<KnowledgeSearchResult> => {
+			const chunks = await this.knowledge.listKnowledgeChunks(this.projectId, this.snapshotId, result.filePath);
+			const bestRange = result.bestRanges[0];
+			const bestChunk = bestRange
+				? chunks.find((chunk) => chunk.startLine === bestRange.startLine && chunk.endLine === bestRange.endLine)
+				: undefined;
+			const representative = bestChunk ?? chunks.find((chunk) => chunk.heading) ?? chunks[0];
+			return {
+				path: result.filePath,
+				title: fallbackTitle(result.filePath, representative?.heading ?? result.heading),
+				authority: "unreviewed-indexed",
+				classification: "unclassified",
+				behaviorType: "unknown",
+				lifecycle: "unknown",
+				status: "unreviewed",
+				trust: "default",
+				score: result.score,
+				semanticScore: result.semanticScore,
+				lexicalScore: result.lexicalScore,
+				summary: fallbackSummary(representative?.metadata?.searchText),
+				topics: [],
+				reasonCodes: result.reasonCodes,
+				bestRanges: result.bestRanges,
+			};
+		}));
+		return [...registeredResults, ...unreviewedResults];
 	}
 }

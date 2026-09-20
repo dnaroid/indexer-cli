@@ -115,10 +115,12 @@ describe("KnowledgeImpactEngine", () => {
 					{
 						path: "docs/session.md",
 						title: "Session",
+						authority: "registered",
 						classification: "spec",
 						behaviorType: "as-is",
 						lifecycle: "active",
 						status: "fresh",
+						trust: "verified",
 						score: 9,
 						semanticScore: 0.9,
 						lexicalScore: 0,

@@ -3,20 +3,33 @@
 Implementation: `src/core/types.ts`, `src/knowledge/service.ts`, `src/knowledge/verification/evidence.ts`,
 `src/knowledge/verification/selectors.ts`, `src/knowledge/verification/runner.ts`,
 `src/storage/sqlite.ts`, `src/cli/commands/wiki-verification.ts`,
-`src/cli/commands/wiki-verification-runner.ts`.
+`src/cli/commands/wiki-verification-runner.ts`, `src/cli/commands/wiki.ts`.
 Regression evidence: `tests/unit/knowledge/verification.test.ts`,
 `tests/unit/knowledge/service.test.ts`, `tests/unit/storage/sqlite.test.ts`,
-`tests/unit/knowledge/maintenance-integration.test.ts`.
+`tests/unit/knowledge/maintenance-integration.test.ts`,
+`tests/unit/cli/wiki-command-registration.test.ts`, `tests/cli/commands.test.ts`.
 
 Source and input freshness hashes are SHA-256 over exact file bytes, not the
 normalized text hashes used for retrieval deduplication. BOM characters inside
 strings, trailing whitespace and binary differences cannot silently remain fresh.
 
 `KnowledgeService.record()` classifies a source; it never verifies semantics.
-`verify(path, receipt)` accepts only a version 1 caller-reviewed attestation prepared for
-the exact current source, relation map, and non-ignored code-input hashes. It
+`verify(path, receipt)` accepts only a version 1 caller-reviewed attestation
+prepared for the exact current source, relation map, and non-ignored code-input
+hashes. It
 rejects a source changed since `record`, so verification cannot silently update
 classification metadata.
+
+Trust is deliberately separate from verification. Registered knowledge is
+trusted by default for retrieval with warnings when freshness is not `fresh`.
+Indexed unclassified documents are also trusted by default for retrieval but
+remain explicitly `unreviewed` and have no verification lifecycle until they are
+recorded as primary knowledge.
+`idx wiki trust` may persist an explicit user trust binding to the current
+source hash, including for non-primary registered entries, without creating a
+verification receipt or changing freshness. A later source edit invalidates
+that explicit binding back to default trust. Only an accepted verification
+receipt can produce current `trust=verified`.
 
 ## Public integration API
 

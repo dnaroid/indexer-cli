@@ -6,7 +6,7 @@ import { parseWikiSearchMode, withWikiSearch } from "./wiki-search-runtime.js";
 
 export function registerWikiSearchCommand(wiki: Command): void {
 	wiki.command("search <query>")
-		.description("Retrieve authoritative knowledge with lexical or hybrid section search")
+		.description("Retrieve registered knowledge plus default-trusted unreviewed indexed documents")
 		.option("--limit <number>", "maximum knowledge results", "8")
 		.option("--mode <mode>", "hybrid, lexical (offline), or semantic", "hybrid")
 		.option("--no-refresh", "use the existing completed index without auto-indexing")
@@ -41,9 +41,23 @@ export function registerWikiSearchCommand(wiki: Command): void {
 					if (recommendation) console.log(`Recommendation: ${recommendation}`);
 					if (diagnostics.note) console.log(`Retrieval: ${diagnostics.note}`);
 					if (initializationWarning) console.error(`Semantic provider unavailable: ${initializationWarning}`);
-					if (results.length === 0) console.log("no indexed project knowledge matched; absence is not proof of no contract");
+					const defaultTrusted = results.filter((result) =>
+						result.authority === "registered" && result.status !== "fresh" && result.trust === "default");
+					const explicitlyTrusted = results.filter((result) =>
+						result.authority === "registered" && result.status !== "fresh" && result.trust === "explicit");
+					if (defaultTrusted.length > 0) {
+						console.log(`Warning: ${defaultTrusted.length} registered result${defaultTrusted.length === 1 ? " is" : "s are"} trusted by default but not verified/current; inspect status before relying on ${defaultTrusted.length === 1 ? "it" : "them"}.`);
+					}
+					if (explicitlyTrusted.length > 0) {
+						console.log(`Warning: ${explicitlyTrusted.length} explicitly trusted result${explicitlyTrusted.length === 1 ? " has" : "s have"} stale or absent verification; trust is not verification.`);
+					}
+					if (results.some((result) => result.authority === "unreviewed-indexed")) {
+						console.log("Warning: indexed unclassified documents are trusted by default for retrieval but remain unreviewed; record selected documents only when you need durable primary-spec classification, relations, or verification.");
+					}
+					if (results.length === 0) console.log("no indexed project knowledge or unreviewed document fallback matched; absence is not proof of no contract");
 					for (const result of results) {
-						console.log(`${result.score.toFixed(2).padStart(6)} ${result.lifecycle.padEnd(10)} ${result.status.padEnd(19)} ${result.path} — ${result.title}`);
+						const authority = result.authority === "unreviewed-indexed" ? "unreviewed" : "registered";
+						console.log(`${result.score.toFixed(2).padStart(6)} ${authority.padEnd(10)} ${result.status.padEnd(19)} trust=${result.trust.padEnd(10)} ${result.path} — ${result.title}`);
 						console.log(`       ${result.summary}`);
 						console.log(`       why=${result.reasonCodes.slice(0, 6).join(",")}`);
 					}

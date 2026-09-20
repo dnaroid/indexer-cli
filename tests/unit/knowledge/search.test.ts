@@ -229,4 +229,162 @@ describe("KnowledgeSearchEngine", () => {
 		await vectors.close();
 		await metadata.close();
 	});
+
+	it("uses indexed unclassified documents as fallback without registering them", async () => {
+		const root = tempDir();
+		await mkdir(path.join(root, "docs"), { recursive: true });
+		await writeFile(
+			path.join(root, "docs/draft.md"),
+			"# Draft recovery notes\n\n## Behavior\nOrphan protocol retries the local lease once.\n",
+		);
+		await writeFile(
+			path.join(root, "docs/primary.md"),
+			"# Primary recovery contract\n\n## Behavior\nOrphan protocol retries the reviewed lease once.\n",
+		);
+		await writeFile(
+			path.join(root, "docs/draft-two.md"),
+			"# Backup recovery notes\n\n## Behavior\nOrphan protocol keeps a backup lease journal.\n",
+		);
+
+		const dbPath = path.join(root, "db.sqlite");
+		const metadata = new SqliteMetadataStore(dbPath);
+		const vectors = new SqliteVecVectorStore({ dbPath, vectorSize: 3 });
+		await metadata.initialize();
+		await vectors.initialize();
+		const service = new KnowledgeService("project", root, metadata, metadata);
+		const snapshot = await metadata.createSnapshot("project", {
+			indexedAt: Date.now(),
+			headCommit: "head",
+		});
+		await metadata.replaceKnowledgeChunks("project", snapshot.id, "docs/draft.md", [{
+			chunkId: "draft-body",
+			startLine: 3,
+			endLine: 4,
+			contentHash: "draft-body",
+			chunkType: "doc_section",
+			heading: "Behavior",
+			metadata: { searchText: "Orphan protocol retries the local lease once." },
+		}]);
+		await metadata.replaceKnowledgeChunks("project", snapshot.id, "docs/draft-two.md", [{
+			chunkId: "draft-two-body",
+			startLine: 3,
+			endLine: 4,
+			contentHash: "draft-two-body",
+			chunkType: "doc_section",
+			heading: "Behavior",
+			metadata: { searchText: "Orphan protocol keeps a backup lease journal." },
+		}]);
+		await vectors.upsert([{
+			projectId: "project",
+			snapshotId: snapshot.id,
+			chunkId: "draft-vector",
+			filePath: "docs/draft.md",
+			startLine: 3,
+			endLine: 4,
+			contentHash: "draft-body",
+			chunkType: "doc_section",
+			primarySymbol: "Behavior",
+			embedding: [0, 0, 1],
+			domain: "document",
+		}]);
+
+		const search = new KnowledgeSearchEngine(
+			"project",
+			snapshot.id,
+			metadata,
+			metadata,
+			vectors,
+			new QueryEmbeddingProvider(),
+			service,
+		);
+		const fallback = await search.search("local lease", { mode: "lexical" });
+		expect(fallback[0]).toMatchObject({
+			path: "docs/draft.md",
+			authority: "unreviewed-indexed",
+			classification: "unclassified",
+			status: "unreviewed",
+			trust: "default",
+			title: "Behavior",
+			summary: "Orphan protocol retries the local lease once.",
+		});
+		expect(fallback[0]?.reasonCodes).toContain("unreviewed-indexed");
+		expect(await metadata.getKnowledgeEntry("project", "docs/draft.md")).toBeNull();
+		const bootstrapFallback = await search.search("orphan protocol", { mode: "lexical", limit: 3 });
+		expect(bootstrapFallback).toHaveLength(2);
+		expect(bootstrapFallback.map((result) => result.path).sort()).toEqual([
+			"docs/draft-two.md",
+			"docs/draft.md",
+		].sort());
+		expect(bootstrapFallback.every((result) => result.trust === "default")).toBe(true);
+		const semanticFallback = await search.search("orphan protocol", { mode: "semantic" });
+		expect(semanticFallback[0]).toMatchObject({
+			path: "docs/draft.md",
+			authority: "unreviewed-indexed",
+			semanticScore: 1,
+			lexicalScore: 0,
+		});
+
+		await service.record({
+			path: "docs/primary.md",
+			classification: "spec",
+			behaviorType: "as-is",
+			lifecycle: "active",
+			summary: "Reviewed orphan protocol recovery contract.",
+			topics: ["orphan protocol", "recovery"],
+		});
+		await metadata.replaceKnowledgeChunks("project", snapshot.id, "docs/primary.md", [{
+			chunkId: "primary-body",
+			startLine: 3,
+			endLine: 4,
+			contentHash: "primary-body",
+			chunkType: "doc_section",
+			heading: "Behavior",
+			metadata: { searchText: "Orphan protocol retries the reviewed lease once." },
+		}]);
+		await vectors.upsert([{
+			projectId: "project",
+			snapshotId: snapshot.id,
+			chunkId: "primary-vector",
+			filePath: "docs/primary.md",
+			startLine: 3,
+			endLine: 4,
+			contentHash: "primary-body",
+			chunkType: "doc_section",
+			primarySymbol: "Behavior",
+			embedding: [0, 0, 1],
+			domain: "document",
+		}]);
+
+		const primaryOnly = await search.search("orphan protocol", { mode: "lexical", limit: 1 });
+		expect(primaryOnly).toHaveLength(1);
+		expect(primaryOnly[0]).toMatchObject({
+			path: "docs/primary.md",
+			authority: "registered",
+			classification: "spec",
+			status: "unverified",
+			trust: "default",
+		});
+		await service.trust("docs/primary.md", { rationale: "Trust imported project knowledge." });
+		const explicitlyTrusted = await search.search("orphan protocol", { mode: "lexical", limit: 1 });
+		expect(explicitlyTrusted[0]).toMatchObject({
+			path: "docs/primary.md",
+			status: "unverified",
+			trust: "explicit",
+		});
+		const primaryWithFallback = await search.search("orphan protocol", {
+			mode: "lexical",
+			limit: 2,
+		});
+		expect(primaryWithFallback[0]).toMatchObject({
+			path: "docs/primary.md",
+			authority: "registered",
+		});
+		expect(primaryWithFallback[1]).toMatchObject({
+			authority: "unreviewed-indexed",
+			trust: "default",
+		});
+
+		await vectors.close();
+		await metadata.close();
+	});
 });

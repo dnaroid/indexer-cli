@@ -44,11 +44,22 @@ export type KnowledgeFreshnessStatus =
 	| "missing-source"
 	| "classified";
 
+export type KnowledgeTrustState = "verified" | "explicit" | "default";
+
+interface ExplicitKnowledgeTrustMetadata {
+	mode: "explicit";
+	trustedAt: number;
+	sourceHash: string;
+	rationale?: string;
+}
+
 export interface KnowledgeStatus {
 	path: string;
 	classification: KnowledgeClassification;
 	lifecycle: KnowledgeLifecycle;
 	status: KnowledgeFreshnessStatus;
+	/** Trust is separate from verification. Registered knowledge is trusted by default with warnings. */
+	trust: KnowledgeTrustState;
 	reasons: string[];
 	/** Selector hashes are not read during status checks; whole-file drift remains authoritative. */
 	selectorHints?: string[];
@@ -60,6 +71,14 @@ export interface KnowledgeStatus {
 export interface KnowledgeRelateStatus extends KnowledgeStatus {
 	changed: boolean;
 	warnings: string[];
+}
+
+export interface KnowledgeTrustResult {
+	path: string;
+	trust: KnowledgeTrustState;
+	explicit: boolean;
+	trustedAt?: number;
+	rationale?: string;
 }
 
 export interface KnowledgeCandidate {
@@ -76,6 +95,7 @@ export interface KnowledgeCandidate {
 
 export interface KnowledgeCandidateReviewSummary {
 	candidateCount: number;
+	specCandidateCount: number;
 	unclassifiedCandidateCount: number;
 	changedClassifiedCandidateCount: number;
 }
@@ -85,7 +105,9 @@ export function summarizeKnowledgeCandidates(
 ): KnowledgeCandidateReviewSummary {
 	let unclassifiedCandidateCount = 0;
 	let changedClassifiedCandidateCount = 0;
+	let specCandidateCount = 0;
 	for (const candidate of candidates) {
+		if (candidate.roleHint === "spec-candidate") specCandidateCount += 1;
 		if (!candidate.knownClassification) {
 			unclassifiedCandidateCount += 1;
 		} else if (candidate.changedSinceClassification) {
@@ -94,6 +116,7 @@ export function summarizeKnowledgeCandidates(
 	}
 	return {
 		candidateCount: candidates.length,
+		specCandidateCount,
 		unclassifiedCandidateCount,
 		changedClassifiedCandidateCount,
 	};
@@ -239,6 +262,41 @@ export class KnowledgeService {
 		return await this.legacyHash(entry.path) === entry.indexedSourceHash;
 	}
 
+	private explicitTrust(entry: KnowledgeEntry): ExplicitKnowledgeTrustMetadata | undefined {
+		const value = entry.metadata?.trust;
+		if (!value || typeof value !== "object") return undefined;
+		const trust = value as Record<string, unknown>;
+		if (
+			trust.mode !== "explicit" ||
+			typeof trust.trustedAt !== "number" ||
+			!Number.isFinite(trust.trustedAt) ||
+			typeof trust.sourceHash !== "string"
+		) {
+			return undefined;
+		}
+		return {
+			mode: "explicit",
+			trustedAt: trust.trustedAt,
+			sourceHash: trust.sourceHash,
+			...(typeof trust.rationale === "string" && trust.rationale.trim()
+				? { rationale: trust.rationale }
+				: {}),
+		};
+	}
+
+	private trustState(
+		entry: KnowledgeEntry,
+		status: KnowledgeFreshnessStatus,
+		currentSourceHash: string | null,
+	): KnowledgeTrustState {
+		if (status === "fresh" && entry.verificationReceipt) return "verified";
+		const explicit = this.explicitTrust(entry);
+		if (explicit && currentSourceHash && explicit.sourceHash === currentSourceHash) {
+			return "explicit";
+		}
+		return "default";
+	}
+
 	private async getStatusWithGitignore(
 		entry: KnowledgeEntry,
 		gitignore: GitignoreFilter,
@@ -247,23 +305,25 @@ export class KnowledgeService {
 		const current = (p: string) => {
 			let result = hashes.get(p); if (!result) { result = this.currentHash(p); hashes.set(p, result); } return result;
 		};
+		const sourceHash = await current(entry.path);
 		if (!primary(entry)) {
 			return {
 				path: entry.path,
 				classification: entry.classification,
 				lifecycle: entry.lifecycle,
 				status: "classified",
+				trust: this.trustState(entry, "classified", sourceHash),
 				reasons: [],
 			};
 		}
 
-		const sourceHash = await current(entry.path);
 		if (!sourceHash) {
 			return {
 				path: entry.path,
 				classification: entry.classification,
 				lifecycle: entry.lifecycle,
 				status: "missing-source",
+				trust: "default",
 				reasons: [entry.path],
 			};
 		}
@@ -272,12 +332,13 @@ export class KnowledgeService {
 			const indexedSourceMatches = await this.matchesIndexedSourceHash(entry, sourceHash);
 			const legacyMatch = sourceHash !== entry.indexedSourceHash && indexedSourceMatches;
 			const legacyUnattested = Boolean(entry.verifiedSourceHash || legacyMatch);
+			const status = indexedSourceMatches ? "unverified" : "spec-changed";
 			return {
 				path: entry.path,
 				classification: entry.classification,
 				lifecycle: entry.lifecycle,
-				status:
-					indexedSourceMatches ? "unverified" : "spec-changed",
+				status,
+				trust: this.trustState(entry, status, sourceHash),
 				reasons:
 					indexedSourceMatches
 						? [entry.verifiedSourceHash || legacyMatch ? "legacy/unattested verification baseline" : "semantic verification required"]
@@ -323,6 +384,7 @@ export class KnowledgeService {
 			classification: entry.classification,
 			lifecycle: entry.lifecycle,
 			status,
+			trust: this.trustState(entry, status, sourceHash),
 			reasons,
 			trackedInputCount: trackedTargets.length,
 			ignoredInputCount,
@@ -348,6 +410,43 @@ export class KnowledgeService {
 	}
 
 	async listStatuses(): Promise<KnowledgeStatus[]> { return this.getStatuses(); }
+
+	async trust(
+		inputPath: string,
+		options: { clear?: boolean; rationale?: string } = {},
+	): Promise<KnowledgeTrustResult> {
+		const filePath = await this.normalizeProjectPath(inputPath);
+		const entry = await this.knowledge.getKnowledgeEntry(this.projectId, filePath);
+		if (!entry) throw new Error(`Recorded knowledge entry not found: ${filePath}`);
+		const sourceHash = await this.currentHash(filePath);
+		if (!sourceHash) throw new Error(`Knowledge source is missing or unreadable: ${filePath}`);
+
+		const metadata = { ...(entry.metadata ?? {}) };
+		if (options.clear) {
+			delete metadata.trust;
+		} else {
+			metadata.trust = {
+				mode: "explicit",
+				trustedAt: Date.now(),
+				sourceHash,
+				...(options.rationale?.trim() ? { rationale: options.rationale.trim() } : {}),
+			} satisfies ExplicitKnowledgeTrustMetadata;
+		}
+		await this.knowledge.upsertKnowledgeEntry({ ...entry, metadata });
+		const updated = (await this.knowledge.getKnowledgeEntry(this.projectId, filePath)) ?? {
+			...entry,
+			metadata,
+		};
+		const status = await this.getStatus(updated);
+		const explicit = this.explicitTrust(updated);
+		return {
+			path: filePath,
+			trust: status.trust,
+			explicit: Boolean(explicit && explicit.sourceHash === sourceHash),
+			...(explicit?.trustedAt ? { trustedAt: explicit.trustedAt } : {}),
+			...(explicit?.rationale ? { rationale: explicit.rationale } : {}),
+		};
+	}
 
 	async discover(options: {
 		allUnclassified?: boolean;
@@ -719,11 +818,15 @@ export class KnowledgeService {
 		freshCount: number;
 		unverifiedCount: number;
 		needsReviewCount: number;
+		verifiedTrustCount: number;
+		explicitTrustCount: number;
+		defaultTrustCount: number;
 		unresolvedReferenceCount: number;
 		uncoveredActiveAsIsCount: number;
 		uncoveredActiveAsIsSpecs: string[];
 		statuses: KnowledgeStatus[];
 		candidateCount: number;
+		specCandidateCount: number;
 		unclassifiedCandidateCount: number;
 		changedClassifiedCandidateCount: number;
 		candidates: KnowledgeCandidate[];
@@ -768,6 +871,9 @@ export class KnowledgeService {
 					status.status !== "fresh" &&
 					status.status !== "unverified",
 			).length,
+			verifiedTrustCount: primaryStatuses.filter((status) => status.trust === "verified").length,
+			explicitTrustCount: primaryStatuses.filter((status) => status.trust === "explicit").length,
+			defaultTrustCount: primaryStatuses.filter((status) => status.trust === "default").length,
 			unresolvedReferenceCount: primaryEntries.reduce((sum, entry) => {
 				const unresolved = entry.metadata?.unresolvedReferences;
 				return sum + (Array.isArray(unresolved) ? unresolved.length : 0);
@@ -809,11 +915,13 @@ export class KnowledgeService {
 			"",
 		];
 		for (const entry of entries.filter(currentLifecycle)) {
-			const status = statuses.get(entry.path)?.status ?? "unverified";
+			const knowledgeStatus = statuses.get(entry.path);
+			const status = knowledgeStatus?.status ?? "unverified";
+			const trust = knowledgeStatus?.trust ?? "default";
 			const topics = entry.topics.slice(0, 6).join(",") || "-";
 			const summary = entry.summary.replace(/\s+/g, " ").trim();
 			lines.push(
-				`- **${entry.title || entry.path}** — \`${entry.path}\` · ${entry.behaviorType}/${entry.lifecycle} · **${status}** · ${topics} — ${summary}`,
+				`- **${entry.title || entry.path}** — \`${entry.path}\` · ${entry.behaviorType}/${entry.lifecycle} · **${status}** · trust=${trust} · ${topics} — ${summary}`,
 			);
 		}
 		const archived = entries.filter((entry) => !currentLifecycle(entry));

@@ -12,15 +12,18 @@ changed document candidates.
   explicit `Recommendation:` alongside the command response.
 - Candidate review distinguishes two categories from normal discovery:
   - an **unclassified candidate** has no `knownClassification` and must be read
-    and classified with `idx wiki record` before it is registered project
-    knowledge;
+    and classified with `idx wiki record` before it becomes registered project
+    knowledge, but its indexed content is already available to retrieval as
+    default-trusted, explicitly unreviewed evidence;
   - a **changed classified candidate** has `knownClassification` and
     `changedSinceClassification: true`; it remains registered project knowledge,
     but its changed source requires review against the existing
     classification/metadata.
-- Recommendations tell the agent to run `idx wiki discover` and read each source,
-  but the follow-up action depends on the category. Unclassified candidates get
-  the hard classify-with-`idx wiki record` guidance. Changed classified
+- Recommendations tell the agent to run `idx wiki discover` when durable
+  classification is needed, but they do not block retrieval. Unclassified
+  candidates may be used immediately with default-trust/unreviewed warnings;
+  `idx wiki record` promotes selected documents into durable registered
+  knowledge with lifecycle/relations/verification semantics. Changed classified
   candidates get review-existing-classification/metadata guidance and may be
   re-recorded to confirm or update that metadata.
 - For non-primary classifications such as `guide`, `design-only`, `meta-index`,
@@ -31,6 +34,10 @@ changed document candidates.
 - Mixed candidate sets describe both obligations separately. They must not imply
   that changed classified candidates became unregistered merely because their
   source hash changed.
+- Default or explicit trust does not satisfy candidate-review obligations.
+  Trust controls whether evidence may be used with warnings; a changed
+  classified source still requires review, and unclassified documents still
+  require classification before becoming registered knowledge.
 - The recommendation explicitly tells the agent to inform the user that the
   applicable candidate reviews remain.
 - `status`/`audit` JSON exposes `candidateCount`,

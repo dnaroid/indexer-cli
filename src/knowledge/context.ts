@@ -52,6 +52,8 @@ export interface KnowledgeContextOptions {
 export interface KnowledgeContextPack {
 	query: string;
 	specs: KnowledgeSearchResult[];
+	/** Indexed document matches without a reviewed knowledge entry. Never authoritative. */
+	unreviewed?: KnowledgeSearchResult[];
 	implementation: Array<{
 		path: string;
 		startLine?: number;
@@ -123,11 +125,19 @@ export class KnowledgeContextEngine {
 		const maxCode = Math.max(1, options.maxCode ?? 6);
 		const maxTests = Math.max(0, options.maxTests ?? 4);
 
-		const specs = await this.knowledgeSearch.search(query, {
-			limit: maxSpecs,
+		const knowledgeResults = await this.knowledgeSearch.search(query, {
+			// Search gets one extra slot so a labeled fallback does not reduce maxSpecs.
+			limit: maxSpecs + 1,
 			includeSecondary: options.includeSecondary,
 			mode: options.mode,
 		});
+		const specs = knowledgeResults
+			.filter((result) => result.authority !== "unreviewed-indexed")
+			.slice(0, maxSpecs);
+		const unreviewedCandidates = knowledgeResults.filter(
+			(result) => result.authority === "unreviewed-indexed",
+		);
+		const unreviewed = unreviewedCandidates.slice(0, specs.length === 0 ? maxSpecs : 1);
 		const specPaths = new Set(specs.map((spec) => spec.path));
 		const allRelations = await this.knowledge.listKnowledgeRelations(this.projectId);
 		const relations = allRelations.filter((relation) => specPaths.has(relation.sourcePath));
@@ -252,20 +262,35 @@ export class KnowledgeContextEngine {
 		const warnings: string[] = [];
 		for (const spec of specs) {
 			if (spec.status !== "fresh") {
-				warnings.push(`${spec.path}: ${spec.status}`);
+				warnings.push(
+					`${spec.path}: ${spec.status}; ${spec.trust === "explicit" ? "explicitly trusted" : "trusted by default"}, verification may be stale or absent`,
+				);
 			}
+		}
+		for (const document of unreviewed) {
+			warnings.push(`${document.path}: trusted by default but unreviewed indexed document; content may be stale or incorrect`);
 		}
 		const warningLimit = Math.max(1, options.maxWarnings ?? 8);
 		if (warnings.length > warningLimit) warnings.splice(warningLimit, warnings.length - warningLimit, `… ${warnings.length - warningLimit} additional stale knowledge warnings`);
-		if (specs.length === 0) warnings.push("No primary knowledge matched the query.");
+		if (specs.length === 0) {
+			warnings.push(unreviewed.length > 0
+				? `No registered primary knowledge matched the query; using ${unreviewed.length} default-trusted unreviewed indexed document${unreviewed.length === 1 ? "" : "s"} as knowledge evidence.`
+				: "No primary knowledge matched the query.");
+		}
 
 		const readNext = uniqueByPath([
 			...specs.map((spec) => {
 					const range = spec.bestRanges[0];
 					return {
 						path: range ? `${spec.path}:${range.startLine}-${range.endLine}` : spec.path,
-					};
-				}),
+				};
+			}),
+			...unreviewed.map((document) => {
+				const range = document.bestRanges[0];
+				return {
+					path: range ? `${document.path}:${range.startLine}-${range.endLine}` : document.path,
+				};
+			}),
 			...implementation.map((item) => ({
 				path: item.startLine && item.endLine
 					? `${item.path}:${item.startLine}-${item.endLine}`
@@ -277,6 +302,7 @@ export class KnowledgeContextEngine {
 		return {
 			query,
 			specs,
+			unreviewed,
 			implementation,
 			tests,
 			relations,
@@ -297,6 +323,7 @@ export function formatKnowledgeContext(
 ): string {
 	const budget = Math.max(200, budgetTokens);
 	const estimator = new TokenEstimator();
+	const unreviewed = pack.unreviewed ?? [];
 	const lines: string[] = [];
 	let used = 0;
 	let omitted = 0;
@@ -319,7 +346,8 @@ export function formatKnowledgeContext(
 		return push(`${heading}: (${total}) ${row}${total > 1 ? ` … ${total - 1} omitted` : ""}`);
 	};
 	if (pack.warnings.length && !compact("Warnings", pack.warnings.length, `! ${clip(pack.warnings[0])}`)) omitted += pack.warnings.length;
-	if (pack.specs.length && !compact("Primary knowledge", pack.specs.length, `S ${clip(pack.specs[0].path)} status=${pack.specs[0].status}`)) omitted += pack.specs.length;
+	if (pack.specs.length && !compact("Primary knowledge", pack.specs.length, `S ${clip(pack.specs[0].path)} status=${pack.specs[0].status} trust=${pack.specs[0].trust}`)) omitted += pack.specs.length;
+	if (unreviewed.length && !compact("Indexed knowledge (unreviewed)", unreviewed.length, `U ${clip(unreviewed[0].path)} status=unreviewed trust=${unreviewed[0].trust}`)) omitted += unreviewed.length;
 	if (pack.implementation.length && !compact("Implementation", pack.implementation.length, `C ${clip(pack.implementation[0].path)}${formatRange(pack.implementation[0].startLine, pack.implementation[0].endLine)} reason=${pack.implementation[0].reason}`)) omitted += pack.implementation.length;
 	if (pack.tests.length && !compact("Tests", pack.tests.length, `T ${clip(pack.tests[0].path)} reason=${pack.tests[0].reason}`)) omitted += pack.tests.length;
 
@@ -327,6 +355,11 @@ export function formatKnowledgeContext(
 		if (spec.summary && !push(`  S ${clip(spec.path, 48)}: ${clip(spec.summary, 160)}`)) omitted += 1;
 		const range = spec.bestRanges[0];
 		if (range && !push(`  Read: ${clip(spec.path)}:${range.startLine}-${range.endLine}`)) omitted += 1;
+	}
+	for (const document of unreviewed) {
+		if (document.summary && !push(`  U ${clip(document.path, 48)}: ${clip(document.summary, 160)}`)) omitted += 1;
+		const range = document.bestRanges[0];
+		if (range && !push(`  Read (unreviewed): ${clip(document.path)}:${range.startLine}-${range.endLine}`)) omitted += 1;
 	}
 
 	const relatedKnowledge = pack.relations.filter(

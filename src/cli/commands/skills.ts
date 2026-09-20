@@ -78,6 +78,12 @@ read the smallest returned ranges, and expand only for a named gap.
   \`spec+inputs-changed\`, and \`missing-source\` as review obligations, not as
   current truth. Do not present a non-fresh primary spec as unquestionably current
   without reviewing the relevant implementation/tests.
+- Registered knowledge is trusted by default for retrieval, but default trust is
+  not verification. Search/context warnings identify non-fresh trusted results.
+  Use \`idx wiki trust --all\` (or repeat \`--path\`) to record explicit user trust
+  without claiming semantic verification; \`--clear\` returns entries to the
+  default-trust policy. Source changes invalidate explicit trust binding and fall
+  back to default trust with warnings.
 - Gitignored code relations remain dependency documentation but do not participate
   in verified-input freshness tracking. Treat the relate warning as intentional;
   context code hints include only paths present in the current code index.

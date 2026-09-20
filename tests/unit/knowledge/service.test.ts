@@ -95,6 +95,50 @@ describe("KnowledgeService", () => {
 		await store.close();
 	});
 
+	it("trusts recorded knowledge by default, supports explicit trust, and expires explicit trust on source drift", async () => {
+		const { root, store, service } = await setup();
+		try {
+			await mkdir(path.join(root, "docs"), { recursive: true });
+			await writeFile(path.join(root, "docs/trust.md"), "# Trust\n\nCurrent behavior.\n");
+			const entry = await service.record({
+				path: "docs/trust.md",
+				classification: "spec",
+				behaviorType: "as-is",
+				lifecycle: "active",
+				summary: "Trust behavior.",
+			});
+			expect(await service.getStatus(entry)).toMatchObject({
+				status: "unverified",
+				trust: "default",
+			});
+
+			const trusted = await service.trust("docs/trust.md", { rationale: "Imported project documentation is trusted." });
+			expect(trusted).toMatchObject({
+				path: "docs/trust.md",
+				trust: "explicit",
+				explicit: true,
+				rationale: "Imported project documentation is trusted.",
+			});
+			const explicitlyTrustedEntry = await store.getKnowledgeEntry("project", "docs/trust.md");
+			expect(explicitlyTrustedEntry).not.toBeNull();
+			expect(await service.getStatus(explicitlyTrustedEntry!)).toMatchObject({
+				status: "unverified",
+				trust: "explicit",
+			});
+
+			await writeFile(path.join(root, "docs/trust.md"), "# Trust\n\nChanged behavior.\n");
+			expect(await service.getStatus(explicitlyTrustedEntry!)).toMatchObject({
+				status: "spec-changed",
+				trust: "default",
+			});
+
+			const cleared = await service.trust("docs/trust.md", { clear: true });
+			expect(cleared).toMatchObject({ trust: "default", explicit: false });
+		} finally {
+			await store.close();
+		}
+	});
+
 	it("detects exact-byte changes that normalized indexing hashes would conceal", async () => {
 		const { root, store, service } = await setup();
 		try {
