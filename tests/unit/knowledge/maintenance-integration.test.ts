@@ -3,7 +3,7 @@ import { mkdir, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { EmbeddingProvider } from "../../../src/core/types.js";
+import type { EmbeddingProvider, KnowledgeVerificationReceipt } from "../../../src/core/types.js";
 import { DocumentIndexer } from "../../../src/knowledge/document-indexer.js";
 import { KnowledgeService } from "../../../src/knowledge/service.js";
 import { SqliteMetadataStore } from "../../../src/storage/sqlite.js";
@@ -19,6 +19,21 @@ class FakeEmbeddingProvider implements EmbeddingProvider {
 	async embed(texts: string[]): Promise<number[][]> {
 		return texts.map((text, index) => [1, Math.max(1, text.length % 11), index + 1]);
 	}
+}
+
+async function verify(service: KnowledgeService, path: string) {
+	const prepared = await service.prepareVerification(path);
+	const receipt: KnowledgeVerificationReceipt = {
+		version: 1, sourcePath: prepared.sourcePath, sourceHash: prepared.sourceHash,
+		relationsHash: prepared.relationsHash, inputs: prepared.inputs, preparedAt: 1,
+		reviewer: "maintenance-test", rationale: "Reviewed recorded behavior against prepared source.",
+		assertionReferences: ["recorded behavior"], evidenceReferences: ["prepared source"],
+		assertionBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash, assertion: "recorded behavior" }],
+		evidenceBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash }],
+		limitations: ["No command was executed."],
+		...(prepared.inputs.length === 0 ? { zeroTrackedInputsAcknowledged: true } : {}),
+	};
+	return service.verify(path, receipt);
 }
 
 describe("knowledge maintenance lifecycle", () => {
@@ -67,7 +82,7 @@ describe("knowledge maintenance lifecycle", () => {
 			lifecycle: "active",
 			summary: "Session retry contract.",
 		});
-		const verified = await service.verify("docs/session.md");
+		const verified = await verify(service, "docs/session.md");
 		expect((await service.getStatus(verified)).status).toBe("fresh");
 
 		await writeFile(

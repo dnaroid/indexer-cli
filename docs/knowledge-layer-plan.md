@@ -1,9 +1,14 @@
 # LLM Knowledge Layer / Wiki — implementation plan
 
-Status: **planned / implementation not started**  
+Status: **implemented; hardening contracts linked below**
 Owner: indexer-cli  
 Primary data directory: `.indexer-cli/`  
-Last updated: 2026-09-09
+Last updated: 2026-09-19
+
+The focused current contracts for verification receipts, declarative manifests,
+durable review obligations, offline retrieval, discovery caching, and deterministic evaluation are
+under `docs/specs/knowledge-*.md`. They refine the original implementation plan;
+the architecture and semantic-ownership invariants below remain authoritative.
 
 ## Goal
 
@@ -340,11 +345,15 @@ Primary records require explicit type and lifecycle on first classification.
 ## `idx wiki verify`
 
 ```bash
-idx wiki verify --path docs/auth.md
+idx wiki prepare --path docs/auth.md --output auth-review.json
+# Review and complete the receipt, then explicitly accept it:
+idx wiki verify --path docs/auth.md --receipt auth-review.json
 ```
 
 Only after the agent has semantically checked the source against relevant
-implementation/tests/evidence.
+implementation/tests/evidence. A versioned, hash-bound receipt is mandatory;
+`prepare` alone never accepts a baseline. Source changes since `record` require
+re-recording first. Legacy hash-only baselines remain unattested, not `fresh`.
 
 Writes:
 
@@ -352,7 +361,13 @@ Writes:
 - verified durable relation hash;
 - verified input hashes for non-gitignored code relations, including Git-tracked
   files that are not in the code index;
-- verification timestamp.
+- verification timestamp and structured assertion/evidence receipt, committed
+  atomically with the accepted input baseline.
+
+Freshness, effective input coverage and verification evidence are independent
+diagnostics. Selectors provide localized review hints, never permission to ignore
+whole-file drift. Imported test outcomes are reviewer attestations, not claims
+that this process executed the command. See `docs/specs/knowledge-verification.md`.
 
 Gitignored relation targets remain durable dependency documentation but are not
 freshness inputs. Verification skips them even when they are absent, and status
@@ -386,7 +401,11 @@ participate in freshness tracking.
 idx wiki search "почему старый tool result нельзя удалять до provider request"
 ```
 
-Use existing Ollama embeddings + lexical metadata + path/relation matching.
+Use independent Ollama document embeddings + section-level lexical text +
+metadata/path/relation matching. Lexical mode is offline and uses an existing
+completed snapshot; hybrid mode reports degraded retrieval if embeddings fail.
+Semantic-only mode fails explicitly. Empty results do not prove absence of a
+contract. See `docs/specs/knowledge-retrieval.md` for ranking/budget behavior.
 
 Searchable evidence:
 

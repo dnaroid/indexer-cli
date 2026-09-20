@@ -1,0 +1,50 @@
+ D CLAUDE.md
+ M README.md
+ M docs/knowledge-layer-plan.md
+ M src/cli/commands/context.ts
+ M src/cli/commands/skills.ts
+ M src/cli/commands/wiki.ts
+ M src/core/skills-version.ts
+ M src/core/types.ts
+ M src/knowledge/context.ts
+ M src/knowledge/document-indexer.ts
+ M src/knowledge/embedding.ts
+ M src/knowledge/impact.ts
+ M src/knowledge/search.ts
+ M src/knowledge/service.ts
+ M src/storage/sqlite.ts
+ M tests/cli/commands.test.ts
+ M tests/evals/knowledge-retrieval.eval.test.ts
+ M tests/unit/knowledge/context.test.ts
+ M tests/unit/knowledge/document-indexer.test.ts
+ M tests/unit/knowledge/impact.test.ts
+ M tests/unit/knowledge/maintenance-integration.test.ts
+ M tests/unit/knowledge/search.test.ts
+ M tests/unit/knowledge/service.test.ts
+ M tests/unit/storage/sqlite.test.ts
+?? artifacts/
+?? docs/specs/knowledge-manifest.md
+?? docs/specs/knowledge-quality-evaluation.md
+?? docs/specs/knowledge-retrieval.md
+?? docs/specs/knowledge-review-workflow.md
+?? docs/specs/knowledge-verification.md
+?? evals/knowledge/quality-scenarios.json
+?? src/cli/commands/wiki-manifest.ts
+?? src/cli/commands/wiki-review-runtime.ts
+?? src/cli/commands/wiki-review.ts
+?? src/cli/commands/wiki-runtime.ts
+?? src/cli/commands/wiki-search-runtime.ts
+?? src/cli/commands/wiki-search.ts
+?? src/cli/commands/wiki-verification-runner.ts
+?? src/cli/commands/wiki-verification.ts
+?? src/knowledge/lexical-index.ts
+?? src/knowledge/manifest.ts
+?? src/knowledge/review.ts
+?? src/knowledge/verification/
+?? src/storage/knowledge-reviews.ts
+?? tests/evals/knowledge-quality.eval.test.ts
+?? tests/unit/cli/wiki-command-registration.test.ts
+?? tests/unit/cli/wiki-runtime.test.ts
+?? tests/unit/knowledge/manifest.test.ts
+?? tests/unit/knowledge/review.test.ts
+?? tests/unit/knowledge/verification.test.ts

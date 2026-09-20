@@ -1858,8 +1858,29 @@ describe.sequential("CLI e2e", () => {
 				"Warning: dist/main.js is gitignored and will not participate in freshness tracking.",
 			);
 
+			const preparedReceipt = runCLI(
+				["wiki", "prepare", "--path", "docs/session-contract.md", "--json"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(preparedReceipt.exitCode).toBe(0);
+			const receiptPath = path.join(knowledgeRoot, "reviewed-receipt.json");
+			const receipt = JSON.parse(preparedReceipt.stdout) as Record<string, unknown>;
+			writeFileSync(
+				receiptPath,
+				`${JSON.stringify({
+					...receipt,
+					reviewer: "cli-e2e-reviewer",
+					rationale: "Reviewed the session ownership assertion against the prepared source and input.",
+					assertionReferences: ["session ownership assertion"],
+					evidenceReferences: ["prepared source and tracked input"],
+					assertionBindings: receipt.assertionBindings,
+					evidenceBindings: receipt.evidenceBindings,
+					limitations: ["No command was executed."],
+				}, null, 2)}\n`,
+				"utf8",
+			);
 			const verify = runCLI(
-				["wiki", "verify", "--path", "docs/session-contract.md", "--json"],
+				["wiki", "verify", "--path", "docs/session-contract.md", "--receipt", receiptPath, "--json"],
 				{ cwd: knowledgeRoot },
 			);
 			expect(verify.exitCode).toBe(0);

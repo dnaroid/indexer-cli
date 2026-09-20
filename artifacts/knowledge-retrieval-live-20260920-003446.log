@@ -1,0 +1,16 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+stdout | tests/evals/knowledge-retrieval.eval.test.ts > real embedding knowledge retrieval eval > meets multilingual/paraphrase/path retrieval targets
+KNOWLEDGE_RETRIEVAL_EVAL total=26 top1=26 top3=26 top5=26
+
+ ✓ tests/evals/knowledge-retrieval.eval.test.ts > real embedding knowledge retrieval eval > meets multilingual/paraphrase/path retrieval targets 10870ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:34:46
+   Duration  11.26s (transform 132ms, setup 0ms, import 313ms, tests 10.87s, environment 0ms)
+

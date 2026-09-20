@@ -1,0 +1,13 @@
+Receipt draft: artifacts/wiki-final-receipts-1789859923/manifest.json. Review source/evidence and fill the attestation before verify.
+CHECK_RESULT=passed command="./node_modules/.bin/vitest run tests/unit/knowledge/manifest.test.ts --reporter=dot" exit_code=0 log=/var/folders/f4/qn8kkwg96lv8c1z_3bs_978m0000gn/T/idx-wiki-checks-qqoPFS/1.log
+{
+  "path": "docs/specs/knowledge-manifest.md",
+  "classification": "spec",
+  "lifecycle": "active",
+  "status": "fresh",
+  "reasons": [],
+  "trackedInputCount": 6,
+  "ignoredInputCount": 0,
+  "verificationState": "attested",
+  "selectorHints": []
+}

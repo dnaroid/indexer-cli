@@ -1,0 +1,76 @@
+
+> indexer-cli@2.0.3 test
+> vitest run tests/unit/ --reporter=dot
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+····································································stdout | tests/unit/engine/indexer.test.ts > IndexerEngine internals > indexPreparedFiles > reads files, stores metadata, embeds vector chunks, and records errors
+[2026-09-19T23:11:40.339Z] [indexer-engine] [ERROR] Error preparing file missing.ts {"message":"ENOENT: no such file or directory, open '/var/folders/f4/qn8kkwg96lv8c1z_3bs_978m0000gn/T/indexer-engine-test-FySEPQ/missing.ts'"}
+
+stdout | tests/unit/engine/indexer.test.ts > IndexerEngine internals > indexPreparedFiles > records parser failures without aborting the whole batch
+[2026-09-19T23:11:40.341Z] [indexer-engine] [ERROR] Error preparing file bad.ts {"message":"Invalid argument"}
+
+·······················································································stdout | tests/unit/core/update-check.test.ts > performAutoUpdateAfterCommand > returns failed result when update command fails
+Updating indexer-cli 1.0.0 → 1.1.0...
+
+stdout | tests/unit/core/update-check.test.ts > performAutoUpdateAfterCommand > returns failed result when version did not change after install
+Updating indexer-cli 1.0.0 → 1.1.0...
+
+stdout | tests/unit/core/update-check.test.ts > performAutoUpdateAfterCommand > cleans stale lock and proceeds with update
+Updating indexer-cli 1.0.0 → 1.1.0...
+Updated indexer-cli 1.0.0 → 1.1.0.
+The new version will be used on the next run.
+
+·················································································································································································stdout | tests/unit/core/version-check.test.ts > checkAndMigrateIfNeeded > migrates when config has different major version
+indexer-cli: version changed (1.0.0 → 0.5.0). Re-initializing project data...
+  Removing .indexer-cli/...
+
+stdout | tests/unit/core/version-check.test.ts > checkAndMigrateIfNeeded > migrates when config has different major version
+  Re-initializing...
+
+stdout | tests/unit/core/version-check.test.ts > checkAndMigrateIfNeeded > migrates when config has different major version
+indexer-cli: migration complete.
+
+stdout | tests/unit/core/version-check.test.ts > checkAndMigrateIfNeeded > returns false and sets exitCode when migration fails
+indexer-cli: version changed (1.0.0 → 0.5.0). Re-initializing project data...
+  Removing .indexer-cli/...
+
+stderr | tests/unit/core/version-check.test.ts > checkAndMigrateIfNeeded > returns false and sets exitCode when migration fails
+indexer-cli: migration failed: disk on fire
+  Run manually: indexer-cli uninstall -f && indexer-cli init
+
+stderr | tests/unit/core/version-check.test.ts > checkAndRefreshSkills > refreshes skills and writes new version when skillsVersion differs
+indexer-cli: skills updated (version 12345 → 999999). Refreshing claude skill target(s)...
+
+stderr | tests/unit/core/version-check.test.ts > checkAndRefreshSkills > infers a legacy installed Claude skill when skillTargets is missing
+indexer-cli: skills updated (version 12345 → 999999). Refreshing claude skill target(s)...
+
+·····················································································································stdout | tests/unit/cli/init.test.ts > init command helpers > refreshes only this CLI's generated skill directories
+  Removed stale skill: .claude/skills/repo-discovery
+
+stdout | tests/unit/cli/init.test.ts > init command helpers > refreshes only this CLI's generated skill directories
+  Skill: .claude/skills/repo-discovery/SKILL.md
+
+stdout | tests/unit/cli/init.test.ts > init command helpers > removes deprecated generated skill directories during refresh
+  Removed stale skill: .claude/skills/context-pack
+
+stdout | tests/unit/cli/init.test.ts > init command helpers > removes deprecated generated skill directories during refresh
+  Removed stale skill: .claude/skills/semantic-search
+
+stdout | tests/unit/cli/init.test.ts > init command helpers > removes deprecated generated skill directories during refresh
+  Skill: .claude/skills/repo-discovery/SKILL.md
+
+stdout | tests/unit/cli/init.test.ts > init command helpers > writes and detects Codex skills under .agents/skills
+  Skill: .agents/skills/repo-discovery/SKILL.md
+
+·······························································································································································
+
+ Test Files  57 passed (57)
+      Tests  608 passed (608)
+   Start at  01:11:32
+   Duration  16.31s (transform 580ms, setup 0ms, import 5.03s, tests 7.15s, environment 3ms)
+

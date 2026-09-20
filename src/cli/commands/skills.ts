@@ -70,6 +70,10 @@ read the smallest returned ranges, and expand only for a named gap.
   verification. A newly created primary spec remains unverified until its
   implementation/evidence has actually been reviewed. Run \`idx wiki verify\`
   only after checking the primary source against relevant code/tests/evidence.
+  Use \`idx wiki prepare --path <spec> --output <receipt.json>\`, review and fill
+  the versioned receipt, then \`idx wiki verify --path <spec> --receipt <receipt.json>\`.
+  Preparation is not verification; record changed source metadata before accepting
+  a new receipt. Imported test claims are attestations, not machine execution.
 - Treat \`unverified\`, \`spec-changed\`, \`inputs-changed\`,
   \`spec+inputs-changed\`, and \`missing-source\` as review obligations, not as
   current truth. Do not present a non-fresh primary spec as unquestionably current
@@ -88,6 +92,14 @@ read the smallest returned ranges, and expand only for a named gap.
   require semantic review. Similarity never creates a durable relation by itself.
 - A reviewed no-impact outcome is valid. Never invent a relation merely to make
   coverage non-empty.
+- Persist review with \`idx wiki review collect <task-paths...> --scope <task>\`.
+  Resolve obligations with reviewer/rationale/evidence; \`needs-human\` stays open.
+  Run \`idx wiki check <task-paths...> --scope <task>\` for the deterministic CI gate.
+  Changed fingerprints reopen accepted decisions, including no-impact.
+- Use \`idx wiki search <query> --mode lexical\` for offline indexed retrieval.
+  Degraded/old indexed text is not current source evidence; empty retrieval is not
+  absence of a contract. Optional JSON manifests carry declarations, never trusted
+  verification baselines. Unchanged selectors never override whole-file drift.
 - New/moved unclassified document candidates must be read and classified. For
   low-signal docs that normal discovery may miss, use
   \`idx wiki discover --all-unclassified\`; this mode intentionally excludes
@@ -121,7 +133,7 @@ below are complete:
    the whole dirty worktree.
 4. Review uncovered implementation paths and all new/moved/changed document
    candidates. Repair only relations supported by concrete evidence.
-5. Run \`idx wiki verify --path <primary-spec>\` only after reviewing the final
+5. Run \`idx wiki verify --path <primary-spec> --receipt <reviewed-receipt.json>\` only after reviewing the final
    primary source plus relevant implementation/tests/evidence.
 6. Ensure affected current primary specs are fresh, or explicitly report any
    remaining review obligation instead of silently treating it as current.

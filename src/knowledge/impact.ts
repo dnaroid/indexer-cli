@@ -1,4 +1,5 @@
 import { readFile, realpath, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import { config } from "../core/config.js";
 import type {
@@ -12,7 +13,6 @@ import type {
 	SnapshotId,
 } from "../core/types.js";
 import { mergeGitDiffs } from "../engine/git.js";
-import { computeHash } from "../utils/hash.js";
 import { documentTitle, knowledgeDiscoverySignals } from "./discovery.js";
 import type { KnowledgeSearchResult } from "./search.js";
 import {
@@ -210,7 +210,8 @@ export class KnowledgeImpactEngine {
 			const fullPath = await resolveSafeProjectFile(this.repoRoot, filePath);
 			if (!fullPath) continue;
 			try {
-				const content = await readFile(fullPath, "utf8");
+				const contentBytes = await readFile(fullPath);
+				const content = contentBytes.toString("utf8");
 				const discovery = knowledgeDiscoverySignals(filePath, content);
 				const existing = entries.find((entry) => entry.path === filePath);
 				changedDocuments.push({
@@ -219,7 +220,7 @@ export class KnowledgeImpactEngine {
 					score: discovery.score,
 					roleHint: discovery.roleHint,
 					signals: discovery.signals,
-					currentHash: computeHash(content),
+					currentHash: createHash("sha256").update(contentBytes).digest("hex"),
 					knownClassification: existing?.classification,
 					knownLifecycle: existing?.lifecycle,
 					requiresClassification: !existing,
@@ -268,6 +269,32 @@ export class KnowledgeImpactEngine {
 		const uncoveredPaths = paths.filter(
 			(filePath) => !covered.has(filePath) && !documentPaths.has(filePath),
 		);
+		// A changed helper can affect a tracked implementation without itself being
+		// a declared input. Surface the dependency evidence, but keep that helper
+		// uncovered: graph proximity does not establish a durable relation.
+		for (const entry of primaryEntries) {
+			const inputs = new Set((relationsBySource.get(entry.path) ?? [])
+				.filter((relation) => relation.targetKind === "code")
+				.map((relation) => relation.targetPath));
+			const indirect = graphContext.filter((graph) =>
+				!inputs.has(graph.path) && graph.importedBy.some((importer) => inputs.has(importer)),
+			).map((graph) => graph.path);
+			if (indirect.length === 0) continue;
+			const existing = knownAffected.find((affected) => affected.path === entry.path);
+			const reasons = indirect.map((changed) => `untracked-dependency:${changed}`);
+			if (existing) {
+				existing.matchedChanges = uniqueSorted([...existing.matchedChanges, ...indirect]);
+				existing.reasons = uniqueSorted([...existing.reasons, ...reasons]);
+			} else {
+				const status = await this.service.getStatus(entry);
+				knownAffected.push({
+					path: entry.path,
+					matchedChanges: uniqueSorted(indirect),
+					status: status.status,
+					reasons: [...status.reasons, ...reasons],
+				});
+			}
+		}
 		const semanticCandidates: KnowledgeImpactResult["semanticCandidates"] = [];
 		if (this.searcher) {
 			for (const filePath of uncoveredPaths) {
@@ -324,4 +351,3 @@ export class KnowledgeImpactEngine {
 		};
 	}
 }
-

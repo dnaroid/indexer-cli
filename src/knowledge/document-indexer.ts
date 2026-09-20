@@ -199,7 +199,10 @@ export class DocumentIndexer {
 			projectId,
 			snapshotId,
 			filePath,
-			chunks.map(({ content: _content, ...chunk }) => chunk),
+			chunks.map(({ content, ...chunk }) => ({
+				...chunk,
+				metadata: { ...chunk.metadata, searchText: content },
+			})),
 		);
 
 		if (chunks.length === 0) return;
@@ -228,4 +231,3 @@ export class DocumentIndexer {
 		);
 	}
 }
-

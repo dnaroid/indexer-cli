@@ -1,0 +1,22 @@
+
+> indexer-cli@2.0.3 test:cli
+> npm run build && INDEXER_CLI_TEST_USE_DIST=1 vitest run tests/cli/ --testTimeout=180000 --no-file-parallelism --reporter=dot
+
+
+> indexer-cli@2.0.3 build
+> tsx scripts/generate-skills-version.ts && tsc
+
+skills-version: 2729846054
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+·······················································································································································································································································································
+
+ Test Files  9 passed (9)
+      Tests  279 passed (279)
+   Start at  01:11:51
+   Duration  283.17s (transform 153ms, setup 0ms, import 266ms, tests 282.21s, environment 1ms)
+

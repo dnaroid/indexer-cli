@@ -4,7 +4,7 @@ import { symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { GitOperations } from "../../../src/core/types.js";
+import type { GitOperations, KnowledgeVerificationReceipt } from "../../../src/core/types.js";
 import { KnowledgeImpactEngine } from "../../../src/knowledge/impact.js";
 import type { KnowledgeSearchResult } from "../../../src/knowledge/search.js";
 import { KnowledgeService } from "../../../src/knowledge/service.js";
@@ -55,6 +55,27 @@ describe("KnowledgeImpactEngine", () => {
 		return { root, store, snapshot, service };
 	}
 
+	async function verify(service: KnowledgeService, path: string) {
+		const prepared = await service.prepareVerification(path);
+		const receipt: KnowledgeVerificationReceipt = {
+			version: 1,
+			sourcePath: prepared.sourcePath,
+			sourceHash: prepared.sourceHash,
+			relationsHash: prepared.relationsHash,
+			inputs: prepared.inputs,
+			preparedAt: 1,
+			reviewer: "impact-test",
+			rationale: "The recorded assertion was reviewed against the prepared source.",
+			assertionReferences: ["recorded assertion"],
+			evidenceReferences: ["prepared source"],
+			assertionBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash, assertion: "recorded assertion" }],
+			evidenceBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash }],
+			limitations: ["No command was executed."],
+			...(prepared.inputs.length === 0 ? { zeroTrackedInputsAcknowledged: true } : {}),
+		};
+		return service.verify(path, receipt);
+	}
+
 	it("surfaces uncovered implementation paths, graph context, and semantic candidates without persisting them", async () => {
 		const { root, store, snapshot, service } = await setup();
 		await mkdir(path.join(root, "docs"), { recursive: true });
@@ -75,7 +96,7 @@ describe("KnowledgeImpactEngine", () => {
 			lifecycle: "active",
 			summary: "Session refresh retry contract.",
 		});
-		await service.verify("docs/session.md");
+		await verify(service, "docs/session.md");
 		await store.replaceDependencies("project", snapshot.id, "src/refresh-worker.ts", [
 			{
 				id: "dep",
@@ -135,6 +156,29 @@ describe("KnowledgeImpactEngine", () => {
 				(relation) => relation.targetPath,
 			),
 		).toEqual(["src/session.ts"]);
+		await store.close();
+	});
+
+	it("surfaces an untracked helper imported by a tracked input without inventing coverage", async () => {
+		const { root, store, snapshot, service } = await setup();
+		await mkdir(path.join(root, "docs"));
+		await mkdir(path.join(root, "src"));
+		await writeFile(path.join(root, "src/session.ts"), "import './helper.js';\n");
+		await writeFile(path.join(root, "src/helper.ts"), "export const retries = 2;\n");
+		await writeFile(path.join(root, "docs/session.md"), "# Session\nRetry once.\n`src/session.ts`\n");
+		await service.record({ path: "docs/session.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Retry contract." });
+		await store.replaceDependencies("project", snapshot.id, "src/session.ts", [{
+			id: "helper-import", toSpecifier: "./helper.js", toPath: "src/helper.ts", kind: "import", dependencyType: "internal",
+		}]);
+		const engine = new KnowledgeImpactEngine("project", root, snapshot.id, store, store, service, new EmptyGit());
+		const result = await engine.impact({ paths: ["src/helper.ts"] });
+		expect(result.knownAffected).toEqual([expect.objectContaining({
+			path: "docs/session.md", matchedChanges: ["src/helper.ts"],
+			reasons: expect.arrayContaining(["untracked-dependency:src/helper.ts"]),
+		})]);
+		expect(result.uncoveredPaths).toEqual(["src/helper.ts"]);
+		expect(result.semanticSweepRequired).toBe(true);
+		expect((await store.listKnowledgeRelations("project")).map((relation) => relation.targetPath)).toEqual(["src/session.ts"]);
 		await store.close();
 	});
 
@@ -256,4 +300,3 @@ describe("KnowledgeImpactEngine", () => {
 		await store.close();
 	});
 });
-

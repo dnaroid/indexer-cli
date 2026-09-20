@@ -1,0 +1,16 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+stdout | tests/evals/knowledge-quality.eval.test.ts > knowledge quality: deterministic, offline regression metrics > measures drift false-fresh, conservative review noise, and lexical retrieval
+KNOWLEDGE_QUALITY_EVAL declared_drift=6 false_fresh=0 false_fresh_rate=0/6 review_noise=1 review_noise_fresh=0 lexical_precision=1.00 lexical_recall=1.00 negative_abstention=1.00 llm_calls=0 index_ms=14 query_ms=4 context_tokens=50
+
+ ✓ tests/evals/knowledge-quality.eval.test.ts > knowledge quality: deterministic, offline regression metrics > measures drift false-fresh, conservative review noise, and lexical retrieval 57ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed (1)
+   Start at  00:35:03
+   Duration  510ms (transform 161ms, setup 0ms, import 359ms, tests 60ms, environment 0ms)
+

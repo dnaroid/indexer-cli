@@ -8,20 +8,20 @@ import type {
 	KnowledgeRelationKind,
 } from "../../core/types.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
-import { initLogger } from "../../core/logger.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SimpleGitOperations } from "../../engine/git.js";
 import { KnowledgeImpactEngine } from "../../knowledge/impact.js";
+import { KnowledgeReviewService } from "../../knowledge/review.js";
 import { KnowledgeSearchEngine } from "../../knowledge/search.js";
-import {
-	KnowledgeService,
-	summarizeKnowledgeCandidates,
-} from "../../knowledge/service.js";
-import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
+import { SqliteKnowledgeReviewStore } from "../../storage/knowledge-reviews.js";
 import { candidateReviewRecommendation } from "../format/knowledge.js";
-import { resolveInitializedProjectRoot } from "../project-root.js";
-import { ensureIndexed } from "./ensure-indexed.js";
+import { withWikiRuntime } from "./wiki-runtime.js";
+import { registerWikiSearchCommand } from "./wiki-search.js";
+import { registerWikiManifestCommand } from "./wiki-manifest.js";
+import { registerWikiVerificationCommands } from "./wiki-verification.js";
+import { collectWikiReviewInput, registerWikiReviewCommands } from "./wiki-review.js";
+import { wikiReviewRuntime, withWikiReviewRuntime } from "./wiki-review-runtime.js";
 
 const CLASSIFICATIONS = new Set<KnowledgeClassification>([
 	"spec",
@@ -61,49 +61,6 @@ function choice<T extends string>(
 	return value as T;
 }
 
-async function withWikiRuntime<T>(
-	action: (runtime: {
-		projectRoot: string;
-		metadata: SqliteMetadataStore;
-		service: KnowledgeService;
-		snapshotId: string;
-	}) => Promise<T>,
-): Promise<T> {
-	const resolved = resolveInitializedProjectRoot();
-	if (resolved.notice) console.log(resolved.notice);
-	const projectRoot = resolved.projectRoot;
-	const dataDir = path.join(projectRoot, ".indexer-cli");
-	const dbPath = path.join(dataDir, "db.sqlite");
-	initLogger(dataDir);
-	config.load(dataDir);
-	const metadata = new SqliteMetadataStore(dbPath);
-	try {
-		await metadata.initialize();
-		const indexResult = await ensureIndexed(metadata, projectRoot, {
-			silent: !process.stderr.isTTY,
-		});
-		if (indexResult.status === "failed") {
-			throw new Error(indexResult.reason);
-		}
-		const snapshot = await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
-		if (!snapshot) throw new Error("No completed index snapshot is available.");
-		const service = new KnowledgeService(
-			DEFAULT_PROJECT_ID,
-			projectRoot,
-			metadata,
-			metadata,
-		);
-		return await action({
-			projectRoot,
-			metadata,
-			service,
-			snapshotId: snapshot.id,
-		});
-	} finally {
-		await metadata.close();
-	}
-}
-
 function reportFailure(error: unknown): void {
 	const message = error instanceof Error ? error.message : String(error);
 	console.error(`Wiki failed: ${message}`);
@@ -114,18 +71,21 @@ export function registerWikiCommand(program: Command): void {
 	const wiki = program
 		.command("wiki")
 		.description("Discover, maintain, verify, and query project knowledge/contracts");
+	registerWikiManifestCommand(wiki, withWikiRuntime);
+	registerWikiReviewCommands(wiki, withWikiReviewRuntime);
 
 	wiki
 		.command("discover")
 		.description("Discover document candidates for semantic classification")
 		.option("--limit <number>", "maximum candidates to return", "40")
+		.option("--cursor <number>", "candidate offset for the current deterministic scan", "0")
 		.option("--all", "include unchanged already-classified documents")
 		.option(
 			"--all-unclassified",
 			"include all unclassified document-like files regardless heuristic score",
 		)
 		.option("--json", "print JSON")
-		.action(async (options?: { limit?: string; all?: boolean; allUnclassified?: boolean; json?: boolean }) => {
+		.action(async (options?: { limit?: string; cursor?: string; all?: boolean; allUnclassified?: boolean; json?: boolean }) => {
 			try {
 				if (options?.all && options?.allUnclassified) {
 					throw new Error("--all and --all-unclassified are mutually exclusive.");
@@ -137,11 +97,14 @@ export function registerWikiCommand(program: Command): void {
 					});
 					const limitValue = Number.parseInt(options?.limit ?? "40", 10);
 					const limit = Number.isFinite(limitValue) && limitValue > 0 ? limitValue : 40;
-					const page = candidates.slice(0, limit);
+					const cursor = Number(options?.cursor ?? "0");
+					if (!Number.isSafeInteger(cursor) || cursor < 0) throw new Error("--cursor must be a non-negative integer.");
+					const page = candidates.slice(cursor, cursor + limit);
+					const nextCursor = cursor + page.length < candidates.length ? cursor + page.length : null;
 					if (options?.json) {
 						console.log(
 							JSON.stringify(
-								{ total: candidates.length, hasMore: candidates.length > page.length, candidates: page },
+								{ total: candidates.length, cursor, nextCursor, hasMore: nextCursor !== null, candidates: page },
 								null,
 								2,
 							),
@@ -149,6 +112,7 @@ export function registerWikiCommand(program: Command): void {
 						return;
 					}
 					console.log(`candidates: ${candidates.length} | showing ${page.length}`);
+					if (nextCursor !== null) console.log(`next cursor: ${nextCursor}`);
 					for (const candidate of page) {
 						const known = candidate.knownClassification
 							? ` known=${candidate.knownClassification}`
@@ -210,23 +174,7 @@ export function registerWikiCommand(program: Command): void {
 			}
 		});
 
-	wiki
-		.command("verify")
-		.description("Establish a semantic verification baseline for primary knowledge")
-		.requiredOption("--path <path>")
-		.option("--json", "print JSON")
-		.action(async (options: { path: string; json?: boolean }) => {
-			try {
-				await withWikiRuntime(async ({ service }) => {
-					const entry = await service.verify(options.path);
-					const status = await service.getStatus(entry);
-					if (options.json) console.log(JSON.stringify({ entry, status }, null, 2));
-					else console.log(`verified: ${entry.path} — ${status.status}`);
-				});
-			} catch (error) {
-				reportFailure(error);
-			}
-		});
+	registerWikiVerificationCommands(wiki);
 
 	const relate = wiki
 		.command("relate")
@@ -384,11 +332,16 @@ export function registerWikiCommand(program: Command): void {
 			.command(name)
 			.description("Report knowledge freshness and discovery health")
 			.option("--candidate-limit <number>", "maximum candidates to print", "20")
+			.option("--strict", "exit nonzero for freshness, coverage, reference, or discovery obligations")
 			.option("--json", "print JSON")
-			.action(async (options?: { candidateLimit?: string; json?: boolean }) => {
+			.action(async (options?: { candidateLimit?: string; strict?: boolean; json?: boolean }) => {
 				try {
 					await withWikiRuntime(async ({ service }) => {
 						const audit = await service.audit();
+						if (options?.strict && (audit.unverifiedCount > 0 || audit.needsReviewCount > 0 ||
+							audit.unresolvedReferenceCount > 0 || audit.uncoveredActiveAsIsCount > 0 || audit.candidateCount > 0)) {
+							process.exitCode = 1;
+						}
 						const candidateLimit = Number.parseInt(options?.candidateLimit ?? "20", 10);
 						const recommendation = candidateReviewRecommendation(audit);
 						const payload = {
@@ -441,108 +394,7 @@ export function registerWikiCommand(program: Command): void {
 			}
 		});
 
-	wiki
-		.command("search <query>")
-		.description("Search indexed primary project knowledge semantically")
-		.option("--limit <number>", "maximum results", "8")
-		.option("--include-secondary", "include design-only secondary references")
-		.option("--path-prefix <path>", "limit knowledge sources to a path prefix")
-		.option("--min-score <number>", "minimum combined knowledge score")
-		.option("--json", "print JSON")
-		.action(
-			async (
-				query: string,
-				options?: {
-					limit?: string;
-					includeSecondary?: boolean;
-					pathPrefix?: string;
-					minScore?: string;
-					json?: boolean;
-				},
-			) => {
-				try {
-					await withWikiRuntime(async ({ projectRoot, metadata, service, snapshotId }) => {
-						const dbPath = path.join(projectRoot, ".indexer-cli", "db.sqlite");
-						const vectors = new SqliteVecVectorStore({
-							dbPath,
-							vectorSize: config.get("vectorSize"),
-						});
-						const embedder = new OllamaEmbeddingProvider(
-							config.get("ollamaBaseUrl"),
-							config.get("knowledgeEmbeddingModel"),
-							config.get("indexBatchSize"),
-							config.get("indexConcurrency"),
-							config.get("ollamaNumCtx"),
-						);
-						try {
-							await Promise.all([vectors.initialize(), embedder.initialize()]);
-							const engine = new KnowledgeSearchEngine(
-								DEFAULT_PROJECT_ID,
-								snapshotId,
-								metadata,
-								metadata,
-								vectors,
-								embedder,
-								service,
-							);
-							const limitValue = Number.parseInt(options?.limit ?? "8", 10);
-							const minScore = options?.minScore
-								? Number.parseFloat(options.minScore)
-								: undefined;
-							if (minScore !== undefined && !Number.isFinite(minScore)) {
-								throw new Error("--min-score must be a number.");
-							}
-							const [results, candidates] = await Promise.all([
-								engine.search(query, {
-									limit: Number.isFinite(limitValue) && limitValue > 0 ? limitValue : 8,
-									includeSecondary: options?.includeSecondary,
-									pathPrefix: options?.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""),
-									minScore,
-								}),
-								service.discover(),
-							]);
-							const candidateSummary = summarizeKnowledgeCandidates(candidates);
-							const recommendation = candidateReviewRecommendation(candidateSummary);
-							if (options?.json) {
-								console.log(
-									JSON.stringify(
-										{
-											query,
-											...candidateSummary,
-											...(recommendation ? { recommendation } : {}),
-											results,
-										},
-										null,
-										2,
-									),
-								);
-								return;
-							}
-							if (recommendation) {
-								console.log(`Recommendation: ${recommendation}`);
-							}
-							if (results.length === 0) {
-								console.log("no indexed project knowledge matched");
-								return;
-							}
-							for (const result of results) {
-								console.log(
-									`score=${result.score.toFixed(2).padStart(6)} ${result.lifecycle.padEnd(10)} ${result.status.padEnd(18)} ${result.path} — ${result.title}`,
-								);
-								console.log(`      ${result.summary}`);
-								if (result.reasonCodes.length > 0) {
-									console.log(`      why=${result.reasonCodes.slice(0, 6).join("+")}`);
-								}
-							}
-						} finally {
-							await Promise.allSettled([vectors.close(), embedder.close()]);
-						}
-					});
-				} catch (error) {
-					reportFailure(error);
-				}
-			},
-		);
+	registerWikiSearchCommand(wiki);
 
 	wiki
 		.command("impact [paths...]")
@@ -552,6 +404,9 @@ export function registerWikiCommand(program: Command): void {
 		.option("--base <ref>", "Git base when paths are omitted", "HEAD")
 		.option("--semantic-limit <number>", "wiki candidates per uncovered path", "5")
 		.option("--no-semantic", "skip semantic candidate retrieval for uncovered paths")
+		.option("--no-refresh", "use the existing completed index without auto-indexing")
+		.option("--persist-review", "collect durable review obligations for this exact task scope")
+		.option("--scope <name>", "independent task scope for persisted review")
 		.option("--json", "print JSON")
 		.action(
 			async (
@@ -560,16 +415,21 @@ export function registerWikiCommand(program: Command): void {
 					base?: string;
 					semanticLimit?: string;
 					semantic?: boolean;
+					refresh?: boolean;
+					persistReview?: boolean;
+					scope?: string;
 					json?: boolean;
 				},
 			) => {
 				try {
-					await withWikiRuntime(async ({ projectRoot, metadata, service, snapshotId }) => {
+					await withWikiRuntime(async (runtime) => {
+						const { projectRoot, metadata, service, snapshotId, indexWarning } = runtime;
 						const semanticEnabled = options?.semantic !== false;
 						let vectors: SqliteVecVectorStore | undefined;
 						let embedder: OllamaEmbeddingProvider | undefined;
 						let searchEngine: KnowledgeSearchEngine | undefined;
 						let initialized = false;
+						let initializationWarning: string | undefined;
 						const searcher = semanticEnabled
 							? {
 									search: async (
@@ -593,14 +453,21 @@ export function registerWikiCommand(program: Command): void {
 												config.get("indexConcurrency"),
 												config.get("ollamaNumCtx"),
 											);
-											await Promise.all([vectors.initialize(), embedder.initialize()]);
+											let semanticReady = true;
+											try {
+												await Promise.all([vectors.initialize(), embedder.initialize()]);
+											} catch (error) {
+												semanticReady = false;
+												initializationWarning = error instanceof Error ? error.message : String(error);
+												console.error(`Impact retrieval degraded to lexical: ${initializationWarning}`);
+											}
 											searchEngine = new KnowledgeSearchEngine(
 												DEFAULT_PROJECT_ID,
 												snapshotId,
 												metadata,
 												metadata,
 												vectors,
-												embedder,
+												semanticReady ? embedder : null,
 												service,
 											);
 											initialized = true;
@@ -627,13 +494,28 @@ export function registerWikiCommand(program: Command): void {
 								semanticLimit:
 									Number.isFinite(semanticLimit) && semanticLimit > 0 ? semanticLimit : 5,
 							});
+							let review: { taskScope: string; obligationCount: number } | undefined;
+							if (options?.persistReview) {
+								const reviewRuntime = wikiReviewRuntime(runtime);
+								// Reuse these exact impact facts; fingerprint collection still hashes live files.
+								reviewRuntime.impact = async () => result;
+								const input = await collectWikiReviewInput(reviewRuntime, paths, options);
+								const store = new SqliteKnowledgeReviewStore(reviewRuntime.dbPath);
+								try {
+									const obligations = await new KnowledgeReviewService(store).collect(input);
+									review = { taskScope: input.taskScope, obligationCount: obligations.length };
+								} finally { await store.close(); }
+							}
 							if (options?.json) {
-								console.log(JSON.stringify(result, null, 2));
+								console.log(JSON.stringify({ ...result, review, diagnostics: {
+									indexWarning, initializationWarning, retrieval: searchEngine?.getDiagnostics(),
+								} }, null, 2));
 								return;
 							}
 							console.log(
 								`changed: ${result.changedPaths.length} | known affected: ${result.knownAffected.length} | uncovered: ${result.uncoveredPaths.length} | changed docs: ${result.changedDocuments.length} | semantic sweep: ${result.semanticSweepRequired ? "yes" : "no"}`,
 							);
+							if (review) console.log(`review: ${review.obligationCount} obligation(s), scope=${review.taskScope}`);
 							for (const affected of result.knownAffected) {
 								console.log(
 									`  known ${affected.path} — ${affected.status} — ${affected.matchedChanges.join(", ")}`,
@@ -662,7 +544,7 @@ export function registerWikiCommand(program: Command): void {
 								embedder?.close(),
 							]);
 						}
-					});
+					}, { refresh: options?.refresh !== false && options?.semantic !== false });
 				} catch (error) {
 					reportFailure(error);
 				}

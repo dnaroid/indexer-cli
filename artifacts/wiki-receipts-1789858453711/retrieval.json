@@ -1,0 +1,154 @@
+{
+  "version": 1,
+  "reviewer": "implementation-agent; independent frontier review gate PASS",
+  "rationale": "Reviewed this primary contract against current implementation and regression evidence, reconciled task-scoped impact, and accepted after independent review. The explicit local check below is recorded separately from this caller attestation.",
+  "preparedAt": 1789858462905,
+  "assertionReferences": [
+    "docs/specs/knowledge-retrieval.md: documented as-is contract"
+  ],
+  "evidenceReferences": [
+    "src/cli/commands/context.ts",
+    "src/cli/commands/wiki-runtime.ts",
+    "src/cli/commands/wiki-search-runtime.ts",
+    "src/cli/commands/wiki-search.ts",
+    "src/knowledge/context.ts",
+    "src/knowledge/document-indexer.ts",
+    "src/knowledge/embedding.ts",
+    "src/knowledge/lexical-index.ts",
+    "src/knowledge/search.ts",
+    "tests/evals/knowledge-retrieval.eval.test.ts",
+    "tests/unit/cli/wiki-runtime.test.ts",
+    "tests/unit/knowledge/context.test.ts",
+    "tests/unit/knowledge/document-indexer.test.ts",
+    "tests/unit/knowledge/search.test.ts"
+  ],
+  "limitations": [
+    "AI caller review, not human sign-off; passing tests do not prove complete semantic coverage.",
+    "Freshness covers declared dependencies, not unknown helpers or corpus-wide semantic consistency."
+  ],
+  "sourcePath": "docs/specs/knowledge-retrieval.md",
+  "sourceHash": "eb437aa7799cb589ce1aea4c3bcb42ae0a3c066b9fe477032085abccb8ff2203",
+  "relationsHash": "1dfbd345e765ab9abd8f56b457a8f64eb15db59fbb6fdcea654503b38f786def",
+  "inputs": [
+    {
+      "inputPath": "src/cli/commands/context.ts",
+      "inputHash": "961dab7fe5d30693716c0ed99b6faa0f336b51ca6b9931c61d1c2ebfbb70c636"
+    },
+    {
+      "inputPath": "src/cli/commands/wiki-runtime.ts",
+      "inputHash": "6a3f8ad22184f77530d159cf902bfc5e999a9195df76348fa2e34e211ad13a24"
+    },
+    {
+      "inputPath": "src/cli/commands/wiki-search-runtime.ts",
+      "inputHash": "cc1940e386f8e3a5fa5ed86e2551ff2bfe93f52c4ee1d76eb2d554d78cd89ee8"
+    },
+    {
+      "inputPath": "src/cli/commands/wiki-search.ts",
+      "inputHash": "891f6573ff62501fd01041a9f31271761f5f9ab34126e735e4be2977ef0ce8ac"
+    },
+    {
+      "inputPath": "src/knowledge/context.ts",
+      "inputHash": "04705d96bb19e4e4196bf6249143a487ffe7713730ba3c13aaeb522d393bf482"
+    },
+    {
+      "inputPath": "src/knowledge/document-indexer.ts",
+      "inputHash": "b7389dc5ece9447b886b3add2da8c62eb6f84c26d51c8916b234fbe8f7dd9b0c"
+    },
+    {
+      "inputPath": "src/knowledge/embedding.ts",
+      "inputHash": "6cc741608b4ee9f6c2e6e63f1ad5ddab5bc8141a4ba2c7ad81df390ef31e54d3"
+    },
+    {
+      "inputPath": "src/knowledge/lexical-index.ts",
+      "inputHash": "311dc9172d4a892c22cb822ebce1b888b004a676b85fa248c652999a0b7acc04"
+    },
+    {
+      "inputPath": "src/knowledge/search.ts",
+      "inputHash": "a9d083fe47efb1fd6f29778f95d7a13d7f247d51c11b9407470296c5719dfeba"
+    },
+    {
+      "inputPath": "tests/evals/knowledge-retrieval.eval.test.ts",
+      "inputHash": "80c5e4f46eee59665dc73552647b6b034aad6db02952675dc0ae86431a846305"
+    },
+    {
+      "inputPath": "tests/unit/cli/wiki-runtime.test.ts",
+      "inputHash": "15c2cccb12661f05d7f17dc3b0e5cd7707dc7e694102c4003890e007ae38ba8e"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/context.test.ts",
+      "inputHash": "c416eb58f932a6167ec8d8c32d8b77cde653d2809f8e80bb3d9546aa45b16309"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/document-indexer.test.ts",
+      "inputHash": "0ab79045cbb2da5e787cb6394099e1edcbab8f5e1806db57aeecb27bf117d54f"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/search.test.ts",
+      "inputHash": "e956bd1928e812c9b72af5860e5619929c55c76e879caadc3f0fa5982c754c8d"
+    }
+  ],
+  "assertionBindings": [
+    {
+      "path": "docs/specs/knowledge-retrieval.md",
+      "hash": "eb437aa7799cb589ce1aea4c3bcb42ae0a3c066b9fe477032085abccb8ff2203"
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "path": "src/cli/commands/context.ts",
+      "hash": "961dab7fe5d30693716c0ed99b6faa0f336b51ca6b9931c61d1c2ebfbb70c636"
+    },
+    {
+      "path": "src/cli/commands/wiki-runtime.ts",
+      "hash": "6a3f8ad22184f77530d159cf902bfc5e999a9195df76348fa2e34e211ad13a24"
+    },
+    {
+      "path": "src/cli/commands/wiki-search-runtime.ts",
+      "hash": "cc1940e386f8e3a5fa5ed86e2551ff2bfe93f52c4ee1d76eb2d554d78cd89ee8"
+    },
+    {
+      "path": "src/cli/commands/wiki-search.ts",
+      "hash": "891f6573ff62501fd01041a9f31271761f5f9ab34126e735e4be2977ef0ce8ac"
+    },
+    {
+      "path": "src/knowledge/context.ts",
+      "hash": "04705d96bb19e4e4196bf6249143a487ffe7713730ba3c13aaeb522d393bf482"
+    },
+    {
+      "path": "src/knowledge/document-indexer.ts",
+      "hash": "b7389dc5ece9447b886b3add2da8c62eb6f84c26d51c8916b234fbe8f7dd9b0c"
+    },
+    {
+      "path": "src/knowledge/embedding.ts",
+      "hash": "6cc741608b4ee9f6c2e6e63f1ad5ddab5bc8141a4ba2c7ad81df390ef31e54d3"
+    },
+    {
+      "path": "src/knowledge/lexical-index.ts",
+      "hash": "311dc9172d4a892c22cb822ebce1b888b004a676b85fa248c652999a0b7acc04"
+    },
+    {
+      "path": "src/knowledge/search.ts",
+      "hash": "a9d083fe47efb1fd6f29778f95d7a13d7f247d51c11b9407470296c5719dfeba"
+    },
+    {
+      "path": "tests/evals/knowledge-retrieval.eval.test.ts",
+      "hash": "80c5e4f46eee59665dc73552647b6b034aad6db02952675dc0ae86431a846305"
+    },
+    {
+      "path": "tests/unit/cli/wiki-runtime.test.ts",
+      "hash": "15c2cccb12661f05d7f17dc3b0e5cd7707dc7e694102c4003890e007ae38ba8e"
+    },
+    {
+      "path": "tests/unit/knowledge/context.test.ts",
+      "hash": "c416eb58f932a6167ec8d8c32d8b77cde653d2809f8e80bb3d9546aa45b16309"
+    },
+    {
+      "path": "tests/unit/knowledge/document-indexer.test.ts",
+      "hash": "0ab79045cbb2da5e787cb6394099e1edcbab8f5e1806db57aeecb27bf117d54f"
+    },
+    {
+      "path": "tests/unit/knowledge/search.test.ts",
+      "hash": "e956bd1928e812c9b72af5860e5619929c55c76e879caadc3f0fa5982c754c8d"
+    }
+  ]
+}

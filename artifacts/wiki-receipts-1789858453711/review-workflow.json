@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "reviewer": "implementation-agent; independent frontier review gate PASS",
+  "rationale": "Reviewed this primary contract against current implementation and regression evidence, reconciled task-scoped impact, and accepted after independent review. The explicit local check below is recorded separately from this caller attestation.",
+  "preparedAt": 1789858459723,
+  "assertionReferences": [
+    "docs/specs/knowledge-review-workflow.md: documented as-is contract"
+  ],
+  "evidenceReferences": [
+    "src/cli/commands/wiki-review-runtime.ts",
+    "src/cli/commands/wiki-review.ts",
+    "src/knowledge/impact.ts",
+    "src/knowledge/review.ts",
+    "src/storage/knowledge-reviews.ts",
+    "tests/unit/cli/wiki-command-registration.test.ts",
+    "tests/unit/knowledge/impact.test.ts",
+    "tests/unit/knowledge/review.test.ts"
+  ],
+  "limitations": [
+    "AI caller review, not human sign-off; passing tests do not prove complete semantic coverage.",
+    "Freshness covers declared dependencies, not unknown helpers or corpus-wide semantic consistency."
+  ],
+  "sourcePath": "docs/specs/knowledge-review-workflow.md",
+  "sourceHash": "c582e7054967171788b56d3b45904e301ed175198d0fdc88e4ba150370b4ef9a",
+  "relationsHash": "21aec2d44a9e504597d09805f513a5b8391251582096a556ec0dcde19a2eeb0e",
+  "inputs": [
+    {
+      "inputPath": "src/cli/commands/wiki-review-runtime.ts",
+      "inputHash": "f1b429b4d57d6d77fed5ef2cb20dff734a878cfa3ba80cbcedfcadf49144a047"
+    },
+    {
+      "inputPath": "src/cli/commands/wiki-review.ts",
+      "inputHash": "75cc45eee8e5698df777972ac7961826ba12a416f05207c3d50c2d58b39c571e"
+    },
+    {
+      "inputPath": "src/knowledge/impact.ts",
+      "inputHash": "9090ebbbeec8ea03077d052421c38a9a38aedd171b78878931f840ab2ad41222"
+    },
+    {
+      "inputPath": "src/knowledge/review.ts",
+      "inputHash": "fb1de9d1d10ecdba08b9fe8482f43ccff0d9f2e1ca05a56ce8a061021e7ac432"
+    },
+    {
+      "inputPath": "src/storage/knowledge-reviews.ts",
+      "inputHash": "11710ea80b47968ea63ff5b066f7de6cfc9a5869b331ba1b59b9412dfd84846a"
+    },
+    {
+      "inputPath": "tests/unit/cli/wiki-command-registration.test.ts",
+      "inputHash": "4097ca9fd4819b4458191d3aedd67f10b0f1035dac264da775b1d6fc331f7e63"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/impact.test.ts",
+      "inputHash": "e227d0200cdfb701574ead4df9897e08d50114a43ec80d310aa9c0ad06988be1"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/review.test.ts",
+      "inputHash": "c9e65d288fbfd87a6212847b0d39ac9b4c989db90d7deacd18423fa78d6dc59b"
+    }
+  ],
+  "assertionBindings": [
+    {
+      "path": "docs/specs/knowledge-review-workflow.md",
+      "hash": "c582e7054967171788b56d3b45904e301ed175198d0fdc88e4ba150370b4ef9a"
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "path": "src/cli/commands/wiki-review-runtime.ts",
+      "hash": "f1b429b4d57d6d77fed5ef2cb20dff734a878cfa3ba80cbcedfcadf49144a047"
+    },
+    {
+      "path": "src/cli/commands/wiki-review.ts",
+      "hash": "75cc45eee8e5698df777972ac7961826ba12a416f05207c3d50c2d58b39c571e"
+    },
+    {
+      "path": "src/knowledge/impact.ts",
+      "hash": "9090ebbbeec8ea03077d052421c38a9a38aedd171b78878931f840ab2ad41222"
+    },
+    {
+      "path": "src/knowledge/review.ts",
+      "hash": "fb1de9d1d10ecdba08b9fe8482f43ccff0d9f2e1ca05a56ce8a061021e7ac432"
+    },
+    {
+      "path": "src/storage/knowledge-reviews.ts",
+      "hash": "11710ea80b47968ea63ff5b066f7de6cfc9a5869b331ba1b59b9412dfd84846a"
+    },
+    {
+      "path": "tests/unit/cli/wiki-command-registration.test.ts",
+      "hash": "4097ca9fd4819b4458191d3aedd67f10b0f1035dac264da775b1d6fc331f7e63"
+    },
+    {
+      "path": "tests/unit/knowledge/impact.test.ts",
+      "hash": "e227d0200cdfb701574ead4df9897e08d50114a43ec80d310aa9c0ad06988be1"
+    },
+    {
+      "path": "tests/unit/knowledge/review.test.ts",
+      "hash": "c9e65d288fbfd87a6212847b0d39ac9b4c989db90d7deacd18423fa78d6dc59b"
+    }
+  ]
+}

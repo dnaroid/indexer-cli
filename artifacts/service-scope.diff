@@ -1,0 +1,617 @@
+diff --git a/src/knowledge/service.ts b/src/knowledge/service.ts
+index 275163e..beffc6e 100644
+--- a/src/knowledge/service.ts
++++ b/src/knowledge/service.ts
+@@ -10,15 +10,21 @@ import type {
+ 	KnowledgeRelation,
+ 	KnowledgeRelationKind,
+ 	KnowledgeStore,
++	KnowledgeVerificationReceipt,
++	KnowledgeVerificationSelector,
++	LocalVerificationRunnerChecks,
+ 	MetadataStore,
+ 	ProjectId,
+ 	SnapshotId,
+ } from "../core/types.js";
+-import { computeHash } from "../utils/hash.js";
+ import { parseGitignore, type GitignoreFilter } from "../utils/gitignore.js";
+ import { documentTitle, knowledgeDiscoverySignals } from "./discovery.js";
+ import { scanProjectDocuments } from "./document-scanner.js";
+ import { extractExplicitKnowledgeRelations } from "./relations.js";
++import { validateLocallyExecutedVerificationReceipt, validateVerificationReceipt, type VerificationFacts } from "./verification/evidence.js";
++import { isTrustedLocalRunnerChecks } from "./verification/runner.js";
++import { resolveVerificationSelector } from "./verification/selectors.js";
++import { computeHash } from "../utils/hash.js";
+ 
+ export const PRIMARY_KNOWLEDGE_CLASSIFICATIONS = new Set<KnowledgeClassification>([
+ 	"spec",
+@@ -40,6 +46,11 @@ export interface KnowledgeStatus {
+ 	lifecycle: KnowledgeLifecycle;
+ 	status: KnowledgeFreshnessStatus;
+ 	reasons: string[];
++	/** Selector hashes are not read during status checks; whole-file drift remains authoritative. */
++	selectorHints?: string[];
++	trackedInputCount?: number;
++	ignoredInputCount?: number;
++	verificationState?: "legacy-unattested" | "attested";
+ }
+ 
+ export interface KnowledgeRelateStatus extends KnowledgeStatus {
+@@ -102,24 +113,53 @@ export interface RelateKnowledgeInput {
+ 	action: "add" | "remove";
+ }
+ 
++export interface VerificationPreparation extends VerificationFacts {
++	warnings: string[];
++	/** This service never executes commands. Caller-supplied command records are attestations. */
++	commandExecution: "not-executed";
++}
++
++export interface VerificationPreparationOptions {
++	selectors?: Record<string, Pick<KnowledgeVerificationSelector, "kind" | "value">>;
++	/** In-memory checks returned by runVerificationChecks; JSON/deserialized arrays are rejected. */
++	localRunnerChecks?: LocalVerificationRunnerChecks;
++}
++
+ function isTestPath(filePath: string): boolean {
+ 	return /(?:^|\/)(?:tests?|__tests__|spec)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(
+ 		filePath.replace(/\\/g, "/"),
+ 	);
+ }
+ 
+-function sha256(value: string): string {
+-	return createHash("sha256").update(value, "utf8").digest("hex");
++function sha256(value: string | Uint8Array): string {
++	return createHash("sha256").update(value).digest("hex");
+ }
+ 
+ export function knowledgeRelationsHash(relations: KnowledgeRelation[]): string {
+ 	const canonical = relations
+-		.map((relation) => ({
++		.map((relation) => {
++			// Declaration assertion IDs and selectors are verification evidence. Do not
++			// hash arbitrary relation metadata (for example navigation annotations).
++			const manifest = relation.metadata?.manifest;
++			const declaration = manifest && typeof manifest === "object"
++				? manifest as Record<string, unknown> : undefined;
++			const evidence = declaration?.evidence;
++			const selector = evidence && typeof evidence === "object"
++				? (evidence as Record<string, unknown>).selector : undefined;
++			return ({
+ 			targetPath: relation.targetPath,
+ 			targetKind: relation.targetKind,
+ 			relationKind: relation.relationKind,
+ 			provenance: relation.provenance,
+-		}))
++			...(typeof declaration?.id === "string" ? { manifestId: declaration.id } : {}),
++			...(typeof declaration?.assertionId === "string" ? { assertionId: declaration.assertionId } : {}),
++			...(selector && typeof selector === "object" &&
++				typeof (selector as Record<string, unknown>).kind === "string" &&
++				typeof (selector as Record<string, unknown>).value === "string"
++				? { selector: { kind: (selector as Record<string, string>).kind, value: (selector as Record<string, string>).value } }
++				: {}),
++			});
++		})
+ 		.sort((left, right) =>
+ 			JSON.stringify(left).localeCompare(JSON.stringify(right)),
+ 		);
+@@ -172,7 +212,15 @@ export class KnowledgeService {
+ 	private async currentHash(filePath: string): Promise<string | null> {
+ 		try {
+ 			const fullPath = await this.resolveExistingProjectFile(filePath);
+-			return computeHash(await readFile(fullPath, "utf8"));
++			return sha256(await readFile(fullPath));
++		} catch {
++			return null;
++		}
++	}
++
++	private async legacyHash(filePath: string): Promise<string | null> {
++		try {
++			return computeHash(await readFile(await this.resolveExistingProjectFile(filePath), "utf8"));
+ 		} catch {
+ 			return null;
+ 		}
+@@ -181,7 +229,11 @@ export class KnowledgeService {
+ 	private async getStatusWithGitignore(
+ 		entry: KnowledgeEntry,
+ 		gitignore: GitignoreFilter,
++		hashes = new Map<string, Promise<string | null>>(),
+ 	): Promise<KnowledgeStatus> {
++		const current = (p: string) => {
++			let result = hashes.get(p); if (!result) { result = this.currentHash(p); hashes.set(p, result); } return result;
++		};
+ 		if (!primary(entry)) {
+ 			return {
+ 				path: entry.path,
+@@ -192,7 +244,7 @@ export class KnowledgeService {
+ 			};
+ 		}
+ 
+-		const sourceHash = await this.currentHash(entry.path);
++		const sourceHash = await current(entry.path);
+ 		if (!sourceHash) {
+ 			return {
+ 				path: entry.path,
+@@ -203,16 +255,18 @@ export class KnowledgeService {
+ 			};
+ 		}
+ 
+-		if (!entry.verifiedSourceHash || !entry.verifiedRelationsHash) {
++		if (!entry.verifiedSourceHash || !entry.verifiedRelationsHash || !entry.verificationReceipt) {
++			const legacyMatch = sourceHash !== entry.indexedSourceHash &&
++				await this.legacyHash(entry.path) === entry.indexedSourceHash;
+ 			return {
+ 				path: entry.path,
+ 				classification: entry.classification,
+ 				lifecycle: entry.lifecycle,
+ 				status:
+-					sourceHash === entry.indexedSourceHash ? "unverified" : "spec-changed",
++					sourceHash === entry.indexedSourceHash || legacyMatch ? "unverified" : "spec-changed",
+ 				reasons:
+-					sourceHash === entry.indexedSourceHash
+-						? ["semantic verification required"]
++					sourceHash === entry.indexedSourceHash || legacyMatch
++						? [entry.verifiedSourceHash || legacyMatch ? "legacy/unattested verification baseline" : "semantic verification required"]
+ 						: [`source:${entry.path}`],
+ 			};
+ 		}
+@@ -227,14 +281,16 @@ export class KnowledgeService {
+ 			this.projectId,
+ 			entry.path,
+ 		);
++		const verifiedByPath = new Map(verifiedInputs.map((input) => [input.inputPath, input]));
++		const codeTargets = [...new Set(relations.filter((relation) => relation.targetKind === "code").map((relation) => relation.targetPath))];
++		const trackedTargets = codeTargets.filter((inputPath) => !gitignore.ignores(inputPath));
+ 		const changedInputs: string[] = [];
+-		for (const input of verifiedInputs) {
+-			if (gitignore.ignores(input.inputPath)) continue;
+-			const current = await this.currentHash(input.inputPath);
+-			if (!current || current !== input.inputHash) {
+-				changedInputs.push(input.inputPath);
+-			}
++		for (const inputPath of trackedTargets) {
++			const verified = verifiedByPath.get(inputPath);
++			const inputHash = await current(inputPath);
++			if (!verified || !inputHash || inputHash !== verified.inputHash) changedInputs.push(inputPath);
+ 		}
++		const ignoredInputCount = codeTargets.length - trackedTargets.length;
+ 		if (relationChanged) changedInputs.push("[relation-map]");
+ 
+ 		let status: KnowledgeFreshnessStatus = "fresh";
+@@ -253,6 +309,13 @@ export class KnowledgeService {
+ 			lifecycle: entry.lifecycle,
+ 			status,
+ 			reasons,
++			trackedInputCount: trackedTargets.length,
++			ignoredInputCount,
++			verificationState: "attested",
++			selectorHints: changedInputs.filter((p) => p !== "[relation-map]").flatMap((p) => {
++				const selected = entry.verificationReceipt?.inputs.find((input) => input.inputPath === p)?.selector;
++				return selected ? [`selector:${p}:${selected.kind} requires review; whole-file hash changed`] : [];
++			}),
+ 		};
+ 	}
+ 
+@@ -260,14 +323,17 @@ export class KnowledgeService {
+ 		return this.getStatusWithGitignore(entry, parseGitignore(this.repoRoot));
+ 	}
+ 
+-	async listStatuses(): Promise<KnowledgeStatus[]> {
+-		const entries = await this.knowledge.listKnowledgeEntries(this.projectId);
++	async getStatuses(entries?: KnowledgeEntry[]): Promise<KnowledgeStatus[]> {
++		const target = entries ?? await this.knowledge.listKnowledgeEntries(this.projectId);
+ 		const gitignore = parseGitignore(this.repoRoot);
++		const hashes = new Map<string, Promise<string | null>>();
+ 		return Promise.all(
+-			entries.map((entry) => this.getStatusWithGitignore(entry, gitignore)),
++			target.map((entry) => this.getStatusWithGitignore(entry, gitignore, hashes)),
+ 		);
+ 	}
+ 
++	async listStatuses(): Promise<KnowledgeStatus[]> { return this.getStatuses(); }
++
+ 	async discover(options: {
+ 		allUnclassified?: boolean;
+ 		includeAll?: boolean;
+@@ -284,12 +350,14 @@ export class KnowledgeService {
+ 		for (const filePath of paths) {
+ 			const fullPath = path.join(this.repoRoot, filePath);
+ 			let content: string;
++			let sourceHash: string;
+ 			try {
+-				content = await readFile(fullPath, "utf8");
++				const bytes = await readFile(fullPath);
++				content = bytes.toString("utf8");
++				sourceHash = sha256(bytes);
+ 			} catch {
+ 				continue;
+ 			}
+-			const sourceHash = computeHash(content);
+ 			const existing = known.get(filePath);
+ 			const changed = Boolean(existing && existing.indexedSourceHash !== sourceHash);
+ 			if (options.allUnclassified && existing) continue;
+@@ -341,8 +409,9 @@ export class KnowledgeService {
+ 	async record(input: RecordKnowledgeInput): Promise<KnowledgeEntry> {
+ 		const filePath = await this.normalizeProjectPath(input.path);
+ 		const fullPath = await this.resolveExistingProjectFile(filePath);
+-		const content = await readFile(fullPath, "utf8");
+-		const sourceHash = computeHash(content);
++		const sourceBytes = await readFile(fullPath);
++		const content = sourceBytes.toString("utf8");
++		const sourceHash = sha256(sourceBytes);
+ 		const previous = await this.knowledge.getKnowledgeEntry(this.projectId, filePath);
+ 		const isPrimary = PRIMARY_KNOWLEDGE_CLASSIFICATIONS.has(input.classification);
+ 		const previousWasPrimary = Boolean(previous && primary(previous));
+@@ -366,8 +435,10 @@ export class KnowledgeService {
+ 			this.projectId,
+ 			{ sourcePath: filePath },
+ 		);
++		const declaration = previous?.metadata?.manifest as { authoritative?: boolean } | undefined;
++		const manifestAuthoritative = declaration?.authoritative === true;
+ 		for (const relation of previousRelations.filter(
+-			(relation) => relation.provenance === "explicit",
++			(relation) => relation.provenance === "explicit" && (!manifestAuthoritative || !isPrimary),
+ 		)) {
+ 			await this.knowledge.deleteKnowledgeRelation(this.projectId, relation);
+ 		}
+@@ -381,7 +452,7 @@ export class KnowledgeService {
+ 				await this.knowledge.clearKnowledgeVerification(this.projectId, filePath);
+ 			}
+ 		}
+-		if (isPrimary) {
++		if (isPrimary && !manifestAuthoritative) {
+ 			for (const targetPath of explicit.code) {
+ 				await this.knowledge.upsertKnowledgeRelation({
+ 					projectId: this.projectId,
+@@ -403,6 +474,14 @@ export class KnowledgeService {
+ 				});
+ 			}
+ 		}
++		// The legacy delete API matches both provenances. Restore reviewed inferred
++		// relations after refreshing prose references; declarations are never replaced
++		// by prose mentions in manifest-authoritative mode.
++		if (isPrimary) {
++			for (const relation of previousRelations.filter((item) => item.provenance === "inferred")) {
++				await this.knowledge.upsertKnowledgeRelation(relation);
++			}
++		}
+ 
+ 		const entry: KnowledgeEntry = {
+ 			projectId: this.projectId,
+@@ -422,14 +501,16 @@ export class KnowledgeService {
+ 			indexedAt: Date.now(),
+ 			metadata: {
+ 				...(previous?.metadata ?? {}),
+-				unresolvedReferences: isPrimary ? explicit.unresolved : [],
++				...(manifestAuthoritative ? { mentions: { code: explicit.code, knowledge: explicit.knowledge } } : {}),
++				// A manifest declaration, not prose, owns dependency semantics.
++				unresolvedReferences: isPrimary && !manifestAuthoritative ? explicit.unresolved : [],
+ 			},
+ 		};
+ 		await this.knowledge.upsertKnowledgeEntry(entry);
+ 		return (await this.knowledge.getKnowledgeEntry(this.projectId, filePath)) ?? entry;
+ 	}
+ 
+-	async verify(inputPath: string): Promise<KnowledgeEntry> {
++	async prepareVerification(inputPath: string, options: VerificationPreparationOptions = {}): Promise<VerificationPreparation> {
+ 		const filePath = await this.normalizeProjectPath(inputPath);
+ 		const entry = await this.knowledge.getKnowledgeEntry(this.projectId, filePath);
+ 		if (!entry || !primary(entry)) {
+@@ -444,38 +525,107 @@ export class KnowledgeService {
+ 			(relation) => relation.targetKind === "code",
+ 		);
+ 		const gitignore = parseGitignore(this.repoRoot);
+-		const verifiedAt = Date.now();
++		const trackedPaths = new Set(codeRelations.map((relation) => relation.targetPath).filter((inputPath) => !gitignore.ignores(inputPath)));
++		for (const inputPath of Object.keys(options.selectors ?? {})) {
++			if (!trackedPaths.has(inputPath)) throw new Error(`Verification selector does not match a tracked input: ${inputPath}`);
++		}
+ 		const inputs = [] as Array<{
+ 			inputPath: string;
+ 			inputHash: string;
+-			verifiedAt: number;
++			selector?: KnowledgeVerificationReceipt["inputs"][number]["selector"];
+ 		}>;
+-		for (const inputPath of [...new Set(codeRelations.map((relation) => relation.targetPath))]) {
+-			if (gitignore.ignores(inputPath)) continue;
++		const warnings: string[] = [];
++		for (const inputPath of [...trackedPaths]) {
++			if (gitignore.ignores(inputPath)) {
++				warnings.push(`${inputPath} is gitignored and excluded from tracked verification inputs.`);
++				continue;
++			}
+ 			const inputHash = await this.currentHash(inputPath);
+ 			if (!inputHash) {
+ 				throw new Error(`Tracked input is missing or unreadable: ${inputPath}`);
+ 			}
+-			inputs.push({ inputPath, inputHash, verifiedAt });
++			const declared = codeRelations
++				.filter((relation) => relation.targetPath === inputPath)
++				.flatMap((relation) => {
++					const manifest = relation.metadata?.manifest;
++					const selector = manifest && typeof manifest === "object" ? (manifest as Record<string, unknown>).evidence : undefined;
++					const value = selector && typeof selector === "object" ? (selector as Record<string, unknown>).selector : undefined;
++					return value && typeof value === "object" && typeof (value as Record<string, unknown>).kind === "string" && typeof (value as Record<string, unknown>).value === "string"
++						? [{ kind: (value as KnowledgeVerificationSelector).kind, value: (value as KnowledgeVerificationSelector).value }] : [];
++				});
++			const uniqueDeclared = [...new Map(declared.map((selector) => [`${selector.kind}\0${selector.value}`, selector])).values()];
++			if (uniqueDeclared.length > 1) throw new Error(`Manifest selectors are ambiguous for tracked input: ${inputPath}`);
++			const requested = options.selectors?.[inputPath];
++			if (requested && uniqueDeclared[0] && (requested.kind !== uniqueDeclared[0].kind || requested.value !== uniqueDeclared[0].value)) {
++				throw new Error(`Verification selector conflicts with manifest declaration: ${inputPath}`);
++			}
++			const selected = requested ?? uniqueDeclared[0];
++			const fullPath = selected ? await this.resolveExistingProjectFile(inputPath) : undefined;
++			inputs.push({
++				inputPath,
++				inputHash,
++				...(selected ? { selector: resolveVerificationSelector(await readFile(fullPath!, "utf8"), selected.kind, selected.value) } : {}),
++			});
+ 		}
+-		await this.knowledge.replaceKnowledgeVerifiedInputs(
+-			this.projectId,
+-			filePath,
+-			inputs,
+-		);
+-		await this.knowledge.upsertKnowledgeEntry({
++		return {
++			sourcePath: filePath,
++			sourceHash,
++			relationsHash: knowledgeRelationsHash(relations),
++			inputs: inputs.sort((a, b) => a.inputPath.localeCompare(b.inputPath)),
++			warnings,
++			commandExecution: "not-executed",
++		};
++	}
++
++	async verify(inputPath: string, receipt?: KnowledgeVerificationReceipt, options: VerificationPreparationOptions = {}): Promise<KnowledgeEntry> {
++		const prepared = await this.prepareVerification(inputPath, options);
++		const entry = await this.knowledge.getKnowledgeEntry(this.projectId, prepared.sourcePath);
++		if (!entry) throw new Error(`Knowledge entry disappeared during verify: ${prepared.sourcePath}`);
++		// Never accept a receipt for source bytes different from the recorded source:
++		// re-record classification/metadata first; verification cannot classify it.
++		if (entry.indexedSourceHash !== prepared.sourceHash) {
++			throw new Error(`Primary source changed since record: ${prepared.sourcePath}; record it before verification.`);
++		}
++		if (options.localRunnerChecks) {
++			if (!isTrustedLocalRunnerChecks(options.localRunnerChecks)) throw new Error("Local runner checks must be returned by runVerificationChecks in this process.");
++			validateLocallyExecutedVerificationReceipt(receipt, prepared, options.localRunnerChecks);
++		} else {
++			validateVerificationReceipt(receipt, prepared);
++		}
++		const reviewedFiles = new Map<string, Buffer>();
++		for (const binding of [...receipt.assertionBindings, ...receipt.evidenceBindings]) {
++			let bytes = reviewedFiles.get(binding.path);
++			if (!bytes) {
++				bytes = await readFile(await this.resolveExistingProjectFile(binding.path));
++				reviewedFiles.set(binding.path, bytes);
++			}
++			if (sha256(bytes) !== binding.hash) throw new Error(`Evidence changed during verification: ${binding.path}`);
++			if (binding.range && binding.range.endLine > bytes.toString("utf8").split(/\r?\n/).length) {
++				throw new Error(`Evidence range exceeds current file: ${binding.path}`);
++			}
++		}
++		const verifiedAt = Date.now();
++		await this.knowledge.commitKnowledgeVerification({
+ 			...entry,
+-			indexedSourceHash: sourceHash,
+-			indexedAt: verifiedAt,
+-			verifiedSourceHash: sourceHash,
+-			verifiedRelationsHash: knowledgeRelationsHash(relations),
++			verifiedSourceHash: prepared.sourceHash,
++			verifiedRelationsHash: prepared.relationsHash,
+ 			verifiedAt,
+-		});
+-		const verified = await this.knowledge.getKnowledgeEntry(this.projectId, filePath);
+-		if (!verified) throw new Error(`Knowledge entry disappeared during verify: ${filePath}`);
++			verificationReceipt: receipt,
++		}, prepared.inputs.map((input) => ({ ...input, verifiedAt })),);
++		const verified = await this.knowledge.getKnowledgeEntry(this.projectId, prepared.sourcePath);
++		if (!verified) throw new Error(`Knowledge entry disappeared during verify: ${prepared.sourcePath}`);
+ 		return verified;
+ 	}
+ 
++	async prepareVerificationSelector(
++		inputPath: string,
++		selector: Pick<KnowledgeVerificationSelector, "kind" | "value">,
++	): Promise<KnowledgeVerificationSelector> {
++		const filePath = await this.normalizeProjectPath(inputPath);
++		const fullPath = await this.resolveExistingProjectFile(filePath);
++		return resolveVerificationSelector(await readFile(fullPath, "utf8"), selector.kind, selector.value);
++	}
++
+ 	async relate(input: RelateKnowledgeInput): Promise<KnowledgeRelateStatus> {
+ 		const sourcePath = await this.normalizeProjectPath(input.sourcePath);
+ 		const targetPath = await this.normalizeProjectPath(input.targetPath);
+@@ -570,9 +720,10 @@ export class KnowledgeService {
+ 			this.knowledge.listKnowledgeRelations(this.projectId),
+ 		]);
+ 		const primaryEntries = entries.filter(primary);
++		const gitignore = parseGitignore(this.repoRoot);
+ 		const sourcesWithCodeRelations = new Set(
+ 			relations
+-				.filter((relation) => relation.targetKind === "code")
++				.filter((relation) => relation.targetKind === "code" && !gitignore.ignores(relation.targetPath))
+ 				.map((relation) => relation.sourcePath),
+ 		);
+ 		const uncoveredActiveAsIsSpecs = primaryEntries
+diff --git a/tests/unit/knowledge/service.test.ts b/tests/unit/knowledge/service.test.ts
+index 5889849..dc857ca 100644
+--- a/tests/unit/knowledge/service.test.ts
++++ b/tests/unit/knowledge/service.test.ts
+@@ -5,6 +5,19 @@ import path from "node:path";
+ import { afterEach, describe, expect, it } from "vitest";
+ import { KnowledgeService } from "../../../src/knowledge/service.js";
+ import { SqliteMetadataStore } from "../../../src/storage/sqlite.js";
++import { computeHash } from "../../../src/utils/hash.js";
++
++async function receiptFor(service: KnowledgeService, filePath: string) {
++	const prepared = await service.prepareVerification(filePath);
++	return {
++		version: 1 as const, sourcePath: prepared.sourcePath, sourceHash: prepared.sourceHash, relationsHash: prepared.relationsHash, inputs: prepared.inputs, preparedAt: Date.now(), reviewer: "unit reviewer", rationale: "Reviewed current source and code inputs.",
++		assertionReferences: ["assertion:unit"], evidenceReferences: ["evidence:unit"],
++		assertionBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash }],
++		evidenceBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash }],
++		limitations: prepared.inputs.length ? [] : ["No non-ignored code relations."],
++		...(prepared.inputs.length ? {} : { zeroTrackedInputsAcknowledged: true as const }),
++	};
++}
+ 
+ describe("KnowledgeService", () => {
+ 	const tempDirs: string[] = [];
+@@ -57,7 +70,7 @@ describe("KnowledgeService", () => {
+ 		});
+ 		expect((await service.audit()).unverifiedCount).toBe(1);
+ 
+-		await service.verify("docs/session.md");
++		await service.verify("docs/session.md", await receiptFor(service, "docs/session.md"));
+ 		expect((await service.audit()).freshCount).toBe(1);
+ 
+ 		await writeFile(path.join(root, "src/session.ts"), "export const retry = 2;\n");
+@@ -65,7 +78,7 @@ describe("KnowledgeService", () => {
+ 			status: "inputs-changed",
+ 		});
+ 
+-		await service.verify("docs/session.md");
++		await service.verify("docs/session.md", await receiptFor(service, "docs/session.md"));
+ 		await writeFile(path.join(root, "src/worker.ts"), "export const worker = true;\n");
+ 		await service.relate({
+ 			sourcePath: "docs/session.md",
+@@ -82,6 +95,22 @@ describe("KnowledgeService", () => {
+ 		await store.close();
+ 	});
+ 
++	it("detects exact-byte changes that normalized indexing hashes would conceal", async () => {
++		const { root, store, service } = await setup();
++		try {
++			await mkdir(path.join(root, "docs"));
++			await mkdir(path.join(root, "src"));
++			await writeFile(path.join(root, "src/token.ts"), 'export const token = "\uFEFF";\n');
++			await writeFile(path.join(root, "docs/token.md"), "# Token\nReturn the BOM token.\n`src/token.ts`\n");
++			await service.record({ path: "docs/token.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Return the BOM token." });
++			await service.verify("docs/token.md", await receiptFor(service, "docs/token.md"));
++			await writeFile(path.join(root, "src/token.ts"), 'export const token = "";\n');
++			expect((await service.listStatuses())[0]?.status).toBe("inputs-changed");
++			await writeFile(path.join(root, "docs/token.md"), "# Token\nReturn the BOM token.\n`src/token.ts`\n\n");
++			expect((await service.listStatuses())[0]?.status).toBe("spec+inputs-changed");
++		} finally { await store.close(); }
++	});
++
+ 	it("re-extracts explicit relations on record and preserves inferred ones", async () => {
+ 		const { root, store, service } = await setup();
+ 		await mkdir(path.join(root, "docs"), { recursive: true });
+@@ -258,7 +287,7 @@ describe("KnowledgeService", () => {
+ 			lifecycle: "active",
+ 			summary: "A contract.",
+ 		});
+-		await service.verify("docs/a.md");
++		await service.verify("docs/a.md", await receiptFor(service, "docs/a.md"));
+ 
+ 		const before = await service.relate({
+ 			sourcePath: "docs/a.md",
+@@ -286,7 +315,7 @@ describe("KnowledgeService", () => {
+ 			relationKind: "implements",
+ 			provenance: "inferred",
+ 		});
+-		await expect(service.verify("docs/a.md")).resolves.toMatchObject({
++		await expect(service.verify("docs/a.md", await receiptFor(service, "docs/a.md"))).resolves.toMatchObject({
+ 			path: "docs/a.md",
+ 		});
+ 		expect(
+@@ -319,7 +348,7 @@ describe("KnowledgeService", () => {
+ 				relationKind: "implements",
+ 				provenance: "inferred",
+ 			});
+-			await service.verify("docs/tasks.md");
++			await service.verify("docs/tasks.md", await receiptFor(service, "docs/tasks.md"));
+ 			await store.upsertKnowledgeVerifiedInput({
+ 				projectId: "project",
+ 				sourcePath: "docs/tasks.md",
+@@ -365,7 +394,7 @@ describe("KnowledgeService", () => {
+ 			provenance: "inferred",
+ 		});
+ 
+-		await expect(service.verify("docs/build.md")).resolves.toMatchObject({
++		await expect(service.verify("docs/build.md", await receiptFor(service, "docs/build.md"))).resolves.toMatchObject({
+ 			path: "docs/build.md",
+ 		});
+ 		expect(
+@@ -386,6 +415,68 @@ describe("KnowledgeService", () => {
+ 		await store.close();
+ 	});
+ 
++	it.each(["present", "missing"])("marks a newly unignored relation target as changed when it is %s", async (state) => {
++		const { root, store, service } = await setup();
++		await mkdir(path.join(root, "docs")); await mkdir(path.join(root, "generated"));
++		await writeFile(path.join(root, ".gitignore"), "generated/\n");
++		await writeFile(path.join(root, "generated/main.js"), "export const build = 1;\n");
++		await writeFile(path.join(root, "docs/build.md"), "# Build\n\n## Behavior\nBuild.\n");
++		await service.record({ path: "docs/build.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Build contract." });
++		await store.upsertKnowledgeRelation({ projectId: "project", sourcePath: "docs/build.md", targetPath: "generated/main.js", targetKind: "code", relationKind: "implements", provenance: "inferred" });
++		await service.verify("docs/build.md", await receiptFor(service, "docs/build.md"));
++		if (state === "missing") rmSync(path.join(root, "generated/main.js"));
++		await writeFile(path.join(root, ".gitignore"), "");
++		expect(await service.getStatus((await store.getKnowledgeEntry("project", "docs/build.md"))!)).toMatchObject({
++			status: "inputs-changed", reasons: ["input:generated/main.js"], trackedInputCount: 1, ignoredInputCount: 0,
++		});
++		await store.close();
++	});
++
++	it("uses manifest selectors as verification evidence and rejects invalid selector options", async () => {
++		const { root, store, service } = await setup();
++		await mkdir(path.join(root, "docs")); await mkdir(path.join(root, "src"));
++		await writeFile(path.join(root, "src/auth.ts"), "export function login() { return true; }\n");
++		await writeFile(path.join(root, "docs/auth.md"), "# Auth\n\n## Behavior\nLogin.\n");
++		await service.record({ path: "docs/auth.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Authentication contract." });
++		await store.upsertKnowledgeRelation({ projectId: "project", sourcePath: "docs/auth.md", targetPath: "src/auth.ts", targetKind: "code", relationKind: "implements", provenance: "explicit", metadata: { manifest: { id: "auth", assertionId: "login-assertion", evidence: { selector: { kind: "code-symbol", value: "login" } } } } });
++		const prepared = await service.prepareVerification("docs/auth.md");
++		expect(prepared.inputs[0]?.selector).toMatchObject({ kind: "code-symbol", value: "login" });
++		await service.verify("docs/auth.md", await receiptFor(service, "docs/auth.md"));
++		await store.upsertKnowledgeRelation({ projectId: "project", sourcePath: "docs/auth.md", targetPath: "src/auth.ts", targetKind: "code", relationKind: "implements", provenance: "explicit", metadata: { manifest: { id: "auth", assertionId: "changed-assertion", evidence: { selector: { kind: "code-symbol", value: "login" } } } } });
++		expect((await service.getStatus((await store.getKnowledgeEntry("project", "docs/auth.md"))!)).status).toBe("inputs-changed");
++		await expect(service.prepareVerification("docs/auth.md", { selectors: { "src/other.ts": { kind: "code-symbol", value: "x" } } })).rejects.toThrow("does not match a tracked input");
++		await store.upsertKnowledgeRelation({ projectId: "project", sourcePath: "docs/auth.md", targetPath: "src/auth.ts", targetKind: "code", relationKind: "tests", provenance: "explicit", metadata: { manifest: { id: "auth", assertionId: "conflicting-assertion", evidence: { selector: { kind: "code-symbol", value: "other" } } } } });
++		await expect(service.prepareVerification("docs/auth.md", { selectors: { "src/auth.ts": { kind: "code-symbol", value: "login" } } })).rejects.toThrow("Manifest selectors are ambiguous");
++		await store.close();
++	});
++
++	it("treats an unchanged normalized legacy baseline as unattested", async () => {
++		const { root, store, service } = await setup();
++		await mkdir(path.join(root, "docs"));
++		const document = "# Legacy\n\n## Behavior\nLegacy.\n";
++		await writeFile(path.join(root, "docs/legacy.md"), document);
++		await service.record({ path: "docs/legacy.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Legacy contract." });
++		const entry = (await store.getKnowledgeEntry("project", "docs/legacy.md"))!;
++		await store.upsertKnowledgeEntry({ ...entry, indexedSourceHash: computeHash(document), verifiedSourceHash: "a".repeat(64), verifiedRelationsHash: "b".repeat(64) });
++		expect(await service.getStatus((await store.getKnowledgeEntry("project", "docs/legacy.md"))!)).toMatchObject({ status: "unverified", reasons: ["legacy/unattested verification baseline"] });
++		await store.close();
++	});
++
++	it("keeps manifest-authoritative prose references as navigation rather than unresolved dependencies", async () => {
++		const { root, store, service } = await setup();
++		await mkdir(path.join(root, "docs")); await mkdir(path.join(root, "src"));
++		await writeFile(path.join(root, "src/navigation.ts"), "export {};\n");
++		await writeFile(path.join(root, "docs/manifest.md"), "# Manifest\n\nNavigation: `src/navigation.ts`. Removed implementation: `src/removed.ts`.\n");
++		await service.record({ path: "docs/manifest.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Manifest contract." });
++		const prior = (await store.getKnowledgeEntry("project", "docs/manifest.md"))!;
++		await store.upsertKnowledgeEntry({ ...prior, metadata: { manifest: { id: "manifest", authoritative: true } } });
++		await service.record({ path: "docs/manifest.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Manifest contract." });
++		const entry = (await store.getKnowledgeEntry("project", "docs/manifest.md"))!;
++		expect(entry.metadata).toMatchObject({ mentions: { code: ["src/navigation.ts"] }, unresolvedReferences: [] });
++		expect((await service.audit()).unresolvedReferenceCount).toBe(0);
++		await store.close();
++	});
++
+ 	it("stores gitignored code relations and returns a freshness warning", async () => {
+ 		const { root, store, service } = await setup();
+ 		await mkdir(path.join(root, "docs"), { recursive: true });
+@@ -492,7 +583,7 @@ describe("KnowledgeService", () => {
+ 			lifecycle: "active",
+ 			summary: "A.",
+ 		});
+-		await service.verify("docs/a.md");
++		await service.verify("docs/a.md", await receiptFor(service, "docs/a.md"));
+ 		await service.record({
+ 			path: "docs/a.md",
+ 			classification: "guide",

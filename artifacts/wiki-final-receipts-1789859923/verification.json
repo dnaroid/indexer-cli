@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "reviewer": "implementation-agent; independent frontier review gates PASS",
+  "rationale": "Reviewed the current primary source against the implementation and regression evidence, including exact-byte legacy migration and cache isolation. Task-scoped impact was reconciled. The explicit local check is recorded separately from this caller attestation.",
+  "preparedAt": 1789859924222,
+  "assertionReferences": [
+    "docs/specs/knowledge-verification.md: documented as-is contract"
+  ],
+  "evidenceReferences": [
+    "src/cli/commands/wiki-verification-runner.ts",
+    "src/cli/commands/wiki-verification.ts",
+    "src/core/types.ts",
+    "src/knowledge/service.ts",
+    "src/knowledge/verification/evidence.ts",
+    "src/knowledge/verification/runner.ts",
+    "src/knowledge/verification/selectors.ts",
+    "src/storage/sqlite.ts",
+    "tests/unit/knowledge/maintenance-integration.test.ts",
+    "tests/unit/knowledge/service.test.ts",
+    "tests/unit/knowledge/verification.test.ts",
+    "tests/unit/storage/sqlite.test.ts"
+  ],
+  "limitations": [
+    "AI caller review, not human sign-off; passing tests do not prove complete semantic coverage.",
+    "Freshness covers declared dependencies, not unknown helpers or corpus-wide semantic consistency."
+  ],
+  "sourcePath": "docs/specs/knowledge-verification.md",
+  "sourceHash": "d07de373c35edaaab2618fdf94452bb8ef4a07d05637b96f0cc8c4adfb6c581d",
+  "relationsHash": "79c0f4a80cdfcadb9604d19b52678a2b71cea26087fb3f93ac8910597f8a5f0b",
+  "inputs": [
+    {
+      "inputPath": "src/cli/commands/wiki-verification-runner.ts",
+      "inputHash": "41651740991d1620e91837216b64148c08a512df25adf9e80a1f905ced911f62"
+    },
+    {
+      "inputPath": "src/cli/commands/wiki-verification.ts",
+      "inputHash": "376d1b4de1fbbf1ccd238820d8f048d4b9646ed50091cde7be269a8a75a0f4f1"
+    },
+    {
+      "inputPath": "src/core/types.ts",
+      "inputHash": "e4aa2f426c46d29a31b1d8ac8721220e1086a5be2bf4fb695b90607317ef5b12"
+    },
+    {
+      "inputPath": "src/knowledge/service.ts",
+      "inputHash": "b4915d62c6b20cbba826d98e1f9e825a569f8f772d9157705fa7af6b36522f12"
+    },
+    {
+      "inputPath": "src/knowledge/verification/evidence.ts",
+      "inputHash": "46e260796d8453202cb5696a73d436f960effa0321b9b791a613df722ff72bad"
+    },
+    {
+      "inputPath": "src/knowledge/verification/runner.ts",
+      "inputHash": "6d0dd93876a0f4c0354c468f97b3085e5c7ad1cbd214e02d225bfb51ced50cd3"
+    },
+    {
+      "inputPath": "src/knowledge/verification/selectors.ts",
+      "inputHash": "18d1f3571ba78e6c7c638b882633e37d67c5415de4d2c4e253a43f05156380a9"
+    },
+    {
+      "inputPath": "src/storage/sqlite.ts",
+      "inputHash": "b9ec1da005f7be9ae52773ffd3f4e6b818ad26802d5791612c5b67e474dfb813"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/maintenance-integration.test.ts",
+      "inputHash": "36d4ccd16065b2d7edbc555690a275a908336e349eee7a5519c41533c72f8ee4"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/service.test.ts",
+      "inputHash": "dbe5bb5ca3cc2c63bd11f233721cd8bedd0a56e7a85cbbe53ea90a8bc2c82f9a"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/verification.test.ts",
+      "inputHash": "55e7aa116680ca62161fc76841bc3c8c3a21c1415cd46d6e7c94e306f27045bc"
+    },
+    {
+      "inputPath": "tests/unit/storage/sqlite.test.ts",
+      "inputHash": "78d431fc942c71d8fafa44932fc53d39c59d136f4c2a9f56e932d35c1fa3cd48"
+    }
+  ],
+  "assertionBindings": [
+    {
+      "path": "docs/specs/knowledge-verification.md",
+      "hash": "d07de373c35edaaab2618fdf94452bb8ef4a07d05637b96f0cc8c4adfb6c581d"
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "path": "src/cli/commands/wiki-verification-runner.ts",
+      "hash": "41651740991d1620e91837216b64148c08a512df25adf9e80a1f905ced911f62"
+    },
+    {
+      "path": "src/cli/commands/wiki-verification.ts",
+      "hash": "376d1b4de1fbbf1ccd238820d8f048d4b9646ed50091cde7be269a8a75a0f4f1"
+    },
+    {
+      "path": "src/core/types.ts",
+      "hash": "e4aa2f426c46d29a31b1d8ac8721220e1086a5be2bf4fb695b90607317ef5b12"
+    },
+    {
+      "path": "src/knowledge/service.ts",
+      "hash": "b4915d62c6b20cbba826d98e1f9e825a569f8f772d9157705fa7af6b36522f12"
+    },
+    {
+      "path": "src/knowledge/verification/evidence.ts",
+      "hash": "46e260796d8453202cb5696a73d436f960effa0321b9b791a613df722ff72bad"
+    },
+    {
+      "path": "src/knowledge/verification/runner.ts",
+      "hash": "6d0dd93876a0f4c0354c468f97b3085e5c7ad1cbd214e02d225bfb51ced50cd3"
+    },
+    {
+      "path": "src/knowledge/verification/selectors.ts",
+      "hash": "18d1f3571ba78e6c7c638b882633e37d67c5415de4d2c4e253a43f05156380a9"
+    },
+    {
+      "path": "src/storage/sqlite.ts",
+      "hash": "b9ec1da005f7be9ae52773ffd3f4e6b818ad26802d5791612c5b67e474dfb813"
+    },
+    {
+      "path": "tests/unit/knowledge/maintenance-integration.test.ts",
+      "hash": "36d4ccd16065b2d7edbc555690a275a908336e349eee7a5519c41533c72f8ee4"
+    },
+    {
+      "path": "tests/unit/knowledge/service.test.ts",
+      "hash": "dbe5bb5ca3cc2c63bd11f233721cd8bedd0a56e7a85cbbe53ea90a8bc2c82f9a"
+    },
+    {
+      "path": "tests/unit/knowledge/verification.test.ts",
+      "hash": "55e7aa116680ca62161fc76841bc3c8c3a21c1415cd46d6e7c94e306f27045bc"
+    },
+    {
+      "path": "tests/unit/storage/sqlite.test.ts",
+      "hash": "78d431fc942c71d8fafa44932fc53d39c59d136f4c2a9f56e932d35c1fa3cd48"
+    }
+  ]
+}

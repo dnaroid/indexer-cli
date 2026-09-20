@@ -1,0 +1,6 @@
+COMMAND: npm run build
+
+> indexer-cli@2.0.3 build
+> tsx scripts/generate-skills-version.ts && tsc
+
+skills-version: 2729846054

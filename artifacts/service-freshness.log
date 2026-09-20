@@ -1,0 +1,71 @@
+
+> indexer-cli@2.0.3 test
+> vitest run tests/unit/ --run tests/unit/knowledge/service.test.ts
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+ ❯ tests/unit/knowledge/service.test.ts (21 tests | 2 failed) 193ms
+     × marks a newly unignored relation target as changed when it is present 11ms
+     × marks a newly unignored relation target as changed when it is missing 6ms
+ ❯ tests/unit/knowledge/manifest.test.ts (6 tests | 1 failed) 56ms
+     × replaces only this manifest's declarations and exposes the record integration marker 5ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 3 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/knowledge/manifest.test.ts > knowledge manifest > replaces only this manifest's declarations and exposes the record integration marker
+AssertionError: expected [ …(2) ] to deeply equal [ Array(1) ]
+
+- Expected
++ Received
+
+  [
+    "docs/login.md:implements:src/login.ts",
++   "docs/login.md:tests:tests/login.test.ts",
+  ]
+
+ ❯ tests/unit/knowledge/manifest.test.ts:88:36
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+ FAIL  tests/unit/knowledge/service.test.ts > KnowledgeService > marks a newly unignored relation target as changed when it is present
+ FAIL  tests/unit/knowledge/service.test.ts > KnowledgeService > marks a newly unignored relation target as changed when it is missing
+AssertionError: expected { path: 'docs/build.md', …(8) } to match object { status: 'inputs-changed', …(3) }
+(5 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "ignoredInputCount": 0,
+-   "reasons": [
+-     "input:dist/main.js",
+-   ],
+-   "status": "inputs-changed",
+-   "trackedInputCount": 1,
++   "ignoredInputCount": 1,
++   "reasons": [],
++   "status": "fresh",
++   "trackedInputCount": 0,
+  }
+
+ ❯ tests/unit/knowledge/service.test.ts:429:97
+    427|   if (state === "missing") rmSync(path.join(root, "dist/main.js"));
+    428|   await writeFile(path.join(root, ".gitignore"), "");
+    429|   expect(await service.getStatus((await store.getKnowledgeEntry("proje…
+       |                                                                                                 ^
+    430|    status: "inputs-changed", reasons: ["input:dist/main.js"], trackedI…
+    431|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+
+ Test Files  2 failed | 54 passed (56)
+      Tests  3 failed | 594 passed (597)
+   Start at  00:31:57
+   Duration  16.77s (transform 602ms, setup 0ms, import 5.08s, tests 7.50s, environment 3ms)
+

@@ -14,25 +14,7 @@ import type {
 	KnowledgeService,
 } from "./service.js";
 import { knowledgeQueryEmbeddingText } from "./embedding.js";
-
-const STOP_WORDS = new Set([
-	"a",
-	"an",
-	"and",
-	"are",
-	"for",
-	"how",
-	"in",
-	"is",
-	"of",
-	"on",
-	"or",
-	"the",
-	"to",
-	"what",
-	"where",
-	"why",
-]);
+import { KnowledgeLexicalIndex, lexicalTerms } from "./lexical-index.js";
 
 export interface KnowledgeSearchResult {
 	path: string;
@@ -59,22 +41,26 @@ export interface KnowledgeSearchOptions {
 	includeSecondary?: boolean;
 	pathPrefix?: string;
 	minScore?: number;
+	/** lexical does not require an embedding provider; hybrid falls back to it on outage. */
+	mode?: "hybrid" | "semantic" | "lexical";
+	/** Vector scores below this are abstained from rather than treated as relevant. */
+	semanticMinScore?: number;
+}
+
+export interface KnowledgeSearchDiagnostics {
+	mode: "hybrid" | "semantic" | "lexical";
+	semanticAvailable: boolean;
+	semanticError?: string;
+	lexicalCandidates: number;
+	vectorCandidates: number;
+	note?: string;
 }
 
 function normalize(value: string): string {
 	return value.normalize("NFKC").toLocaleLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function terms(value: string): Set<string> {
-	const result = new Set<string>();
-	for (const token of normalize(value).match(/[\p{L}\p{N}][\p{L}\p{N}._+@:/-]*/gu) ?? []) {
-		if (token.length > 1 && !STOP_WORDS.has(token)) result.add(token);
-		for (const part of token.split(/[\/_-]+/)) {
-			if (part.length > 1 && !STOP_WORDS.has(part)) result.add(part);
-		}
-	}
-	return result;
-}
+function terms(value: string): Set<string> { return lexicalTerms(value); }
 
 function matchesTerm(query: string, candidate: string): boolean {
 	if (query === candidate) return true;
@@ -166,10 +152,13 @@ export class KnowledgeSearchEngine {
 		private readonly snapshotId: SnapshotId,
 		private readonly knowledge: KnowledgeStore,
 		private readonly metadata: MetadataStore,
-		private readonly vectors: VectorStore,
-		private readonly embedder: EmbeddingProvider,
+		private readonly vectors: VectorStore | null,
+		private readonly embedder: EmbeddingProvider | null,
 		private readonly service: KnowledgeService,
+		private readonly lexical = new KnowledgeLexicalIndex(knowledge),
 	) {}
+	private diagnostics: KnowledgeSearchDiagnostics | undefined;
+	getDiagnostics(): KnowledgeSearchDiagnostics | undefined { return this.diagnostics; }
 
 	async search(
 		query: string,
@@ -177,13 +166,12 @@ export class KnowledgeSearchEngine {
 	): Promise<KnowledgeSearchResult[]> {
 		if (!query.trim()) throw new Error("Knowledge search query must not be empty.");
 		const limit = Math.max(1, options.limit ?? 8);
-		const [entries, relations, embedding] = await Promise.all([
+		const mode = options.mode ?? "hybrid";
+		const [entries, relations, lexicalHits] = await Promise.all([
 			this.knowledge.listKnowledgeEntries(this.projectId),
 			this.knowledge.listKnowledgeRelations(this.projectId),
-			this.embedder.embed([knowledgeQueryEmbeddingText(query)]),
+			mode === "semantic" ? Promise.resolve([]) : this.lexical.search(this.projectId, this.snapshotId, query),
 		]);
-		const queryEmbedding = embedding[0];
-		if (!queryEmbedding) throw new Error("Failed to generate knowledge query embedding.");
 
 		const allowed = entries.filter((entry) => {
 			if (entry.classification === "spec" || entry.classification === "spec-like") {
@@ -192,17 +180,19 @@ export class KnowledgeSearchEngine {
 			return options.includeSecondary && entry.classification === "design-only";
 		});
 		const allowedPaths = new Set(allowed.map((entry) => entry.path));
-		const vectorResults = await this.vectors.search(
-			queryEmbedding,
-			Math.max(limit * 8, 40),
-			{
-				projectId: this.projectId,
-				snapshotId: this.snapshotId,
-				filePaths: [...allowedPaths],
-				pathPrefix: options.pathPrefix,
-				domain: "document",
-			},
-		);
+		let vectorResults: Awaited<ReturnType<VectorStore["search"]>> = [];
+		let semanticError: string | undefined;
+		if (mode !== "lexical") {
+			try {
+				if (!this.embedder || !this.vectors) throw new Error("semantic vector retrieval is unavailable");
+				const embedding = await this.embedder.embed([knowledgeQueryEmbeddingText(query)]);
+				if (!embedding[0]) throw new Error("failed to generate query embedding");
+				vectorResults = await this.vectors.search(embedding[0], Math.max(limit * 8, 40), { projectId: this.projectId, snapshotId: this.snapshotId, filePaths: [...allowedPaths], pathPrefix: options.pathPrefix, domain: "document" });
+			} catch (error) { semanticError = error instanceof Error ? error.message : String(error); }
+		}
+		if (mode === "semantic" && semanticError) throw new Error(`Semantic knowledge search unavailable: ${semanticError}`);
+		const coverage = mode === "semantic" ? undefined : await this.lexical.coverage(this.projectId, this.snapshotId);
+		this.diagnostics = { mode, semanticAvailable: !semanticError && mode !== "lexical", semanticError, lexicalCandidates: lexicalHits.length, vectorCandidates: vectorResults.length, note: mode === "lexical" ? `Lexical retrieval uses ${coverage?.chunks ?? 0} indexed document chunks from snapshot ${this.snapshotId}; it is bounded and not exhaustive.` : semanticError && mode === "hybrid" ? `Semantic retrieval degraded to lexical: ${coverage?.chunks ?? 0} indexed document chunks from snapshot ${this.snapshotId}; it is bounded and not exhaustive.` : undefined };
 		const vectorsByPath = new Map<
 			string,
 			Array<{ startLine: number; endLine: number; score: number }>
@@ -217,6 +207,12 @@ export class KnowledgeSearchEngine {
 			});
 			vectorsByPath.set(result.filePath, values);
 		}
+		const lexicalByPath = new Map<string, Array<{ startLine: number; endLine: number; score: number }>>();
+		for (const hit of lexicalHits) {
+			if (!allowedPaths.has(hit.filePath)) continue;
+			if (options.pathPrefix && !hit.filePath.startsWith(options.pathPrefix.replace(/\/+$/, ""))) continue;
+			const values = lexicalByPath.get(hit.filePath) ?? []; values.push(hit); lexicalByPath.set(hit.filePath, values);
+		}
 
 		const relationsByPath = new Map<string, KnowledgeRelation[]>();
 		for (const relation of relations) {
@@ -225,7 +221,7 @@ export class KnowledgeSearchEngine {
 			relationsByPath.set(relation.sourcePath, values);
 		}
 
-		const scored = await Promise.all(
+		const scored =
 			allowed
 				.filter(
 					(entry) =>
@@ -233,20 +229,25 @@ export class KnowledgeSearchEngine {
 						entry.path === options.pathPrefix ||
 						entry.path.startsWith(`${options.pathPrefix.replace(/\/+$/, "")}/`),
 				)
-				.map(async (entry) => {
+				.map((entry) => {
 					const ranges = (vectorsByPath.get(entry.path) ?? []).sort(
 						(left, right) => right.score - left.score,
 					);
 					const semanticScore = ranges[0]?.score ?? 0;
-					const lexical = lexicalScore(
+					// Equality is deliberately abstained: the fixture cutoff is a boundary,
+					// not positive relevance evidence for an otherwise unrelated neighbour.
+					const acceptedRanges = ranges.filter((range) => range.score > (options.semanticMinScore ?? 0.5));
+					const acceptedSemantic = acceptedRanges[0]?.score ?? 0;
+					const bodyRanges = (lexicalByPath.get(entry.path) ?? []).sort((a, b) => b.score - a.score || a.startLine - b.startLine);
+					const lexical = mode === "semantic" ? { score: 0, reasons: [] as string[] } : lexicalScore(
 						query,
 						entry,
 						relationsByPath.get(entry.path) ?? [],
 					);
-					const status = await this.service.getStatus(entry);
 					const secondaryPenalty = entry.classification === "design-only" ? 1 : 0;
+					const bodyScore = bodyRanges[0]?.score ?? 0;
 					const score =
-						semanticScore * 10 +
+						acceptedSemantic * 10 + (mode === "semantic" ? 0 : bodyScore * 6) +
 						lexical.score +
 						lifecycleBias(entry) -
 						secondaryPenalty;
@@ -256,22 +257,22 @@ export class KnowledgeSearchEngine {
 						classification: entry.classification,
 						behaviorType: entry.behaviorType,
 						lifecycle: entry.lifecycle,
-						status: status.status,
+						status: "unverified" as KnowledgeFreshnessStatus,
 						score: Number(score.toFixed(3)),
-						semanticScore: Number(semanticScore.toFixed(3)),
-						lexicalScore: Number(lexical.score.toFixed(3)),
+						semanticScore: Number(acceptedSemantic.toFixed(3)),
+						lexicalScore: Number((mode === "semantic" ? 0 : lexical.score + bodyScore * 6).toFixed(3)),
 						summary: entry.summary,
 						topics: entry.topics,
 						reasonCodes: [
-							...(semanticScore > 0 ? ["semantic"] : []),
+							...(acceptedSemantic > 0 ? ["semantic"] : semanticScore > 0 ? ["semantic-abstained"] : []),
+							...(bodyScore > 0 ? [`body:${bodyRanges[0]?.score.toFixed(2)}`] : []),
 							...lexical.reasons,
 						],
-						bestRanges: ranges.slice(0, 3),
+						bestRanges: [...acceptedRanges, ...(mode === "semantic" ? [] : bodyRanges)].sort((a, b) => b.score - a.score || a.startLine - b.startLine).slice(0, 3),
 					};
-				}),
-		);
+				});
 
-		return scored
+		const selected = scored
 			.filter((result) => result.semanticScore > 0 || result.lexicalScore > 0)
 			.filter((result) => options.minScore === undefined || result.score >= options.minScore)
 			.sort(
@@ -281,6 +282,10 @@ export class KnowledgeSearchEngine {
 					left.path.localeCompare(right.path),
 			)
 			.slice(0, limit);
+		const selectedEntries = selected.map((result) => allowed.find((entry) => entry.path === result.path)!);
+		const batch = this.service as KnowledgeService & { getStatuses?: (values: KnowledgeEntry[]) => Promise<Array<{ path: string; status: KnowledgeFreshnessStatus }>> };
+		const statuses = batch.getStatuses ? await batch.getStatuses(selectedEntries) : await Promise.all(selectedEntries.map((entry) => this.service.getStatus(entry)));
+		const byPath = new Map(statuses.map((status) => [status.path, status.status]));
+		return selected.map((result) => ({ ...result, status: byPath.get(result.path) ?? "unverified" }));
 	}
 }
-

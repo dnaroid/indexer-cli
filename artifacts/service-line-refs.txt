@@ -1,0 +1,257 @@
+   125		localRunnerChecks?: LocalVerificationRunnerChecks;
+   126	}
+   127	
+   128	function isTestPath(filePath: string): boolean {
+   129		return /(?:^|\/)(?:tests?|__tests__|spec)(?:\/|$)|\.(?:test|spec)\.[^/]+$/i.test(
+   130			filePath.replace(/\\/g, "/"),
+   131		);
+   132	}
+   133	
+   134	function sha256(value: string | Uint8Array): string {
+   135		return createHash("sha256").update(value).digest("hex");
+   136	}
+   137	
+   138	export function knowledgeRelationsHash(relations: KnowledgeRelation[]): string {
+   139		const canonical = relations
+   140			.map((relation) => {
+   141				// Declaration assertion IDs and selectors are verification evidence. Do not
+   142				// hash arbitrary relation metadata (for example navigation annotations).
+   143				const manifest = relation.metadata?.manifest;
+   144				const declaration = manifest && typeof manifest === "object"
+   145					? manifest as Record<string, unknown> : undefined;
+   146				const evidence = declaration?.evidence;
+   147				const selector = evidence && typeof evidence === "object"
+   148					? (evidence as Record<string, unknown>).selector : undefined;
+   149				return ({
+   150				targetPath: relation.targetPath,
+   151				targetKind: relation.targetKind,
+   152				relationKind: relation.relationKind,
+   153				provenance: relation.provenance,
+   154				...(typeof declaration?.id === "string" ? { manifestId: declaration.id } : {}),
+   155				...(typeof declaration?.assertionId === "string" ? { assertionId: declaration.assertionId } : {}),
+   156				...(selector && typeof selector === "object" &&
+   157					typeof (selector as Record<string, unknown>).kind === "string" &&
+   158					typeof (selector as Record<string, unknown>).value === "string"
+   159					? { selector: { kind: (selector as Record<string, string>).kind, value: (selector as Record<string, string>).value } }
+   160					: {}),
+   161				});
+   162			})
+   163			.sort((left, right) =>
+   164				JSON.stringify(left).localeCompare(JSON.stringify(right)),
+   165			);
+   166		return sha256(JSON.stringify(canonical));
+   167	}
+   168	
+   169	function primary(entry: KnowledgeEntry): boolean {
+   170		return PRIMARY_KNOWLEDGE_CLASSIFICATIONS.has(entry.classification);
+   171	}
+   172	
+   173	function currentLifecycle(entry: KnowledgeEntry): boolean {
+   174		return entry.lifecycle !== "historical" && entry.lifecycle !== "superseded";
+   175	}
+   176	
+   177	export class KnowledgeService {
+   178		constructor(
+   179			private readonly projectId: ProjectId,
+   180			private readonly repoRoot: string,
+   181			private readonly metadata: MetadataStore,
+   182			private readonly knowledge: KnowledgeStore,
+   183		) {}
+   184	
+   185		private async normalizeProjectPath(value: string): Promise<string> {
+   186			const root = await realpath(this.repoRoot);
+   187			const absolute = path.isAbsolute(value) ? value : path.resolve(root, value);
+   188			const relative = path.relative(root, absolute);
+   189			if (!relative || relative === ".") {
+   190				throw new Error("Knowledge paths must point to a project file.");
+   191			}
+   192			if (relative.startsWith("..") || path.isAbsolute(relative)) {
+   193				throw new Error(`Path escapes project root: ${value}`);
+   194			}
+   195			return relative.replace(/\\/g, "/");
+   196		}
+   197	
+   198		private async resolveExistingProjectFile(filePath: string): Promise<string> {
+   199			const root = await realpath(this.repoRoot);
+   200			const candidate = path.join(root, filePath);
+   201			const resolved = await realpath(candidate);
+   202			const relative = path.relative(root, resolved);
+   203			if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+   204				throw new Error(`Path resolves outside project root: ${filePath}`);
+   205			}
+   206			if (!(await stat(resolved)).isFile()) {
+   207				throw new Error(`Path is not a file: ${filePath}`);
+   208			}
+   209			return resolved;
+   210		}
+   211	
+   212		private async currentHash(filePath: string): Promise<string | null> {
+   213			try {
+   214				const fullPath = await this.resolveExistingProjectFile(filePath);
+   215				return sha256(await readFile(fullPath));
+   216			} catch {
+   217				return null;
+   218			}
+   219		}
+   220	
+   221		private async legacyHash(filePath: string): Promise<string | null> {
+   222			try {
+   223				return computeHash(await readFile(await this.resolveExistingProjectFile(filePath), "utf8"));
+   224			} catch {
+   225				return null;
+   226			}
+   227		}
+   228	
+   229		private async getStatusWithGitignore(
+   230			entry: KnowledgeEntry,
+   231			gitignore: GitignoreFilter,
+   232			hashes = new Map<string, Promise<string | null>>(),
+   233		): Promise<KnowledgeStatus> {
+   234			const current = (p: string) => {
+   235				let result = hashes.get(p); if (!result) { result = this.currentHash(p); hashes.set(p, result); } return result;
+   236			};
+   237			if (!primary(entry)) {
+   238				return {
+   239					path: entry.path,
+   240					classification: entry.classification,
+   241					lifecycle: entry.lifecycle,
+   242					status: "classified",
+   243					reasons: [],
+   244				};
+   245			}
+   246	
+   247			const sourceHash = await current(entry.path);
+   248			if (!sourceHash) {
+   249				return {
+   250					path: entry.path,
+   251					classification: entry.classification,
+   252					lifecycle: entry.lifecycle,
+   253					status: "missing-source",
+   254					reasons: [entry.path],
+   255				};
+   256			}
+   257	
+   258			if (!entry.verifiedSourceHash || !entry.verifiedRelationsHash || !entry.verificationReceipt) {
+   259				const legacyMatch = sourceHash !== entry.indexedSourceHash &&
+   260					await this.legacyHash(entry.path) === entry.indexedSourceHash;
+   261				return {
+   262					path: entry.path,
+   263					classification: entry.classification,
+   264					lifecycle: entry.lifecycle,
+   265					status:
+   266						sourceHash === entry.indexedSourceHash || legacyMatch ? "unverified" : "spec-changed",
+   267					reasons:
+   268						sourceHash === entry.indexedSourceHash || legacyMatch
+   269							? [entry.verifiedSourceHash || legacyMatch ? "legacy/unattested verification baseline" : "semantic verification required"]
+   270							: [`source:${entry.path}`],
+   271				};
+   272			}
+   273	
+   274			const sourceChanged = sourceHash !== entry.verifiedSourceHash;
+   275			const relations = await this.knowledge.listKnowledgeRelations(this.projectId, {
+   276				sourcePath: entry.path,
+   277			});
+   278			const relationChanged =
+   279				knowledgeRelationsHash(relations) !== entry.verifiedRelationsHash;
+   280			const verifiedInputs = await this.knowledge.listKnowledgeVerifiedInputs(
+   281				this.projectId,
+   282				entry.path,
+   283			);
+   284			const verifiedByPath = new Map(verifiedInputs.map((input) => [input.inputPath, input]));
+   285			const codeTargets = [...new Set(relations.filter((relation) => relation.targetKind === "code").map((relation) => relation.targetPath))];
+   470						targetPath,
+   471						targetKind: "knowledge",
+   472						relationKind: "related",
+   473						provenance: "explicit",
+   474					});
+   475				}
+   476			}
+   477			// The legacy delete API matches both provenances. Restore reviewed inferred
+   478			// relations after refreshing prose references; declarations are never replaced
+   479			// by prose mentions in manifest-authoritative mode.
+   480			if (isPrimary) {
+   481				for (const relation of previousRelations.filter((item) => item.provenance === "inferred")) {
+   482					await this.knowledge.upsertKnowledgeRelation(relation);
+   483				}
+   484			}
+   485	
+   486			const entry: KnowledgeEntry = {
+   487				projectId: this.projectId,
+   488				path: filePath,
+   489				classification: input.classification,
+   490				behaviorType: isPrimary
+   491					? (input.behaviorType ?? previous?.behaviorType ?? "unknown")
+   492					: "unknown",
+   493				lifecycle: isPrimary
+   494					? (input.lifecycle ?? previous?.lifecycle ?? "unknown")
+   495					: "unknown",
+   496				confidence: input.confidence ?? previous?.confidence ?? "unknown",
+   497				title: documentTitle(content, filePath),
+   498				summary: input.summary?.trim() ?? previous?.summary ?? "",
+   499				topics: [...new Set(input.topics ?? previous?.topics ?? [])].sort(),
+   500				indexedSourceHash: sourceHash,
+   501				indexedAt: Date.now(),
+   502				metadata: {
+   503					...(previous?.metadata ?? {}),
+   504					...(manifestAuthoritative ? { mentions: { code: explicit.code, knowledge: explicit.knowledge } } : {}),
+   505					// A manifest declaration, not prose, owns dependency semantics.
+   506					unresolvedReferences: isPrimary && !manifestAuthoritative ? explicit.unresolved : [],
+   507				},
+   508			};
+   509			await this.knowledge.upsertKnowledgeEntry(entry);
+   510			return (await this.knowledge.getKnowledgeEntry(this.projectId, filePath)) ?? entry;
+   511		}
+   512	
+   513		async prepareVerification(inputPath: string, options: VerificationPreparationOptions = {}): Promise<VerificationPreparation> {
+   514			const filePath = await this.normalizeProjectPath(inputPath);
+   515			const entry = await this.knowledge.getKnowledgeEntry(this.projectId, filePath);
+   516			if (!entry || !primary(entry)) {
+   517				throw new Error(`Only recorded primary knowledge can be verified: ${filePath}`);
+   518			}
+   519			const sourceHash = await this.currentHash(filePath);
+   520			if (!sourceHash) throw new Error(`Primary source is missing: ${filePath}`);
+   521			const relations = await this.knowledge.listKnowledgeRelations(this.projectId, {
+   522				sourcePath: filePath,
+   523			});
+   524			const codeRelations = relations.filter(
+   525				(relation) => relation.targetKind === "code",
+   526			);
+   527			const gitignore = parseGitignore(this.repoRoot);
+   528			const trackedPaths = new Set(codeRelations.map((relation) => relation.targetPath).filter((inputPath) => !gitignore.ignores(inputPath)));
+   529			for (const inputPath of Object.keys(options.selectors ?? {})) {
+   530				if (!trackedPaths.has(inputPath)) throw new Error(`Verification selector does not match a tracked input: ${inputPath}`);
+   531			}
+   532			const inputs = [] as Array<{
+   533				inputPath: string;
+   534				inputHash: string;
+   535				selector?: KnowledgeVerificationReceipt["inputs"][number]["selector"];
+   536			}>;
+   537			const warnings: string[] = [];
+   538			for (const inputPath of [...trackedPaths]) {
+   539				if (gitignore.ignores(inputPath)) {
+   540					warnings.push(`${inputPath} is gitignored and excluded from tracked verification inputs.`);
+   541					continue;
+   542				}
+   543				const inputHash = await this.currentHash(inputPath);
+   544				if (!inputHash) {
+   545					throw new Error(`Tracked input is missing or unreadable: ${inputPath}`);
+   546				}
+   547				const declared = codeRelations
+   548					.filter((relation) => relation.targetPath === inputPath)
+   549					.flatMap((relation) => {
+   550						const manifest = relation.metadata?.manifest;
+   551						const selector = manifest && typeof manifest === "object" ? (manifest as Record<string, unknown>).evidence : undefined;
+   552						const value = selector && typeof selector === "object" ? (selector as Record<string, unknown>).selector : undefined;
+   553						return value && typeof value === "object" && typeof (value as Record<string, unknown>).kind === "string" && typeof (value as Record<string, unknown>).value === "string"
+   554							? [{ kind: (value as KnowledgeVerificationSelector).kind, value: (value as KnowledgeVerificationSelector).value }] : [];
+   555					});
+   556				const uniqueDeclared = [...new Map(declared.map((selector) => [`${selector.kind}\0${selector.value}`, selector])).values()];
+   557				if (uniqueDeclared.length > 1) throw new Error(`Manifest selectors are ambiguous for tracked input: ${inputPath}`);
+   558				const requested = options.selectors?.[inputPath];
+   559				if (requested && uniqueDeclared[0] && (requested.kind !== uniqueDeclared[0].kind || requested.value !== uniqueDeclared[0].value)) {
+   560					throw new Error(`Verification selector conflicts with manifest declaration: ${inputPath}`);
+   561				}
+   562				const selected = requested ?? uniqueDeclared[0];
+   563				const fullPath = selected ? await this.resolveExistingProjectFile(inputPath) : undefined;
+   564				inputs.push({
+   565					inputPath,

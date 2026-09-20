@@ -78,9 +78,9 @@ describe("DocumentIndexer", () => {
 				domain: "document",
 			},
 		]);
-		expect(await metadata.listKnowledgeChunks("project", snapshot.id)).not.toEqual(
-			[],
-		);
+		const chunks = await metadata.listKnowledgeChunks("project", snapshot.id);
+		expect(chunks).not.toEqual([]);
+		expect(chunks[0]?.metadata?.searchText).toContain("Authentication");
 		expect(await vectors.countVectors({ projectId: "project" })).toBe(0);
 		expect(
 			await vectors.countVectors({ projectId: "project", domain: "document" }),
@@ -209,4 +209,3 @@ describe("DocumentIndexer", () => {
 		await metadata.close();
 	});
 });
-

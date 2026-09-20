@@ -1,0 +1,33 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+ ❯ tests/unit/knowledge/verification.test.ts (6 tests | 1 failed) 12ms
+     × rejects unknown fields and forged local execution 4ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/knowledge/verification.test.ts > verification receipt validation > rejects unknown fields and forged local execution
+AssertionError: expected [Function] to throw error including 'does not match' but got 'evidenceBindings contains an invalid …'
+
+Expected: "does not match"
+Received: "evidenceBindings contains an invalid path or hash."
+
+ ❯ tests/unit/knowledge/verification.test.ts:31:128
+     29|   expect(() => validateVerificationReceipt({ ...receipt(), locallyReco…
+     30|   expect(() => validateVerificationReceipt({ ...receipt(), surprise: t…
+     31|   expect(() => validateVerificationReceipt({ ...receipt(), evidenceBin…
+       |                                                                                                                                ^
+     32|  });
+     33|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 4 passed (5)
+      Tests  1 failed | 39 passed (40)
+   Start at  00:11:40
+   Duration  1.40s (transform 163ms, setup 0ms, import 692ms, tests 305ms, environment 0ms)
+

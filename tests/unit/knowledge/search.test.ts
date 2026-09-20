@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EmbeddingProvider } from "../../../src/core/types.js";
 import { KnowledgeSearchEngine } from "../../../src/knowledge/search.js";
 import { KnowledgeService } from "../../../src/knowledge/service.js";
@@ -32,6 +32,10 @@ class QueryEmbeddingProvider implements EmbeddingProvider {
 			return [0, 0, 1];
 		});
 	}
+}
+
+class UnavailableEmbeddingProvider extends QueryEmbeddingProvider {
+	override async embed(): Promise<number[][]> { throw new Error("provider offline"); }
 }
 
 describe("KnowledgeSearchEngine", () => {
@@ -131,15 +135,46 @@ describe("KnowledgeSearchEngine", () => {
 			new QueryEmbeddingProvider(),
 			service,
 		);
+		await metadata.replaceKnowledgeChunks("project", snapshot.id, "docs/cache.md", [{
+			chunkId: "body-cache", startLine: 3, endLine: 4, contentHash: "body-cache", chunkType: "doc_section",
+			metadata: { searchText: "The quasarlock nonce is retained until provider delivery." },
+		}]);
 		const russian = await search.search(
 			"почему результат нельзя удалить до отправки провайдеру",
 		);
 		expect(russian[0]?.path).toBe("docs/cache.md");
 		expect(russian[0]?.reasonCodes).toContain("semantic");
+		const semanticOnly = await search.search("provider cache", { mode: "semantic" });
+		expect(semanticOnly[0]).toMatchObject({ path: "docs/cache.md", lexicalScore: 0 });
+		expect(semanticOnly[0]?.reasonCodes.some((reason) => reason.startsWith("body:") || reason.startsWith("title:"))).toBe(false);
 
+		const realVectorSearch = vectors.search.bind(vectors);
+		const weakVectorSearch = vi.spyOn(vectors, "search").mockImplementation(async (...args) =>
+			(await realVectorSearch(...args)).map((hit) => ({ ...hit, score: 0.1 })));
 		const exactRelation = await search.search("src/cache.ts");
 		expect(exactRelation[0]?.path).toBe("docs/cache.md");
 		expect(exactRelation[0]?.reasonCodes).toContain("exact-relation-path");
+		// Orthogonal vector neighbors abstain; they must not supply read-next ranges.
+		expect(exactRelation[0]?.reasonCodes).not.toContain("semantic");
+		expect(exactRelation[0]?.bestRanges).toEqual([]);
+		weakVectorSearch.mockRestore();
+		const bodyOnly = await search.search("quasarlock", { mode: "lexical" });
+		expect(bodyOnly[0]).toMatchObject({ path: "docs/cache.md" });
+		expect(bodyOnly[0]?.reasonCodes.some((reason) => reason.startsWith("body:"))).toBe(true);
+
+		const fallback = new KnowledgeSearchEngine("project", snapshot.id, metadata, metadata, vectors, new UnavailableEmbeddingProvider(), service);
+		expect((await fallback.search("quasarlock"))[0]?.path).toBe("docs/cache.md");
+		expect(fallback.getDiagnostics()).toMatchObject({ semanticAvailable: false, lexicalCandidates: 1, note: expect.stringContaining("degraded to lexical") });
+		expect(await fallback.search("unrelatedterm", { mode: "lexical" })).toEqual([]);
+		expect(await search.search("unrelatedterm", { mode: "hybrid" })).toEqual([]);
+		const statusBatch = vi.spyOn(service, "getStatuses");
+		const vectorLookup = vi.spyOn(vectors, "search");
+		await search.search("contract", { mode: "lexical", limit: 1 });
+		expect(statusBatch).toHaveBeenCalledOnce();
+		expect(statusBatch.mock.calls[0]?.[0]).toHaveLength(1);
+		expect(vectorLookup).not.toHaveBeenCalled();
+		statusBatch.mockRestore();
+		vectorLookup.mockRestore();
 
 		await vectors.close();
 		await metadata.close();
@@ -195,4 +230,3 @@ describe("KnowledgeSearchEngine", () => {
 		await metadata.close();
 	});
 });
-

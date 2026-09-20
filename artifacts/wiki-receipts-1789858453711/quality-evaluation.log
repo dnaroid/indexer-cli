@@ -1,0 +1,13 @@
+Receipt draft: /Volumes/128GBSSD/Projects/indexer-cli/artifacts/wiki-receipts-1789858453711/quality-evaluation.json. Review source/evidence and fill the attestation before verify.
+CHECK_RESULT=passed command="RUN_KNOWLEDGE_QUALITY_EVAL=1 npx vitest run tests/evals/knowledge-quality.eval.test.ts --reporter=dot" exit_code=0 log=/var/folders/f4/qn8kkwg96lv8c1z_3bs_978m0000gn/T/idx-wiki-checks-HO7ahp/1.log
+{
+  "path": "docs/specs/knowledge-quality-evaluation.md",
+  "classification": "spec",
+  "lifecycle": "active",
+  "status": "fresh",
+  "reasons": [],
+  "trackedInputCount": 2,
+  "ignoredInputCount": 0,
+  "verificationState": "attested",
+  "selectorHints": []
+}

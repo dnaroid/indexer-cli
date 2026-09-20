@@ -1,0 +1,16 @@
+
+> indexer-cli@2.0.3 test
+> vitest run tests/unit/ --run tests/unit/knowledge/context.test.ts tests/unit/knowledge/search.test.ts
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+
+ Test Files  56 passed (56)
+      Tests  590 passed (590)
+   Start at  00:18:25
+   Duration  18.98s (transform 889ms, setup 0ms, import 5.76s, tests 8.48s, environment 4ms)
+

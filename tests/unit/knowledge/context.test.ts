@@ -244,4 +244,35 @@ describe("KnowledgeContextEngine", () => {
 		expect(pack.warnings).toContain("No primary knowledge matched the query.");
 		expect(pack.readNext).toContain("src/telemetry/format.ts:8-22");
 	});
+
+	it("ranks a late relevant implementation and its direct test ahead of broad paths", async () => {
+		const files = Array.from({ length: 50 }, (_, index) => ({
+			snapshotId: "snap", path: `src/a${index}/unrelated.ts`, sha256: `${index}`, mtimeMs: 1, size: 1, languageId: "typescript",
+		}));
+		files.push(
+			{ snapshotId: "snap", path: "src/z/payment-refund.ts", sha256: "target", mtimeMs: 1, size: 1, languageId: "typescript" },
+			{ snapshotId: "snap", path: "tests/z/payment-refund.test.ts", sha256: "test", mtimeMs: 1, size: 1, languageId: "typescript" },
+		);
+		const engine = new KnowledgeContextEngine("default", "snap", {
+			listFiles: async () => files,
+			listDependencies: async () => [{ snapshotId: "snap", id: "test", fromPath: "tests/z/payment-refund.test.ts", toSpecifier: "../../src/z/payment-refund", toPath: "src/z/payment-refund.ts", kind: "import", dependencyType: "internal" }],
+		} as unknown as MetadataStore, { listKnowledgeRelations: async () => [] } as unknown as KnowledgeStore,
+		{ search: async () => [] }, { search: async () => [
+			{ filePath: "src/a1/unrelated.ts", startLine: 1, endLine: 2, score: 0.1 },
+			{ filePath: "src/z/payment-refund.ts", startLine: 4, endLine: 9, score: 3 },
+		] });
+		const pack = await engine.build("payment refund", { maxCode: 2, maxTests: 1 });
+		expect(pack.implementation[0]?.path).toBe("src/z/payment-refund.ts");
+		expect(pack.tests).toMatchObject([{ path: "tests/z/payment-refund.test.ts", reason: "direct" }]);
+	});
+
+	it("reserves compact primary sources and counts omissions under the hard minimum budget", () => {
+		const huge = "x".repeat(2_000);
+		const output = formatKnowledgeContext({ query: huge, specs: [{ ...SPEC, path: huge, summary: huge, status: "inputs-changed" }], implementation: [{ path: huge, reason: "semantic" }], tests: [{ path: huge, reason: "direct", confidence: "high" }], relations: [], warnings: [huge, "second warning"], readNext: [] }, 1);
+		expect(output).toContain("budget=200");
+		expect(output).toContain("Warnings: (2)");
+		expect(output).toContain("Primary knowledge:");
+		expect(output).toContain("Implementation:");
+		expect(output).toContain("Tests:");
+	});
 });

@@ -1,0 +1,44 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+ ❯ tests/unit/knowledge/service.test.ts (22 tests | 1 failed) 181ms
+     × keeps manifest-authoritative prose references as navigation rather than unresolved dependencies 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/unit/knowledge/service.test.ts > KnowledgeService > keeps manifest-authoritative prose references as navigation rather than unresolved dependencies
+AssertionError: expected { …(3) } to match object { …(2) }
+(4 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+    "mentions": {
+-     "code": [
+-       "src/removed.ts",
+-     ],
++     "code": [],
+    },
+    "unresolvedReferences": [],
+  }
+
+ ❯ tests/unit/knowledge/service.test.ts:472:26
+    470|   await service.record({ path: "docs/manifest.md", classification: "sp…
+    471|   const entry = (await store.getKnowledgeEntry("project", "docs/manife…
+    472|   expect(entry.metadata).toMatchObject({ mentions: { code: ["src/remov…
+       |                          ^
+    473|   expect((await service.audit()).unresolvedReferenceCount).toBe(0);
+    474|   await store.close();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 21 passed (22)
+   Start at  00:32:59
+   Duration  541ms (transform 113ms, setup 0ms, import 281ms, tests 181ms, environment 0ms)
+

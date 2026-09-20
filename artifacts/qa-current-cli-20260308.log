@@ -1,0 +1,52 @@
+FIXTURE=/tmp/idx-qa-1boT
+  Hook: .git/hooks/post-commit
+Initialized indexer-cli in .
+  SQLite: .indexer-cli/db.sqlite
+  Config: .indexer-cli/config.json
+Starting initial index. This may start Ollama and download/create the jina-8k embedding model on first run.
+Tip: run `idx --no-auto-update doctor <projectPath>` if you need to verify dependencies separately.
+recorded spec: docs/contract.md — unverified
+Receipt draft: receipt.json. Review source/evidence and fill the attestation before verify.
+CHECK_RESULT=passed command="node -e \"process.exit(0)\"" exit_code=0 log=/var/folders/f4/qn8kkwg96lv8c1z_3bs_978m0000gn/T/idx-wiki-checks-WUpsIr/1.log
+Wiki verification failed: evidenceBindings must be non-empty.
+Wiki verification failed: evidenceBindings must be non-empty.
+CHECK_RESULT=failed command="node -e \"process.exit(2)\"" exit_code=2 log=/var/folders/f4/qn8kkwg96lv8c1z_3bs_978m0000gn/T/idx-wiki-checks-ebGcQW/1.log
+Wiki verification failed: evidenceBindings must be non-empty.
+Retrieval: Lexical retrieval uses 2 indexed document chunks from snapshot 6243b1e4-3666-4db2-a96a-7240995c8d1e; it is bounded and not exhaustive.
+ 18.13 active     unverified          docs/contract.md — Contract
+       Behavior contract
+       why=body:1.00,topics:1,topics-phrase,summary:1,summary-phrase
+OPEN uncovered-path src/app.ts (d47d2ba8bdc61bd4b25162c098381331141b01bf8eede8f90b15a054c6a98d55)
+OPEN uncovered-path src/app.ts (d47d2ba8bdc61bd4b25162c098381331141b01bf8eede8f90b15a054c6a98d55)
+1 unresolved knowledge review obligation(s)
+OPEN uncovered-path src/app.ts (d47d2ba8bdc61bd4b25162c098381331141b01bf8eede8f90b15a054c6a98d55)
+--- relate/prepare/accepted ---
+updated relations: docs/contract.md — unverified
+Receipt draft: receipt2.json. Review source/evidence and fill the attestation before verify.
+CHECK_RESULT=passed command="node -e \"process.exit(0)\"" exit_code=0 log=/var/folders/f4/qn8kkwg96lv8c1z_3bs_978m0000gn/T/idx-wiki-checks-t2o870/1.log
+verified docs/contract.md: fresh (declared evidence freshness, not proof of semantics)
+--- forged/stale ---
+Wiki verification failed: Verification receipt is stale for the source or relation map.
+--- manifest ---
+exported manifest: exported.json
+manifest valid
+applied 0 knowledge declarations; added 0 relations
+--- resolve no impact then reopen ---
+Wiki review failed: Review obligation is stale: d47d2ba8bdc61bd4b25162c098381331141b01bf8eede8f90b15a054c6a98d55. Recollect and review the current change set.
+OPEN known-affected-contract docs/contract.md (c14e9f5785cd40c55e9e8995411f9b14c1c1d54f90294485bed611ab2bbc6358)
+1 unresolved knowledge review obligation(s)
+OPEN known-affected-contract docs/contract.md (c14e9f5785cd40c55e9e8995411f9b14c1c1d54f90294485bed611ab2bbc6358)
+1 unresolved knowledge review obligation(s)
+--- needs human ---
+OPEN known-affected-contract docs/contract.md (14410c634b60a6ebbc5848e4c46667087326a4c0c287d7895efb2d55d595d8b0)
+OPEN/NEEDS-HUMAN known-affected-contract docs/contract.md (14410c634b60a6ebbc5848e4c46667087326a4c0c287d7895efb2d55d595d8b0)
+OPEN/NEEDS-HUMAN known-affected-contract docs/contract.md (14410c634b60a6ebbc5848e4c46667087326a4c0c287d7895efb2d55d595d8b0)
+1 unresolved knowledge review obligation(s)
+--- durable no-impact/reopen explicit exits ---
+resolved known-affected-contract docs/contract.md (...)
+resolve_exit=0
+knowledge review check passed
+check_exit=0
+OPEN known-affected-contract docs/contract.md (...)
+1 unresolved knowledge review obligation(s)
+reopen_exit=1

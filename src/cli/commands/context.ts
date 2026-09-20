@@ -40,6 +40,7 @@ export function registerContextCommand(program: Command): void {
 		.option("--max-tests <number>", "maximum test hints", "4")
 		.option("--path-prefix <path>", "limit implementation discovery to a code area")
 		.option("--include-secondary", "allow design-only knowledge in retrieval")
+		.option("--mode <mode>", "retrieval mode: hybrid, semantic, or lexical", "hybrid")
 		.action(
 			async (
 				query: string,
@@ -50,8 +51,11 @@ export function registerContextCommand(program: Command): void {
 					maxTests?: string;
 					pathPrefix?: string;
 					includeSecondary?: boolean;
+					mode?: "hybrid" | "semantic" | "lexical";
 				},
 			) => {
+				if (options.mode && !["hybrid", "semantic", "lexical"].includes(options.mode)) throw new Error("--mode must be hybrid, semantic, or lexical.");
+				const offline = options.mode === "lexical";
 				let repoRoot: string;
 				try {
 					const resolved = resolveInitializedProjectRoot();
@@ -91,22 +95,24 @@ export function registerContextCommand(program: Command): void {
 
 				try {
 					await metadata.initialize();
-					const indexResult = await ensureIndexed(metadata, repoRoot, {
-						silent: !process.stderr.isTTY,
-					});
-					console.log(formatAutoIndexResult(indexResult));
-					if (indexResult.status === "failed") {
-						process.exitCode = 1;
-						return;
-					}
-					await Promise.all([
-						vectors.initialize(),
-						embedder.initialize(),
-						knowledgeEmbedder.initialize(),
-					]);
+					const indexResult = offline ? undefined : await ensureIndexed(metadata, repoRoot, { silent: !process.stderr.isTTY });
+					if (indexResult) console.log(formatAutoIndexResult(indexResult));
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) throw new Error("No completed index snapshot is available.");
+					if (indexResult?.status === "failed") {
+						console.error("Auto-index failed; using the existing completed snapshot (it may be stale).");
+					}
+					let embeddingsAvailable = !offline;
+					try {
+						if (!offline) {
+							await vectors.initialize();
+							await Promise.all([embedder.initialize(), knowledgeEmbedder.initialize()]);
+						}
+					} catch (error) {
+						embeddingsAvailable = false;
+						console.error(`Embedding provider unavailable; context uses bounded lexical knowledge retrieval only: ${error instanceof Error ? error.message : String(error)}`);
+					}
 
 					const service = new KnowledgeService(
 						DEFAULT_PROJECT_ID,
@@ -127,15 +133,23 @@ export function registerContextCommand(program: Command): void {
 						metadata,
 						metadata,
 						vectors,
-						knowledgeEmbedder,
+						embeddingsAvailable ? knowledgeEmbedder : null,
 						service,
 					);
-					const codeSearch = new SearchEngine(
-						metadata,
-						vectors,
-						embedder,
-						repoRoot,
-					);
+					const rawCodeSearch = new SearchEngine(metadata, vectors, embedder, repoRoot);
+					const codeSearch = {
+						search: async (...args: Parameters<SearchEngine["search"]>) => {
+							try {
+								return await rawCodeSearch.search(...args);
+							} catch (error) {
+								// A provider can fail after initialization. Hybrid context must
+								// remain useful, but do not relabel lexical results as semantic.
+								if (args[3]?.mode !== "hybrid") throw error;
+								console.error(`Code semantic retrieval degraded to lexical: ${error instanceof Error ? error.message : String(error)}`);
+								return rawCodeSearch.search(args[0], args[1], args[2], { ...args[3], mode: "lexical" });
+							}
+						},
+					};
 					const engine = new KnowledgeContextEngine(
 						DEFAULT_PROJECT_ID,
 						snapshot.id,
@@ -150,6 +164,7 @@ export function registerContextCommand(program: Command): void {
 						maxTests: parsePositiveInteger(options.maxTests, 4),
 						includeSecondary: options.includeSecondary,
 						pathPrefix: options.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""),
+						mode: options.mode,
 					});
 					process.stdout.write(
 						formatKnowledgeContext(

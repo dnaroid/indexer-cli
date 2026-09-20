@@ -5,6 +5,19 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { KnowledgeService } from "../../../src/knowledge/service.js";
 import { SqliteMetadataStore } from "../../../src/storage/sqlite.js";
+import { computeHash } from "../../../src/utils/hash.js";
+
+async function receiptFor(service: KnowledgeService, filePath: string) {
+	const prepared = await service.prepareVerification(filePath);
+	return {
+		version: 1 as const, sourcePath: prepared.sourcePath, sourceHash: prepared.sourceHash, relationsHash: prepared.relationsHash, inputs: prepared.inputs, preparedAt: Date.now(), reviewer: "unit reviewer", rationale: "Reviewed current source and code inputs.",
+		assertionReferences: ["assertion:unit"], evidenceReferences: ["evidence:unit"],
+		assertionBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash }],
+		evidenceBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash }],
+		limitations: prepared.inputs.length ? [] : ["No non-ignored code relations."],
+		...(prepared.inputs.length ? {} : { zeroTrackedInputsAcknowledged: true as const }),
+	};
+}
 
 describe("KnowledgeService", () => {
 	const tempDirs: string[] = [];
@@ -57,7 +70,7 @@ describe("KnowledgeService", () => {
 		});
 		expect((await service.audit()).unverifiedCount).toBe(1);
 
-		await service.verify("docs/session.md");
+		await service.verify("docs/session.md", await receiptFor(service, "docs/session.md"));
 		expect((await service.audit()).freshCount).toBe(1);
 
 		await writeFile(path.join(root, "src/session.ts"), "export const retry = 2;\n");
@@ -65,7 +78,7 @@ describe("KnowledgeService", () => {
 			status: "inputs-changed",
 		});
 
-		await service.verify("docs/session.md");
+		await service.verify("docs/session.md", await receiptFor(service, "docs/session.md"));
 		await writeFile(path.join(root, "src/worker.ts"), "export const worker = true;\n");
 		await service.relate({
 			sourcePath: "docs/session.md",
@@ -80,6 +93,22 @@ describe("KnowledgeService", () => {
 		});
 
 		await store.close();
+	});
+
+	it("detects exact-byte changes that normalized indexing hashes would conceal", async () => {
+		const { root, store, service } = await setup();
+		try {
+			await mkdir(path.join(root, "docs"));
+			await mkdir(path.join(root, "src"));
+			await writeFile(path.join(root, "src/token.ts"), 'export const token = "\uFEFF";\n');
+			await writeFile(path.join(root, "docs/token.md"), "# Token\nReturn the BOM token.\n`src/token.ts`\n");
+			await service.record({ path: "docs/token.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Return the BOM token." });
+			await service.verify("docs/token.md", await receiptFor(service, "docs/token.md"));
+			await writeFile(path.join(root, "src/token.ts"), 'export const token = "";\n');
+			expect((await service.listStatuses())[0]?.status).toBe("inputs-changed");
+			await writeFile(path.join(root, "docs/token.md"), "# Token\nReturn the BOM token.\n`src/token.ts`\n\n");
+			expect((await service.listStatuses())[0]?.status).toBe("spec+inputs-changed");
+		} finally { await store.close(); }
 	});
 
 	it("re-extracts explicit relations on record and preserves inferred ones", async () => {
@@ -258,7 +287,7 @@ describe("KnowledgeService", () => {
 			lifecycle: "active",
 			summary: "A contract.",
 		});
-		await service.verify("docs/a.md");
+		await service.verify("docs/a.md", await receiptFor(service, "docs/a.md"));
 
 		const before = await service.relate({
 			sourcePath: "docs/a.md",
@@ -286,7 +315,7 @@ describe("KnowledgeService", () => {
 			relationKind: "implements",
 			provenance: "inferred",
 		});
-		await expect(service.verify("docs/a.md")).resolves.toMatchObject({
+		await expect(service.verify("docs/a.md", await receiptFor(service, "docs/a.md"))).resolves.toMatchObject({
 			path: "docs/a.md",
 		});
 		expect(
@@ -319,7 +348,7 @@ describe("KnowledgeService", () => {
 				relationKind: "implements",
 				provenance: "inferred",
 			});
-			await service.verify("docs/tasks.md");
+			await service.verify("docs/tasks.md", await receiptFor(service, "docs/tasks.md"));
 			await store.upsertKnowledgeVerifiedInput({
 				projectId: "project",
 				sourcePath: "docs/tasks.md",
@@ -365,7 +394,7 @@ describe("KnowledgeService", () => {
 			provenance: "inferred",
 		});
 
-		await expect(service.verify("docs/build.md")).resolves.toMatchObject({
+		await expect(service.verify("docs/build.md", await receiptFor(service, "docs/build.md"))).resolves.toMatchObject({
 			path: "docs/build.md",
 		});
 		expect(
@@ -383,6 +412,108 @@ describe("KnowledgeService", () => {
 		await expect(service.verify("docs/build.md")).rejects.toThrow(
 			"Tracked input is missing or unreadable: src/missing.ts",
 		);
+		await store.close();
+	});
+
+	it.each(["present", "missing"])("marks a newly unignored relation target as changed when it is %s", async (state) => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs")); await mkdir(path.join(root, "generated"));
+		await writeFile(path.join(root, ".gitignore"), "generated/\n");
+		await writeFile(path.join(root, "generated/main.js"), "export const build = 1;\n");
+		await writeFile(path.join(root, "docs/build.md"), "# Build\n\n## Behavior\nBuild.\n");
+		await service.record({ path: "docs/build.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Build contract." });
+		await store.upsertKnowledgeRelation({ projectId: "project", sourcePath: "docs/build.md", targetPath: "generated/main.js", targetKind: "code", relationKind: "implements", provenance: "inferred" });
+		await service.verify("docs/build.md", await receiptFor(service, "docs/build.md"));
+		if (state === "missing") rmSync(path.join(root, "generated/main.js"));
+		await writeFile(path.join(root, ".gitignore"), "");
+		expect(await service.getStatus((await store.getKnowledgeEntry("project", "docs/build.md"))!)).toMatchObject({
+			status: "inputs-changed", reasons: ["input:generated/main.js"], trackedInputCount: 1, ignoredInputCount: 0,
+		});
+		await store.close();
+	});
+
+	it("uses manifest selectors as verification evidence and rejects invalid selector options", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs")); await mkdir(path.join(root, "src"));
+		await writeFile(path.join(root, "src/auth.ts"), "export function login() { return true; }\n");
+		await writeFile(path.join(root, "docs/auth.md"), "# Auth\n\n## Behavior\nLogin.\n");
+		await service.record({ path: "docs/auth.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Authentication contract." });
+		await store.upsertKnowledgeRelation({ projectId: "project", sourcePath: "docs/auth.md", targetPath: "src/auth.ts", targetKind: "code", relationKind: "implements", provenance: "explicit", metadata: { manifest: { id: "auth", assertionId: "login-assertion", evidence: { selector: { kind: "code-symbol", value: "login" } } } } });
+		const prepared = await service.prepareVerification("docs/auth.md");
+		expect(prepared.inputs[0]?.selector).toMatchObject({ kind: "code-symbol", value: "login" });
+		await service.verify("docs/auth.md", await receiptFor(service, "docs/auth.md"));
+		await store.upsertKnowledgeRelation({ projectId: "project", sourcePath: "docs/auth.md", targetPath: "src/auth.ts", targetKind: "code", relationKind: "implements", provenance: "explicit", metadata: { manifest: { id: "auth", assertionId: "login-assertion", evidence: { selector: { kind: "code-symbol", value: "logout" } } } } });
+		expect((await service.getStatus((await store.getKnowledgeEntry("project", "docs/auth.md"))!)).status).toBe("inputs-changed");
+		await expect(service.prepareVerification("docs/auth.md", { selectors: { "src/other.ts": { kind: "code-symbol", value: "x" } } })).rejects.toThrow("does not match a tracked input");
+		await store.upsertKnowledgeRelation({ projectId: "project", sourcePath: "docs/auth.md", targetPath: "src/auth.ts", targetKind: "code", relationKind: "tests", provenance: "explicit", metadata: { manifest: { id: "auth", assertionId: "conflicting-assertion", evidence: { selector: { kind: "code-symbol", value: "login" } } } } });
+		await expect(service.prepareVerification("docs/auth.md", { selectors: { "src/auth.ts": { kind: "code-symbol", value: "login" } } })).rejects.toThrow("Manifest selectors are ambiguous");
+		await store.close();
+	});
+
+	it("treats an unchanged normalized legacy baseline as unattested", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs"));
+		const document = "# Legacy\n\n## Behavior\nLegacy.\n";
+		await writeFile(path.join(root, "docs/legacy.md"), document);
+		await service.record({ path: "docs/legacy.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Legacy contract." });
+		const entry = (await store.getKnowledgeEntry("project", "docs/legacy.md"))!;
+		const { indexedSourceHashFormat: _format, ...legacyMetadata } = entry.metadata ?? {};
+		await store.upsertKnowledgeEntry({ ...entry, indexedSourceHash: computeHash(document), verifiedSourceHash: "a".repeat(64), verifiedRelationsHash: "b".repeat(64), metadata: legacyMetadata });
+		expect(await service.getStatus((await store.getKnowledgeEntry("project", "docs/legacy.md"))!)).toMatchObject({ status: "unverified", reasons: ["legacy/unattested verification baseline"], verificationState: "legacy-unattested" });
+		expect(await service.discover()).toEqual([]);
+		expect(await service.audit()).toMatchObject({ candidateCount: 0, changedClassifiedCandidateCount: 0 });
+
+		await writeFile(path.join(root, "docs/legacy.md"), "# Legacy\n\n## Behavior\nMeaningfully changed.\n");
+		expect(await service.discover()).toEqual([expect.objectContaining({
+			path: "docs/legacy.md", changedSinceClassification: true,
+		})]);
+		expect(await service.audit()).toMatchObject({ candidateCount: 1, changedClassifiedCandidateCount: 1 });
+		await store.close();
+	});
+
+	it("retains exact-byte discovery drift for newly recorded unattested entries", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs"));
+		await writeFile(path.join(root, "docs/exact.md"), "# Exact\n\n## Behavior\nExact bytes.");
+		await service.record({ path: "docs/exact.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Exact-byte contract." });
+		await writeFile(path.join(root, "docs/exact.md"), "# Exact\n\n## Behavior\nExact bytes.\n");
+		expect(await service.discover()).toEqual([expect.objectContaining({
+			path: "docs/exact.md", changedSinceClassification: true,
+		})]);
+		await store.close();
+	});
+
+	it("warns when manifest-declared verification inputs are gitignored", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs")); await mkdir(path.join(root, "dist"));
+		await writeFile(path.join(root, ".gitignore"), "dist/\n");
+		await writeFile(path.join(root, "docs/build.md"), "# Build\n\n## Behavior\nBuild.\n");
+		await writeFile(path.join(root, "dist/main.js"), "export {};\n");
+		await service.record({ path: "docs/build.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Build contract." });
+		await store.upsertKnowledgeRelation({
+			projectId: "project", sourcePath: "docs/build.md", targetPath: "dist/main.js", targetKind: "code", relationKind: "implements", provenance: "explicit",
+			metadata: { manifest: { id: "build", assertionId: "build-implementation" } },
+		});
+
+		expect(await service.prepareVerification("docs/build.md")).toMatchObject({
+			inputs: [],
+			warnings: ["dist/main.js is gitignored and excluded from tracked verification inputs."],
+		});
+		await store.close();
+	});
+
+	it("keeps manifest-authoritative prose references as navigation rather than unresolved dependencies", async () => {
+		const { root, store, service } = await setup();
+		await mkdir(path.join(root, "docs")); await mkdir(path.join(root, "src"));
+		await writeFile(path.join(root, "src/navigation.ts"), "export {};\n");
+		await writeFile(path.join(root, "docs/manifest.md"), "# Manifest\n\nNavigation: `src/navigation.ts`. Removed implementation: `src/removed.ts`.\n");
+		await service.record({ path: "docs/manifest.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Manifest contract." });
+		const prior = (await store.getKnowledgeEntry("project", "docs/manifest.md"))!;
+		await store.upsertKnowledgeEntry({ ...prior, metadata: { manifest: { id: "manifest", authoritative: true } } });
+		await service.record({ path: "docs/manifest.md", classification: "spec", behaviorType: "as-is", lifecycle: "active", summary: "Manifest contract." });
+		const entry = (await store.getKnowledgeEntry("project", "docs/manifest.md"))!;
+		expect(entry.metadata).toMatchObject({ mentions: { code: ["src/navigation.ts"] }, unresolvedReferences: [] });
+		expect((await service.audit()).unresolvedReferenceCount).toBe(0);
 		await store.close();
 	});
 
@@ -492,7 +623,7 @@ describe("KnowledgeService", () => {
 			lifecycle: "active",
 			summary: "A.",
 		});
-		await service.verify("docs/a.md");
+		await service.verify("docs/a.md", await receiptFor(service, "docs/a.md"));
 		await service.record({
 			path: "docs/a.md",
 			classification: "guide",

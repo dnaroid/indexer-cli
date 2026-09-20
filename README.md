@@ -369,20 +369,31 @@ Core commands:
 idx wiki discover
 idx wiki record --path docs/auth.md --classification spec --type as-is --lifecycle active \
   --summary "Authentication session and refresh contract." --topic auth --topic sessions
-idx wiki verify --path docs/auth.md
+idx wiki prepare --path docs/auth.md --output auth-review.json
+# Review the source and evidence; fill the receipt's reviewer, rationale and bindings.
+idx wiki verify --path docs/auth.md --receipt auth-review.json
 idx wiki relate --path docs/auth.md --add-code src/auth/refresh.ts
 idx wiki status
 idx wiki audit
 idx wiki catalog
 idx wiki search "почему refresh token повторяется"
 idx wiki impact src/auth/refresh.ts src/auth/session.ts
+idx wiki review collect src/auth/refresh.ts src/auth/session.ts --scope auth-change
+idx wiki review list --scope auth-change
+idx wiki check src/auth/refresh.ts src/auth/session.ts --scope auth-change
+idx wiki search "refresh" --mode lexical # offline, existing completed index
+idx wiki manifest validate --file knowledge.json
+idx wiki manifest apply --file knowledge.json
 ```
 
 Important semantics:
 
 - `record` means semantic classification/index metadata only; it does **not** establish `fresh`;
-- `verify` is explicit and should be called only after an agent has checked the primary source against relevant
-  implementation/tests/evidence;
+- `prepare` produces current hashes, not an accepted verification. `verify --receipt` requires an explicitly
+  reviewed, versioned receipt bound to current source, relations and evidence. A source changed since `record`
+  must be recorded again first. Baseline and receipt are committed atomically;
+- freshness describes declared evidence only, not semantic correctness or complete coverage. Caller-attested
+  test outcomes are distinct from checks actually executed by the local runner; hashes never prove correctness;
 - source, non-gitignored tracked input, or durable relation-map changes invalidate freshness; gitignored code
   relations remain documented but are excluded from verification baselines and emit a warning when added;
 - `wiki relate --remove-*` removes matching inferred or source-explicit relations by semantic identity and reports
@@ -392,7 +403,14 @@ Important semantics:
 - `impact` prefers task-scoped paths; uncovered paths require semantic review, but graph/vector similarity never creates
   a durable relation automatically;
 - historical/superseded knowledge remains searchable but active knowledge wins ranking ties;
-- active as-is specs with no tracked code/test inputs are reported as relation gaps;
+- active as-is specs without effective non-gitignored code/test inputs are reported as relation gaps;
+- `review collect` persists hash-bound obligations, including reviewed `no-impact` decisions without invented
+  relations. `review resolve` requires a reviewer, rationale and evidence. Changed inputs reopen review;
+  `needs-human` remains blocking. `wiki check` recollects and exits nonzero for unresolved obligations;
+- optional version-1 JSON manifests provide Git-portable IDs, ownership, assertion declarations and typed
+  relations. `manifest export` never exports trusted verification baselines; applying declarations is not verification;
+- evidence selectors localize review hints, but an unchanged symbol/section/config selector never hides a changed
+  whole-file hash. Untracked one-hop helper changes remain uncovered while surfacing affected contracts;
 - when `status`, `audit`, `search`, or `context` finds document candidates, the response distinguishes unclassified
   documents from already-classified documents whose source changed. Unclassified candidates must be read and recorded;
   changed classified candidates remain registered knowledge and require review of their existing classification/metadata.
@@ -400,8 +418,15 @@ Important semantics:
   existing entries;
 - legacy `.spec-wiki` state is not read, imported, or trusted.
 
-`idx wiki search` uses the existing local document embeddings plus lexical metadata/path/relation evidence, so
-multilingual paraphrases do not require manual English query expansion.
+`idx wiki search` fuses independent document-vector and section-level lexical candidates. `--mode lexical` avoids
+Ollama and auto-indexing; hybrid retrieval degrades with explicit diagnostics when embeddings are unavailable.
+Offline retrieval requires an existing completed index and may use stale indexed text. Live evidence freshness
+is checked separately. `--mode semantic` fails rather than silently changing modes. Empty retrieval is not proof
+that no relevant contract exists. Multilingual semantic quality still depends on the configured embedding model.
+
+Detailed contracts: [verification](docs/specs/knowledge-verification.md),
+[declarations](docs/specs/knowledge-manifest.md), [review](docs/specs/knowledge-review-workflow.md),
+[retrieval](docs/specs/knowledge-retrieval.md), [discovery caching](docs/specs/knowledge-discovery.md), and [quality evaluation](docs/specs/knowledge-quality-evaluation.md).
 
 ### `idx search <query>`
 

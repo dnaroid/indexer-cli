@@ -1,0 +1,82 @@
+{
+  "version": 1,
+  "reviewer": "implementation-agent; independent frontier review gate PASS",
+  "rationale": "Reviewed this primary contract against current implementation and regression evidence, reconciled task-scoped impact, and accepted after independent review. The explicit local check below is recorded separately from this caller attestation.",
+  "preparedAt": 1789858457383,
+  "assertionReferences": [
+    "docs/specs/knowledge-manifest.md: documented as-is contract"
+  ],
+  "evidenceReferences": [
+    "src/cli/commands/wiki-manifest.ts",
+    "src/cli/commands/wiki.ts",
+    "src/knowledge/manifest.ts",
+    "src/knowledge/service.ts",
+    "src/storage/sqlite.ts",
+    "tests/unit/knowledge/manifest.test.ts"
+  ],
+  "limitations": [
+    "AI caller review, not human sign-off; passing tests do not prove complete semantic coverage.",
+    "Freshness covers declared dependencies, not unknown helpers or corpus-wide semantic consistency."
+  ],
+  "sourcePath": "docs/specs/knowledge-manifest.md",
+  "sourceHash": "ff6bd9fac0110958141262ef477bb1ef7e29567273ba3468c1ff5cd1bbcc8952",
+  "relationsHash": "fdb306b1fe123f8aefd90cfa6919b1fc2fb765fb71b5fa31d4c99d87902bc6e9",
+  "inputs": [
+    {
+      "inputPath": "src/cli/commands/wiki-manifest.ts",
+      "inputHash": "39ca229ba427665852c3efdb2e2c6cb1ae371245660417da6c52286e0fa245df"
+    },
+    {
+      "inputPath": "src/cli/commands/wiki.ts",
+      "inputHash": "f2d0aac24091c553cca4a375091c5eb91413c609616931756004174b4b38cdc9"
+    },
+    {
+      "inputPath": "src/knowledge/manifest.ts",
+      "inputHash": "a5bdf4b39284ba453970149f324dc35a664bb92f44dcd7bf605c3caf9034a860"
+    },
+    {
+      "inputPath": "src/knowledge/service.ts",
+      "inputHash": "aa3fb071e8242e414caf97f157a00f7b4927c220cd10cb51d5ab0d328b99fc65"
+    },
+    {
+      "inputPath": "src/storage/sqlite.ts",
+      "inputHash": "4bd84dbfa69c072a895c7cda00c33bf76926c88b678fe131d69d5ad8851ed17c"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/manifest.test.ts",
+      "inputHash": "89473e6b10326cf3b120edc3af8afd71e557b09a0fa2d149018cd4db9acea3d8"
+    }
+  ],
+  "assertionBindings": [
+    {
+      "path": "docs/specs/knowledge-manifest.md",
+      "hash": "ff6bd9fac0110958141262ef477bb1ef7e29567273ba3468c1ff5cd1bbcc8952"
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "path": "src/cli/commands/wiki-manifest.ts",
+      "hash": "39ca229ba427665852c3efdb2e2c6cb1ae371245660417da6c52286e0fa245df"
+    },
+    {
+      "path": "src/cli/commands/wiki.ts",
+      "hash": "f2d0aac24091c553cca4a375091c5eb91413c609616931756004174b4b38cdc9"
+    },
+    {
+      "path": "src/knowledge/manifest.ts",
+      "hash": "a5bdf4b39284ba453970149f324dc35a664bb92f44dcd7bf605c3caf9034a860"
+    },
+    {
+      "path": "src/knowledge/service.ts",
+      "hash": "aa3fb071e8242e414caf97f157a00f7b4927c220cd10cb51d5ab0d328b99fc65"
+    },
+    {
+      "path": "src/storage/sqlite.ts",
+      "hash": "4bd84dbfa69c072a895c7cda00c33bf76926c88b678fe131d69d5ad8851ed17c"
+    },
+    {
+      "path": "tests/unit/knowledge/manifest.test.ts",
+      "hash": "89473e6b10326cf3b120edc3af8afd71e557b09a0fa2d149018cd4db9acea3d8"
+    }
+  ]
+}

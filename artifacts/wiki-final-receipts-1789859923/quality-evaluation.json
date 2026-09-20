@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "reviewer": "implementation-agent; independent frontier review gates PASS",
+  "rationale": "Reviewed the current primary source against the implementation and regression evidence, including exact-byte legacy migration and cache isolation. Task-scoped impact was reconciled. The explicit local check is recorded separately from this caller attestation.",
+  "preparedAt": 1789859935428,
+  "assertionReferences": [
+    "docs/specs/knowledge-quality-evaluation.md: documented as-is contract"
+  ],
+  "evidenceReferences": [
+    "evals/knowledge/quality-scenarios.json",
+    "tests/evals/knowledge-quality.eval.test.ts"
+  ],
+  "limitations": [
+    "AI caller review, not human sign-off; passing tests do not prove complete semantic coverage.",
+    "Freshness covers declared dependencies, not unknown helpers or corpus-wide semantic consistency."
+  ],
+  "sourcePath": "docs/specs/knowledge-quality-evaluation.md",
+  "sourceHash": "bf246647155b9023ed863d377e793f3e1c74613cc9757e25b5adb6bee4221941",
+  "relationsHash": "3fa33ec4d23eda01a6426ce36fb99d1115ecd7af0671a393b5fd57b6cf6ad52b",
+  "inputs": [
+    {
+      "inputPath": "evals/knowledge/quality-scenarios.json",
+      "inputHash": "dada754f03d41e409fab1cf1e18c4d4cca3bd780ca14967791b9ccb7ea025cdd"
+    },
+    {
+      "inputPath": "tests/evals/knowledge-quality.eval.test.ts",
+      "inputHash": "4d27e07aaef4ec38aae8079a9b6382737d0845c696ec3647b33d6d0222bc4686"
+    }
+  ],
+  "assertionBindings": [
+    {
+      "path": "docs/specs/knowledge-quality-evaluation.md",
+      "hash": "bf246647155b9023ed863d377e793f3e1c74613cc9757e25b5adb6bee4221941"
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "path": "evals/knowledge/quality-scenarios.json",
+      "hash": "dada754f03d41e409fab1cf1e18c4d4cca3bd780ca14967791b9ccb7ea025cdd"
+    },
+    {
+      "path": "tests/evals/knowledge-quality.eval.test.ts",
+      "hash": "4d27e07aaef4ec38aae8079a9b6382737d0845c696ec3647b33d6d0222bc4686"
+    }
+  ]
+}

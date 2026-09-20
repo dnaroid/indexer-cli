@@ -7,6 +7,7 @@ export const KNOWLEDGE_INDEX_CONFIG_ARTIFACT = "knowledge_index_config";
 export function knowledgeIndexConfigFingerprint(): string {
 	return computeHash(
 		JSON.stringify({
+			format: "knowledge-lexical-v1",
 			model: config.get("knowledgeEmbeddingModel"),
 				queryPrefix: config.get("knowledgeEmbeddingQueryPrefix"),
 				documentPrefix: config.get("knowledgeEmbeddingDocumentPrefix"),

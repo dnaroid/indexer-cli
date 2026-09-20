@@ -13,6 +13,7 @@ import type {
 	KnowledgeRelation,
 	KnowledgeStore,
 	KnowledgeVerifiedInput,
+	KnowledgeVerificationReceipt,
 	MetadataStore,
 	ProjectId,
 	Snapshot,
@@ -22,6 +23,7 @@ import type {
 	SymbolRecord,
 } from "../core/types.js";
 import { SystemLogger } from "../core/logger.js";
+import type { ManifestApplyOperation } from "../knowledge/manifest.js";
 
 const logger = new SystemLogger("storage-sqlite");
 
@@ -71,6 +73,7 @@ type KnowledgeEntryRow = {
 	verified_source_hash: string | null;
 	verified_relations_hash: string | null;
 	verified_at: number | null;
+	verification_receipt_json: string | null;
 	metadata_json: string | null;
 };
 
@@ -245,6 +248,16 @@ const migrations: Migration[] = [
 			`);
 		},
 	},
+	{
+		version: 5,
+		name: "add_knowledge_verification_receipts",
+		up: (db) => {
+			const columns = db.prepare("PRAGMA table_info(knowledge_entries)").all() as Array<{ name: string }>;
+			if (!columns.some((column) => column.name === "verification_receipt_json")) {
+				db.exec("ALTER TABLE knowledge_entries ADD COLUMN verification_receipt_json TEXT");
+			}
+		},
+	},
 ];
 
 export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
@@ -313,8 +326,8 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 						project_id, path, classification, behavior_type, lifecycle,
 						confidence, title, summary, topics_json, indexed_source_hash,
 						indexed_at, verified_source_hash, verified_relations_hash,
-						verified_at, metadata_json
-					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+						verified_at, verification_receipt_json, metadata_json
+					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 					ON CONFLICT(project_id, path) DO UPDATE SET
 						classification = excluded.classification,
 						behavior_type = excluded.behavior_type,
@@ -337,6 +350,7 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 							excluded.verified_at,
 							knowledge_entries.verified_at
 						),
+						verification_receipt_json = COALESCE(excluded.verification_receipt_json, knowledge_entries.verification_receipt_json),
 						metadata_json = excluded.metadata_json
 				`).run(
 					entry.projectId,
@@ -353,6 +367,7 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 					entry.verifiedSourceHash ?? null,
 					entry.verifiedRelationsHash ?? null,
 					entry.verifiedAt ?? null,
+					entry.verificationReceipt ? JSON.stringify(entry.verificationReceipt) : null,
 					entry.metadata ? JSON.stringify(entry.metadata) : null,
 				);
 		});
@@ -432,6 +447,98 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 		sql += " ORDER BY source_path, target_path, relation_kind, provenance";
 		const rows = this.db.prepare(sql).all(...params) as KnowledgeRelationRow[];
 		return rows.map((row) => this.mapKnowledgeRelationRow(row));
+	}
+
+	/** Replace only this declaration owner's rows, without the broad delete API. */
+	async applyKnowledgeManifestAtomically(
+		projectId: ProjectId,
+		operations: ManifestApplyOperation[],
+	): Promise<{ staleDeclarations: string[] }> {
+		// better-sqlite3 transactions are synchronous. In particular, do not call
+		// async store methods from this callback: that would commit before they run.
+		return this.db.transaction(() => {
+			const state = operations.map((operation) => ({
+				operation,
+				prior: this.db.prepare("SELECT * FROM knowledge_entries WHERE project_id = ? AND path = ?")
+					.get(projectId, operation.sourcePath) as KnowledgeEntryRow | undefined,
+				rows: this.db.prepare("SELECT * FROM knowledge_relations WHERE project_id = ? AND source_path = ?")
+					.all(projectId, operation.sourcePath) as KnowledgeRelationRow[],
+			}));
+			const owns = (row: KnowledgeRelationRow, manifestId: string): boolean => {
+				const metadata = row.metadata_json ? JSON.parse(row.metadata_json) : undefined;
+				return row.provenance === "explicit" && metadata?.manifest?.id === manifestId;
+			};
+			// Check every collision before changing any row. Any malformed persisted
+			// metadata also aborts this transaction without a partial manifest apply.
+			for (const { operation, rows } of state) for (const relation of operation.relations) {
+				if (relation.projectId !== projectId || relation.sourcePath !== operation.sourcePath || relation.provenance !== "explicit") throw new Error("Invalid manifest apply scope.");
+				if (rows.some((row) => row.target_path === relation.targetPath && row.target_kind === relation.targetKind && row.relation_kind === relation.relationKind && row.provenance === "explicit" && !owns(row, operation.manifestId))) throw new Error(`Manifest declaration collides with another explicit relation: ${relation.targetPath}`);
+			}
+			const staleDeclarations: string[] = [];
+			const upsert = this.db.prepare(`INSERT INTO knowledge_entries (
+				project_id, path, classification, behavior_type, lifecycle, confidence, title, summary, topics_json,
+				indexed_source_hash, indexed_at, metadata_json
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(project_id, path) DO UPDATE SET
+				classification = excluded.classification, behavior_type = excluded.behavior_type, lifecycle = excluded.lifecycle,
+				confidence = excluded.confidence, title = excluded.title, summary = excluded.summary, topics_json = excluded.topics_json,
+				indexed_source_hash = excluded.indexed_source_hash, indexed_at = excluded.indexed_at, metadata_json = excluded.metadata_json`);
+			const clear = this.db.prepare(`UPDATE knowledge_entries SET verified_source_hash = NULL, verified_relations_hash = NULL,
+				verified_at = NULL, verification_receipt_json = NULL WHERE project_id = ? AND path = ?`);
+			const clearInputs = this.db.prepare("DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?");
+			const remove = this.db.prepare("DELETE FROM knowledge_relations WHERE project_id = ? AND source_path = ? AND target_path = ? AND target_kind = ? AND relation_kind = ? AND provenance = ?");
+			const insert = this.db.prepare("INSERT INTO knowledge_relations (project_id, source_path, target_path, target_kind, relation_kind, provenance, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)");
+			for (const { operation, prior, rows } of state) {
+				const priorMetadata = prior?.metadata_json ? JSON.parse(prior.metadata_json) : {};
+				upsert.run(projectId, operation.sourcePath, operation.classification, operation.behaviorType, operation.lifecycle,
+					prior?.confidence ?? "unknown", prior?.title ?? operation.title, operation.summary, JSON.stringify(operation.topics),
+					operation.indexedSourceHash, Date.now(), JSON.stringify({ ...priorMetadata, indexedSourceHashFormat: "sha256-exact-v1", manifest: { id: operation.manifestId, authoritative: true, ...(operation.owner ? { owner: operation.owner } : {}) } }));
+				if ((operation.classification !== "spec" && operation.classification !== "spec-like") && (prior?.classification === "spec" || prior?.classification === "spec-like")) {
+					clear.run(projectId, operation.sourcePath); clearInputs.run(projectId, operation.sourcePath);
+				}
+				const desiredKeys = new Set(operation.relations.map((relation) => `${relation.targetPath}\0${relation.targetKind}\0${relation.relationKind}`));
+				for (const row of rows.filter((row) => owns(row, operation.manifestId))) {
+					if (!desiredKeys.has(`${row.target_path}\0${row.target_kind}\0${row.relation_kind}`)) staleDeclarations.push(`${operation.sourcePath}:${row.relation_kind}:${row.target_path}`);
+					remove.run(projectId, operation.sourcePath, row.target_path, row.target_kind, row.relation_kind, row.provenance);
+				}
+				for (const relation of operation.relations) insert.run(projectId, relation.sourcePath, relation.targetPath, relation.targetKind, relation.relationKind, relation.provenance, JSON.stringify(relation.metadata));
+			}
+			return { staleDeclarations };
+		})();
+	}
+
+	/** Replace only this declaration owner's rows, without the broad delete API. */
+	async replaceManifestKnowledgeRelations(
+		projectId: ProjectId,
+		sourcePath: string,
+		manifestId: string,
+		relations: KnowledgeRelation[],
+	): Promise<void> {
+		this.db.transaction(() => {
+			const rows = this.db.prepare("SELECT * FROM knowledge_relations WHERE project_id = ? AND source_path = ?")
+				.all(projectId, sourcePath) as KnowledgeRelationRow[];
+			const owned = (row: KnowledgeRelationRow): boolean => {
+				const metadata = row.metadata_json ? JSON.parse(row.metadata_json) : undefined;
+				return row.provenance === "explicit" && metadata?.manifest?.id === manifestId;
+			};
+			for (const relation of relations) {
+				if (relation.projectId !== projectId || relation.sourcePath !== sourcePath || relation.provenance !== "explicit") {
+					throw new Error("Invalid manifest relation replacement scope.");
+				}
+				if (rows.some((row) => row.target_path === relation.targetPath && row.target_kind === relation.targetKind &&
+					row.relation_kind === relation.relationKind && row.provenance === "explicit" && !owned(row))) {
+					throw new Error(`Manifest declaration collides with another explicit relation: ${relation.targetPath}`);
+				}
+			}
+			const remove = this.db.prepare(`DELETE FROM knowledge_relations WHERE project_id = ? AND source_path = ?
+				AND target_path = ? AND target_kind = ? AND relation_kind = ? AND provenance = ?`);
+			for (const row of rows.filter(owned)) remove.run(projectId, sourcePath, row.target_path, row.target_kind, row.relation_kind, row.provenance);
+			const insert = this.db.prepare(`INSERT INTO knowledge_relations
+				(project_id, source_path, target_path, target_kind, relation_kind, provenance, metadata_json)
+				VALUES (?, ?, ?, ?, ?, ?, ?)`);
+			for (const relation of relations) insert.run(projectId, sourcePath, relation.targetPath, relation.targetKind,
+				relation.relationKind, relation.provenance, JSON.stringify(relation.metadata));
+		})();
 	}
 
 	async deleteKnowledgeRelation(
@@ -556,6 +663,7 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 					SET verified_source_hash = NULL,
 						verified_relations_hash = NULL,
 						verified_at = NULL
+						, verification_receipt_json = NULL
 					WHERE project_id = ? AND path = ?
 				`)
 				.run(projectId, sourcePath);
@@ -565,6 +673,43 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 				)
 				.run(projectId, sourcePath);
 		});
+	}
+
+	/** Atomically replaces the baseline rows and the receipt-bound entry. */
+	async commitKnowledgeVerification(
+		entry: KnowledgeEntry,
+		inputs: Array<Omit<KnowledgeVerifiedInput, "projectId" | "sourcePath">>,
+	): Promise<void> {
+		// This is intentionally a synchronous better-sqlite3 transaction. Do not
+		// await storage methods inside it: an async callback can let unrelated work
+		// run while a transaction is open.
+		this.db.transaction(() => {
+			this.db.prepare(
+				"DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?",
+			).run(entry.projectId, entry.path);
+			const insert = this.db.prepare(`
+				INSERT INTO knowledge_verified_inputs
+					(project_id, source_path, input_path, input_hash, verified_at)
+				VALUES (?, ?, ?, ?, ?)
+			`);
+			for (const input of inputs) {
+				insert.run(entry.projectId, entry.path, input.inputPath, input.inputHash, input.verifiedAt);
+			}
+			const changed = this.db.prepare(`
+				UPDATE knowledge_entries SET
+					verified_source_hash = ?, verified_relations_hash = ?, verified_at = ?,
+					verification_receipt_json = ?
+				WHERE project_id = ? AND path = ?
+			`).run(
+				entry.verifiedSourceHash ?? null,
+				entry.verifiedRelationsHash ?? null,
+				entry.verifiedAt ?? null,
+				entry.verificationReceipt ? JSON.stringify(entry.verificationReceipt) : null,
+				entry.projectId,
+				entry.path,
+			).changes;
+			if (changed !== 1) throw new Error(`Knowledge entry disappeared during verification: ${entry.path}`);
+		})();
 	}
 
 	async replaceKnowledgeChunks(
@@ -1698,8 +1843,14 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 			verifiedSourceHash: row.verified_source_hash ?? undefined,
 			verifiedRelationsHash: row.verified_relations_hash ?? undefined,
 			verifiedAt: row.verified_at ?? undefined,
+			verificationReceipt: this.parseVerificationReceipt(row.verification_receipt_json),
 			metadata: this.parseJsonObject(row.metadata_json),
 		};
+	}
+
+	private parseVerificationReceipt(value: string | null): KnowledgeVerificationReceipt | undefined {
+		const parsed = this.parseJsonObject(value);
+		return parsed && parsed.version === 1 ? parsed as unknown as KnowledgeVerificationReceipt : undefined;
 	}
 
 	private mapKnowledgeRelationRow(row: KnowledgeRelationRow): KnowledgeRelation {

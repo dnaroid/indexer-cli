@@ -9,6 +9,7 @@ import type { SearchResult } from "../engine/searcher.js";
 import { isTestFile } from "../engine/searcher.js";
 import { findNearestTests, type TestHint } from "../cli/test-hints.js";
 import { TokenEstimator } from "../utils/token-estimator.js";
+import { lexicalTerms } from "./lexical-index.js";
 import type {
 	KnowledgeSearchOptions,
 	KnowledgeSearchResult,
@@ -44,6 +45,8 @@ export interface KnowledgeContextOptions {
 	maxTests?: number;
 	includeSecondary?: boolean;
 	pathPrefix?: string;
+	maxWarnings?: number;
+	mode?: "hybrid" | "semantic" | "lexical";
 }
 
 export interface KnowledgeContextPack {
@@ -92,7 +95,7 @@ function relationTargets(
 				)
 				.map((relation) => relation.targetPath),
 		),
-	].sort((left, right) => left.localeCompare(right));
+	];
 }
 
 function matchesPrefix(filePath: string, prefix?: string): boolean {
@@ -123,6 +126,7 @@ export class KnowledgeContextEngine {
 		const specs = await this.knowledgeSearch.search(query, {
 			limit: maxSpecs,
 			includeSecondary: options.includeSecondary,
+			mode: options.mode,
 		});
 		const specPaths = new Set(specs.map((spec) => spec.path));
 		const allRelations = await this.knowledge.listKnowledgeRelations(this.projectId);
@@ -134,7 +138,7 @@ export class KnowledgeContextEngine {
 				query,
 				{
 					topK: Math.max(maxCode * 2, 8),
-					mode: "hybrid",
+					mode: options.mode ?? "hybrid",
 					pathPrefix: options.pathPrefix,
 					includeContent: false,
 					includeReasonCodes: true,
@@ -205,10 +209,18 @@ export class KnowledgeContextEngine {
 				}
 			}
 		}
+		// Relations are provenance, not unconditional priority.  A late path with a
+		// strong code/query match must outrank unrelated tracked paths.
+		const queryTerms = lexicalTerms(query);
+		const pathScore = (filePath: string) => [...queryTerms].filter((term) => lexicalTerms(filePath).has(term)).length;
 		const implementation = uniqueByPath([
 			...seedImplementation,
 			...graphNeighbors.sort((left, right) => left.path.localeCompare(right.path)),
-		]).slice(0, maxCode);
+		]).sort((left, right) => {
+			const leftRank = (left.score ?? 0) * 10 + pathScore(left.path) + (left.reason === "tracked+semantic" ? 2 : left.reason === "tracked" ? 1 : 0);
+			const rightRank = (right.score ?? 0) * 10 + pathScore(right.path) + (right.reason === "tracked+semantic" ? 2 : right.reason === "tracked" ? 1 : 0);
+			return rightRank - leftRank || left.path.localeCompare(right.path);
+		}).slice(0, maxCode);
 		const implementationPaths = implementation.map((item) => item.path);
 		const nearest = findNearestTests({
 			targetPaths: implementationPaths,
@@ -216,6 +228,7 @@ export class KnowledgeContextEngine {
 			dependencies,
 			maxTests: Math.max(maxTests * 2, maxTests),
 		});
+		const nearestByPath = new Map(nearest.map((hint) => [hint.testPath, hint]));
 		const tests = uniqueByPath([
 			...explicitTests.map((filePath) => ({
 				path: filePath,
@@ -228,7 +241,13 @@ export class KnowledgeContextEngine {
 				reason: hint.reason,
 				confidence: hint.confidence,
 			})),
-		]).slice(0, maxTests);
+		]).sort((left, right) => {
+			const leftHint = nearestByPath.get(left.path);
+			const rightHint = nearestByPath.get(right.path);
+			const leftRank = (leftHint?.score ?? 50) + pathScore(left.path) + pathScore("targetPath" in left ? left.targetPath : "");
+			const rightRank = (rightHint?.score ?? 50) + pathScore(right.path) + pathScore("targetPath" in right ? right.targetPath : "");
+			return rightRank - leftRank || left.path.localeCompare(right.path);
+		}).slice(0, maxTests);
 
 		const warnings: string[] = [];
 		for (const spec of specs) {
@@ -236,15 +255,15 @@ export class KnowledgeContextEngine {
 				warnings.push(`${spec.path}: ${spec.status}`);
 			}
 		}
+		const warningLimit = Math.max(1, options.maxWarnings ?? 8);
+		if (warnings.length > warningLimit) warnings.splice(warningLimit, warnings.length - warningLimit, `… ${warnings.length - warningLimit} additional stale knowledge warnings`);
 		if (specs.length === 0) warnings.push("No primary knowledge matched the query.");
 
 		const readNext = uniqueByPath([
-			...specs
-				.filter((spec) => spec.bestRanges[0])
-				.map((spec) => {
+			...specs.map((spec) => {
 					const range = spec.bestRanges[0];
 					return {
-						path: `${spec.path}:${range?.startLine}-${range?.endLine}`,
+						path: range ? `${spec.path}:${range.startLine}-${range.endLine}` : spec.path,
 					};
 				}),
 			...implementation.map((item) => ({
@@ -280,68 +299,34 @@ export function formatKnowledgeContext(
 	const estimator = new TokenEstimator();
 	const lines: string[] = [];
 	let used = 0;
-	let truncated = false;
-	const truncationReserve = estimator.estimate(
-		`TRUNC budget=${budget} estimated-used=${budget}\n`,
-	);
-
-	const push = (line: string, required = false): boolean => {
-		const cost = estimator.estimate(`${line}\n`);
-		if (!required && used + cost + truncationReserve > budget) {
-			truncated = true;
-			return false;
-		}
+	let omitted = 0;
+	const footerReserve = estimator.estimate(`TRUNC budget=${budget} omitted=999999 estimated-used=${budget}\n`);
+	const clip = (value: string, max = 72): string =>
+		value.length <= max ? value : `${value.slice(0, Math.max(1, max - 1))}…`;
+	const push = (line: string): boolean => {
+		const next = estimator.estimate([...lines, line].join("\n"));
+		if (next + footerReserve + 1 > budget) return false;
 		lines.push(line);
-		used += cost;
+		used = next;
 		return true;
 	};
 
-	push(`CONTEXT query=${JSON.stringify(pack.query)} budget=${budget}`, true);
-	if (pack.warnings.length > 0) {
-		push("Warnings:", true);
-		for (const warning of pack.warnings) push(`! ${warning}`, true);
-	}
+	push(`CONTEXT query=${JSON.stringify(clip(pack.query, 80))} budget=${budget}`);
+	// Reserve concise evidence from each nonempty primary source before details.
+	// Counts remain visible even when the source path itself must be clipped.
+	const compact = (heading: string, total: number, row: string) => {
+		omitted += Math.max(0, total - 1);
+		return push(`${heading}: (${total}) ${row}${total > 1 ? ` … ${total - 1} omitted` : ""}`);
+	};
+	if (pack.warnings.length && !compact("Warnings", pack.warnings.length, `! ${clip(pack.warnings[0])}`)) omitted += pack.warnings.length;
+	if (pack.specs.length && !compact("Primary knowledge", pack.specs.length, `S ${clip(pack.specs[0].path)} status=${pack.specs[0].status}`)) omitted += pack.specs.length;
+	if (pack.implementation.length && !compact("Implementation", pack.implementation.length, `C ${clip(pack.implementation[0].path)}${formatRange(pack.implementation[0].startLine, pack.implementation[0].endLine)} reason=${pack.implementation[0].reason}`)) omitted += pack.implementation.length;
+	if (pack.tests.length && !compact("Tests", pack.tests.length, `T ${clip(pack.tests[0].path)} reason=${pack.tests[0].reason}`)) omitted += pack.tests.length;
 
-	if (pack.specs.length > 0) {
-		push("Primary knowledge:", true);
-		for (const spec of pack.specs) {
-			if (
-				!push(
-					`S ${spec.path} status=${spec.status} lifecycle=${spec.lifecycle} score=${spec.score.toFixed(2)}`,
-				)
-			) {
-				break;
-			}
-			if (spec.summary) push(`  ${spec.summary}`);
-			const range = spec.bestRanges[0];
-			if (range) push(`  Read: ${spec.path}:${range.startLine}-${range.endLine}`);
-		}
-	}
-
-	if (pack.implementation.length > 0) {
-		push("Implementation:");
-		for (const item of pack.implementation) {
-			if (
-				!push(
-					`C ${item.path}${formatRange(item.startLine, item.endLine)} reason=${item.reason}${typeof item.score === "number" ? ` score=${item.score.toFixed(2)}` : ""}`,
-				)
-			) {
-				break;
-			}
-		}
-	}
-
-	if (pack.tests.length > 0) {
-		push("Tests:");
-		for (const test of pack.tests) {
-			if (
-				!push(
-					`T ${test.path}${test.targetPath ? ` -> ${test.targetPath}` : ""} reason=${test.reason} conf=${test.confidence}`,
-				)
-			) {
-				break;
-			}
-		}
+	for (const spec of pack.specs) {
+		if (spec.summary && !push(`  S ${clip(spec.path, 48)}: ${clip(spec.summary, 160)}`)) omitted += 1;
+		const range = spec.bestRanges[0];
+		if (range && !push(`  Read: ${clip(spec.path)}:${range.startLine}-${range.endLine}`)) omitted += 1;
 	}
 
 	const relatedKnowledge = pack.relations.filter(
@@ -355,6 +340,7 @@ export function formatKnowledgeContext(
 					`R ${relation.sourcePath} -[${relation.relationKind}/${relation.provenance}]-> ${relation.targetPath}`,
 				)
 			) {
+				omitted += 1;
 				break;
 			}
 		}
@@ -363,10 +349,10 @@ export function formatKnowledgeContext(
 	if (pack.readNext.length > 0) {
 		push("Read next:");
 		for (const item of pack.readNext) {
-			if (!push(`> ${item}`)) break;
+			if (!push(`> ${clip(item)}`)) { omitted += 1; break; }
 		}
 	}
 
-	if (truncated) push(`TRUNC budget=${budget} estimated-used=${used}`, true);
+	if (omitted > 0) lines.push(`TRUNC budget=${budget} omitted=${omitted} estimated-used=${used}`);
 	return `${lines.join("\n")}\n`;
 }

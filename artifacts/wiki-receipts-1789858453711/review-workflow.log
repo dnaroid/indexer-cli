@@ -1,0 +1,14 @@
+Warning: .indexer-cli/db.sqlite is gitignored and excluded from tracked verification inputs.
+Receipt draft: /Volumes/128GBSSD/Projects/indexer-cli/artifacts/wiki-receipts-1789858453711/review-workflow.json. Review source/evidence and fill the attestation before verify.
+CHECK_RESULT=passed command="npx vitest run tests/unit/knowledge/review.test.ts tests/unit/knowledge/impact.test.ts tests/unit/cli/wiki-command-registration.test.ts --reporter=dot" exit_code=0 log=/var/folders/f4/qn8kkwg96lv8c1z_3bs_978m0000gn/T/idx-wiki-checks-BsUdjE/1.log
+{
+  "path": "docs/specs/knowledge-review-workflow.md",
+  "classification": "spec",
+  "lifecycle": "active",
+  "status": "fresh",
+  "reasons": [],
+  "trackedInputCount": 8,
+  "ignoredInputCount": 1,
+  "verificationState": "attested",
+  "selectorHints": []
+}

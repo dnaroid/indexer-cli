@@ -10,6 +10,7 @@ import { KnowledgeSearchEngine } from "../../src/knowledge/search.js";
 import { KnowledgeService } from "../../src/knowledge/service.js";
 import { SqliteMetadataStore } from "../../src/storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../src/storage/vectors.js";
+import type { KnowledgeVerificationReceipt } from "../../src/core/types.js";
 
 type RetrievalEval = {
 	id: string;
@@ -99,6 +100,21 @@ const RELATED_CODE_FILES = [
 
 const runEval = process.env.RUN_KNOWLEDGE_EVAL === "1" ? describe : describe.skip;
 
+async function verify(service: KnowledgeService, path: string): Promise<void> {
+	const prepared = await service.prepareVerification(path);
+	const receipt: KnowledgeVerificationReceipt = {
+		version: 1, sourcePath: prepared.sourcePath, sourceHash: prepared.sourceHash,
+		relationsHash: prepared.relationsHash, inputs: prepared.inputs, preparedAt: 1,
+		reviewer: "retrieval-eval", rationale: "Reviewed retrieval fixture assertion against prepared source.",
+		assertionReferences: ["fixture assertion"], evidenceReferences: ["prepared source"],
+		assertionBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash, assertion: "fixture assertion" }],
+		evidenceBindings: [{ path: prepared.sourcePath, hash: prepared.sourceHash }],
+		limitations: ["No command was executed."],
+		...(prepared.inputs.length === 0 ? { zeroTrackedInputsAcknowledged: true } : {}),
+	};
+	await service.verify(path, receipt);
+}
+
 runEval("real embedding knowledge retrieval eval", () => {
 	it(
 		"meets multilingual/paraphrase/path retrieval targets",
@@ -165,7 +181,7 @@ runEval("real embedding knowledge retrieval eval", () => {
 						summary: semantic.summary,
 						topics: semantic.topics,
 					});
-					await service.verify(filePath);
+					await verify(service, filePath);
 				}
 				await service.record({
 					path: "docs/overview.md",

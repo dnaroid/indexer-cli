@@ -1,0 +1,23 @@
+{
+  "positiveQueries": [
+    { "query": "duplicate payment idempotency", "expectedPath": "docs/payments.md" },
+    { "query": "cancel running export job", "expectedPath": "docs/exports.md" },
+    { "query": "restore a paused user session", "expectedPath": "docs/sessions.md" }
+  ],
+  "negativeQueries": ["quantum entanglement telescope", "unrelated gardening compost"],
+  "contradictoryActiveContracts": [
+    { "path": "docs/settlement-immediate.md", "summary": "Payments settle immediately after authorization." },
+    { "path": "docs/settlement-delayed.md", "summary": "Payments settle only after the nightly batch." }
+  ],
+  "expected": {
+    "declaredDrift": 6,
+    "declaredFalseFresh": 0,
+    "reviewNoise": 1,
+    "reviewNoiseFresh": 0,
+    "retrievalPositive": 3,
+    "retrievalNegative": 2,
+    "llmCalls": 0,
+    "activeContradictoryContracts": 2,
+    "contradictionSemanticProofClaims": 0
+  }
+}

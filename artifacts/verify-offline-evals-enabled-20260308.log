@@ -1,0 +1,131 @@
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - ESM syntax in a file loaded as CommonJS (vitest.config.ts:1:1). Use a `.mjs` extension or set `"type": "module"` in the closest package.json
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+ RUN  v4.1.11 /Volumes/128GBSSD/Projects/indexer-cli
+
+ ❯ tests/evals/knowledge-performance.eval.test.ts (1 test | 1 failed) 314ms
+     × indexes hundreds of documents and keeps context output bounded 295ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/evals/knowledge-performance.eval.test.ts > knowledge large-corpus performance > indexes hundreds of documents and keeps context output bounded
+AssertionError: expected 'CONTEXT query="request idempotency" b…' to contain 'TRUNC budget=1200'
+
+- Expected
++ Received
+
+- TRUNC budget=1200
++ CONTEXT query="request idempotency" budget=1200
++ Primary knowledge: (200) S docs/contract-0000.md status=fresh … 199 omitted
++ Implementation: (200) C src/request-0.ts:10-40 reason=semantic … 199 omitted
++   Request family 0 idempotency contract with implementation evidence.
++   Read: docs/contract-0000.md:1-9
++   Request family 1 idempotency contract with implementation evidence.
++   Read: docs/contract-0001.md:1-9
++   Request family 2 idempotency contract with implementation evidence.
++   Read: docs/contract-0002.md:1-9
++   Request family 3 idempotency contract with implementation evidence.
++   Read: docs/contract-0003.md:1-9
++   Request family 4 idempotency contract with implementation evidence.
++   Read: docs/contract-0004.md:1-9
++   Request family 5 idempotency contract with implementation evidence.
++   Read: docs/contract-0005.md:1-9
++   Request family 6 idempotency contract with implementation evidence.
++   Read: docs/contract-0006.md:1-9
++   Request family 7 idempotency contract with implementation evidence.
++   Read: docs/contract-0007.md:1-9
++   Request family 8 idempotency contract with implementation evidence.
++   Read: docs/contract-0008.md:1-9
++   Request family 9 idempotency contract with implementation evidence.
++   Read: docs/contract-0009.md:1-9
++   Request family 10 idempotency contract with implementation evidence.
++   Read: docs/contract-0010.md:1-9
++   Request family 11 idempotency contract with implementation evidence.
++   Read: docs/contract-0011.md:1-9
++   Request family 12 idempotency contract with implementation evidence.
++   Read: docs/contract-0012.md:1-9
++   Request family 13 idempotency contract with implementation evidence.
++   Read: docs/contract-0013.md:1-9
++   Request family 14 idempotency contract with implementation evidence.
++   Read: docs/contract-0014.md:1-9
++   Request family 15 idempotency contract with implementation evidence.
++   Read: docs/contract-0015.md:1-9
++   Request family 16 idempotency contract with implementation evidence.
++   Read: docs/contract-0016.md:1-9
++   Request family 17 idempotency contract with implementation evidence.
++   Read: docs/contract-0017.md:1-9
++   Request family 18 idempotency contract with implementation evidence.
++   Read: docs/contract-0018.md:1-9
++   Request family 19 idempotency contract with implementation evidence.
++   Read: docs/contract-0019.md:1-9
++   Request family 20 idempotency contract with implementation evidence.
++   Read: docs/contract-0020.md:1-9
++   Request family 21 idempotency contract with implementation evidence.
++   Read: docs/contract-0021.md:1-9
++   Request family 22 idempotency contract with implementation evidence.
++   Read: docs/contract-0022.md:1-9
++   Request family 23 idempotency contract with implementation evidence.
++   Read: docs/contract-0023.md:1-9
++   Request family 24 idempotency contract with implementation evidence.
++   Read: docs/contract-0024.md:1-9
++   Request family 25 idempotency contract with implementation evidence.
++   Read: docs/contract-0025.md:1-9
++   Request family 26 idempotency contract with implementation evidence.
++   Read: docs/contract-0026.md:1-9
++   Request family 27 idempotency contract with implementation evidence.
++   Read: docs/contract-0027.md:1-9
++   Request family 28 idempotency contract with implementation evidence.
++   Read: docs/contract-0028.md:1-9
++   Request family 29 idempotency contract with implementation evidence.
++   Read: docs/contract-0029.md:1-9
++   Request family 30 idempotency contract with implementation evidence.
++   Read: docs/contract-0030.md:1-9
++   Request family 31 idempotency contract with implementation evidence.
++   Read: docs/contract-0031.md:1-9
++   Request family 32 idempotency contract with implementation evidence.
++   Read: docs/contract-0032.md:1-9
++   Request family 33 idempotency contract with implementation evidence.
++   Read: docs/contract-0033.md:1-9
++   Request family 34 idempotency contract with implementation evidence.
++   Read: docs/contract-0034.md:1-9
++   Request family 35 idempotency contract with implementation evidence.
++   Read: docs/contract-0035.md:1-9
++   Request family 36 idempotency contract with implementation evidence.
++   Read: docs/contract-0036.md:1-9
++   Request family 37 idempotency contract with implementation evidence.
++   Read: docs/contract-0037.md:1-9
++   Request family 38 idempotency contract with implementation evidence.
++   Read: docs/contract-0038.md:1-9
++   Request family 39 idempotency contract with implementation evidence.
++   Read: docs/contract-0039.md:1-9
++   Request family 40 idempotency contract with implementation evidence.
++   Read: docs/contract-0040.md:1-9
++   Request family 41 idempotency contract with implementation evidence.
++   Read: docs/contract-0041.md:1-9
++   Request family 42 idempotency contract with implementation evidence.
++   Read: docs/contract-0042.md:1-9
++   Request family 43 idempotency contract with implementation evidence.
++   Read: docs/contract-0043.md:1-9
++   Request family 44 idempotency contract with implementation evidence.
++   Read: docs/contract-0044.md:1-9
++   Request family 45 idempotency contract with implementation evidence.
++   Read: docs/contract-0045.md:1-9
++
+
+ ❯ tests/evals/knowledge-performance.eval.test.ts:133:18
+    131|   const output = formatKnowledgeContext(pack, budget);
+    132|   const estimatedTokens = new TokenEstimator().estimate(output);
+    133|   expect(output).toContain(`TRUNC budget=${budget}`);
+       |                  ^
+    134|   expect(estimatedTokens).toBeLessThanOrEqual(budget + 40);
+    135|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 1 passed (2)
+   Start at  00:23:43
+   Duration  880ms (transform 152ms, setup 0ms, import 361ms, tests 366ms, environment 0ms)
+

@@ -34,7 +34,7 @@ describe("SqliteMetadataStore", () => {
 			.prepare("PRAGMA table_info(symbols)")
 			.all() as Array<{ name: string }>;
 
-		expect(migrationRow.version).toBe(4);
+		expect(migrationRow.version).toBe(5);
 		expect(symbolColumns.map((column) => column.name)).toContain(
 			"metadata_json",
 		);
@@ -91,7 +91,7 @@ describe("SqliteMetadataStore", () => {
 			(migratedDb
 				.prepare("SELECT MAX(version) AS version FROM schema_migrations")
 				.get() as { version: number }).version,
-		).toBe(4);
+		).toBe(5);
 		const columns = migratedDb
 			.prepare("PRAGMA table_info(files)")
 			.all() as Array<{ name: string }>;
@@ -136,6 +136,12 @@ describe("SqliteMetadataStore", () => {
 			verifiedSourceHash: "source-1",
 			verifiedRelationsHash: "relations-1",
 			verifiedAt: 11,
+			verificationReceipt: {
+				version: 1, sourcePath: "docs/auth.md", sourceHash: "source-1", relationsHash: "relations-1", inputs: [], preparedAt: 11,
+				reviewer: "sqlite-test", rationale: "Persisted test receipt.", assertionReferences: ["refresh assertion"], evidenceReferences: ["source"],
+				assertionBindings: [{ path: "docs/auth.md", hash: "source-1", assertion: "refresh assertion" }],
+				evidenceBindings: [{ path: "docs/auth.md", hash: "source-1" }], limitations: ["No command was executed."], zeroTrackedInputsAcknowledged: true,
+			},
 			metadata: { owner: "team-auth" },
 		};
 		await store.upsertKnowledgeEntry(entry);

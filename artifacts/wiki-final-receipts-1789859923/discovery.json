@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "reviewer": "implementation-agent; independent frontier review gates PASS",
+  "rationale": "Reviewed the current primary source against the implementation and regression evidence, including exact-byte legacy migration and cache isolation. Task-scoped impact was reconciled. The explicit local check is recorded separately from this caller attestation.",
+  "preparedAt": 1789859937692,
+  "assertionReferences": [
+    "docs/specs/knowledge-discovery.md: documented as-is contract"
+  ],
+  "evidenceReferences": [
+    "src/knowledge/discovery-cache.ts",
+    "src/knowledge/service.ts",
+    "tests/unit/knowledge/discovery-cache.test.ts",
+    "tests/unit/knowledge/manifest.test.ts",
+    "tests/unit/knowledge/service.test.ts"
+  ],
+  "limitations": [
+    "AI caller review, not human sign-off; passing tests do not prove complete semantic coverage.",
+    "Freshness covers declared dependencies, not unknown helpers or corpus-wide semantic consistency."
+  ],
+  "sourcePath": "docs/specs/knowledge-discovery.md",
+  "sourceHash": "2cbd30f25d07c64dc28a0a3354a6651ab322de3c9980fabdeb4d50ec590f627a",
+  "relationsHash": "4567d8769b10d5899a9a047c7d53036a11c7c8e4d1c517006878a1e8a5f702ca",
+  "inputs": [
+    {
+      "inputPath": "src/knowledge/discovery-cache.ts",
+      "inputHash": "39bc769e54b386c47b27de2122f608431de515a3ce23c00042edce198cf68a9c"
+    },
+    {
+      "inputPath": "src/knowledge/service.ts",
+      "inputHash": "b4915d62c6b20cbba826d98e1f9e825a569f8f772d9157705fa7af6b36522f12"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/discovery-cache.test.ts",
+      "inputHash": "6f1db7f8aee6515c566051ccd7dc48acbd2b56283758ec3a5ca741ff805af871"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/manifest.test.ts",
+      "inputHash": "3a1325bf23837f71acb183e6b805af9cbe76e4d600a5b07bd236fe505618bb69"
+    },
+    {
+      "inputPath": "tests/unit/knowledge/service.test.ts",
+      "inputHash": "dbe5bb5ca3cc2c63bd11f233721cd8bedd0a56e7a85cbbe53ea90a8bc2c82f9a"
+    }
+  ],
+  "assertionBindings": [
+    {
+      "path": "docs/specs/knowledge-discovery.md",
+      "hash": "2cbd30f25d07c64dc28a0a3354a6651ab322de3c9980fabdeb4d50ec590f627a"
+    }
+  ],
+  "evidenceBindings": [
+    {
+      "path": "src/knowledge/discovery-cache.ts",
+      "hash": "39bc769e54b386c47b27de2122f608431de515a3ce23c00042edce198cf68a9c"
+    },
+    {
+      "path": "src/knowledge/service.ts",
+      "hash": "b4915d62c6b20cbba826d98e1f9e825a569f8f772d9157705fa7af6b36522f12"
+    },
+    {
+      "path": "tests/unit/knowledge/discovery-cache.test.ts",
+      "hash": "6f1db7f8aee6515c566051ccd7dc48acbd2b56283758ec3a5ca741ff805af871"
+    },
+    {
+      "path": "tests/unit/knowledge/manifest.test.ts",
+      "hash": "3a1325bf23837f71acb183e6b805af9cbe76e4d600a5b07bd236fe505618bb69"
+    },
+    {
+      "path": "tests/unit/knowledge/service.test.ts",
+      "hash": "dbe5bb5ca3cc2c63bd11f233721cd8bedd0a56e7a85cbbe53ea90a8bc2c82f9a"
+    }
+  ]
+}
