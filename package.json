@@ -72,7 +72,8 @@
 		"tree-sitter-python": "^0.21.0",
 		"tree-sitter-ruby": "^0.23.1",
 		"tree-sitter-rust": "^0.21.0",
-		"ts-morph": "^21.0.0"
+		"ts-morph": "^21.0.0",
+		"typescript": "^5.9.3"
 	},
 	"devDependencies": {
 		"@types/better-sqlite3": "^7.6.13",
@@ -80,7 +81,6 @@
 		"@types/proper-lockfile": "^4.1.4",
 		"@vitest/coverage-v8": "^4.1.11",
 		"tsx": "^4.23.13",
-		"typescript": "^5.9.3",
 		"vitest": "^4.1.11"
 	}
 }
