@@ -32,6 +32,11 @@ export interface DocumentIndexResult {
 	errors: string[];
 }
 
+export interface DocumentIndexProgress {
+	onFileStart?: (filePath: string, current: number, total: number) => void;
+	onProgress?: (processed: number, total: number) => void | Promise<void>;
+}
+
 function uniqueSorted(values: Iterable<string>): string[] {
 	return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
@@ -112,8 +117,14 @@ export class DocumentIndexer {
 	async indexFull(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
+		options: DocumentIndexProgress & { paths?: string[] } = {},
 	): Promise<DocumentIndexResult> {
-		const result = await this.indexPaths(projectId, snapshotId, await this.scan());
+		const result = await this.indexPaths(
+			projectId,
+			snapshotId,
+			options.paths ?? (await this.scan()),
+			options,
+		);
 		await writeKnowledgeIndexConfigArtifact(this.metadata, projectId, snapshotId);
 		return result;
 	}
@@ -122,11 +133,14 @@ export class DocumentIndexer {
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
 		plan: DocumentIncrementalPlan,
+		progress: DocumentIndexProgress = {},
 	): Promise<DocumentIndexResult> {
-		const result = await this.indexPaths(projectId, snapshotId, [
-			...plan.added,
-			...plan.modified,
-		]);
+		const result = await this.indexPaths(
+			projectId,
+			snapshotId,
+			[...plan.added, ...plan.modified],
+			progress,
+		);
 		await writeKnowledgeIndexConfigArtifact(this.metadata, projectId, snapshotId);
 		return result;
 	}
@@ -135,11 +149,14 @@ export class DocumentIndexer {
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
 		paths: string[],
+		progress: DocumentIndexProgress,
 	): Promise<DocumentIndexResult> {
 		const errors: string[] = [];
 		let indexed = 0;
+		const orderedPaths = uniqueSorted(paths);
 
-		for (const filePath of uniqueSorted(paths)) {
+		for (const [index, filePath] of orderedPaths.entries()) {
+			progress.onFileStart?.(filePath, index + 1, orderedPaths.length);
 			try {
 				await this.indexOne(projectId, snapshotId, filePath);
 				indexed += 1;
@@ -148,9 +165,10 @@ export class DocumentIndexer {
 					`${filePath}: ${error instanceof Error ? error.message : String(error)}`,
 				);
 			}
+			await progress.onProgress?.(index + 1, orderedPaths.length);
 		}
 
-		return { indexed, paths: uniqueSorted(paths), errors };
+		return { indexed, paths: orderedPaths, errors };
 	}
 
 	private async indexOne(

@@ -1,5 +1,6 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdir, readFile, rename, stat, symlink, unlink, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -698,6 +699,56 @@ describe("KnowledgeService", () => {
 		expect(
 			(await service.discover({ allUnclassified: true })).map((item) => item.path),
 		).toEqual(["docs/session-contract.md", "notes/capture.txt"]);
+		await store.close();
+	});
+
+	it("rereads exact document bytes without creating persistent discovery state", async () => {
+		const { root, store, service } = await setup();
+		const filePath = path.join(root, "contract.md");
+		await writeFile(filePath, "# Before\n\n## Behavior\nOne.\n");
+		const original = await stat(filePath);
+		const first = await service.discover();
+		expect(first).toEqual([expect.objectContaining({ path: "contract.md", title: "Before" })]);
+		expect(await service.discover()).toEqual(first);
+
+		const updated = "# After!\n\n## Behavior\nTwo.\n";
+		await writeFile(filePath, updated);
+		await utimes(filePath, original.atime, original.mtime);
+		expect(await service.discover()).toEqual([expect.objectContaining({
+			path: "contract.md",
+			title: "After!",
+			currentHash: createHash("sha256").update(updated).digest("hex"),
+		})]);
+		expect(existsSync(path.join(root, ".indexer-cli"))).toBe(false);
+		await store.close();
+	});
+
+	it("leaves legacy discovery sidecars untouched", async () => {
+		const { root, store, service } = await setup();
+		await writeFile(path.join(root, "contract.md"), "# Current contract\n\n## Behavior\nCurrent.\n");
+		await mkdir(path.join(root, ".indexer-cli"));
+		const legacyPath = path.join(root, ".indexer-cli/knowledge-discovery-v1.json");
+		const legacyBytes = "retired discovery cache\n";
+		await writeFile(legacyPath, legacyBytes);
+
+		expect(await service.discover()).toEqual([
+			expect.objectContaining({ path: "contract.md", title: "Current contract" }),
+		]);
+		expect(await readFile(legacyPath, "utf8")).toBe(legacyBytes);
+		await store.close();
+	});
+
+	it("rescans renamed, ignored, and deleted documents on subsequent discovery calls", async () => {
+		const { root, store, service } = await setup();
+		await writeFile(path.join(root, "old-contract.md"), "# Contract\n\n## Behavior\nCurrent.\n");
+		expect((await service.discover()).map((candidate) => candidate.path)).toEqual(["old-contract.md"]);
+		await rename(path.join(root, "old-contract.md"), path.join(root, "new-contract.md"));
+		expect((await service.discover()).map((candidate) => candidate.path)).toEqual(["new-contract.md"]);
+		await writeFile(path.join(root, ".gitignore"), "new-contract.md\n");
+		expect(await service.discover()).toEqual([]);
+		await unlink(path.join(root, ".gitignore"));
+		await unlink(path.join(root, "new-contract.md"));
+		expect(await service.discover()).toEqual([]);
 		await store.close();
 	});
 

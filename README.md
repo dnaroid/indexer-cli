@@ -289,6 +289,13 @@ present on disk.
 Index all supported source files and document-domain knowledge files in the current working directory. Normal code
 commands still read only the code domain unless a knowledge/context command explicitly combines domains.
 
+File counts and progress include code and documents. `Files indexed` reports
+files processed in the current run; unchanged files copied into an incremental
+snapshot and deletions are excluded. Full `--dry-run` includes documents too.
+Automatic refresh combines document configuration changes with committed and
+workspace code changes in the same plan. See the
+[code and document indexing contract](docs/specs/code-document-indexing.md).
+
 Indexing respects the project root `.gitignore` plus built-in excludes such as `node_modules`, `.git`, `dist`, and
 `coverage`. If the root `.gitignore` changes, the next incremental run rescans the indexable file set, removes newly
 ignored files from the snapshot, and indexes only files that became visible or otherwise changed.
@@ -443,7 +450,9 @@ that no relevant contract exists. Multilingual semantic quality still depends on
 
 Detailed contracts: [verification](docs/specs/knowledge-verification.md),
 [declarations](docs/specs/knowledge-manifest.md), [review](docs/specs/knowledge-review-workflow.md),
-[retrieval](docs/specs/knowledge-retrieval.md), [discovery caching](docs/specs/knowledge-discovery.md), and [quality evaluation](docs/specs/knowledge-quality-evaluation.md).
+[retrieval](docs/specs/knowledge-retrieval.md),
+[discovery](docs/specs/knowledge-discovery.md), and
+[quality evaluation](docs/specs/knowledge-quality-evaluation.md).
 
 ### `idx search <query>`
 

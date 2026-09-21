@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
 import { createDefaultLanguagePlugins } from "../../../src/engine/indexer.js";
+import { mergeGitDiffs } from "../../../src/engine/git.js";
 
 async function loadEnsureIndexedInternals<T>(): Promise<T> {
 	const filePath = path.resolve(
@@ -40,6 +41,10 @@ function createDefaultLanguagePlugins() {
 	)};
 }
 async function getIndexLockStatus() { return { status: "locked" }; }
+const mergeGitDiffs = ${mergeGitDiffs.toString()};
+async function knowledgeSnapshotNeedsRefresh(metadata) {
+	return metadata.knowledgeNeedsRefresh ?? false;
+}
 function computeHash(text) {
 	const normalized = text.replace(/\\r\\n/g, "\\n").replace(/\\uFEFF/g, "").trimEnd();
 	return createHash("sha256").update(normalized, "utf-8").digest("hex");
@@ -71,7 +76,7 @@ async function scanProjectDocuments(rootPath) {
 }
 function matchesPathPatterns() { return false; }
 ${match[0]}
-export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countChangedFiles, countRemovedFiles, useExistingIndexOnLockHeld, workspaceAlreadyIndexed, getIndexPlan };`,
+export { getErrorMessage, getErrorDetailParts, describeError, formatAutoIndexError, countRemovedFiles, useExistingIndexOnLockHeld, workspaceAlreadyIndexed, getIndexPlan };`,
 		{
 			compilerOptions: {
 				module: ts.ModuleKind.ES2022,
@@ -92,11 +97,6 @@ const ensureIndexedInternals = await loadEnsureIndexedInternals<{
 		error: unknown,
 		mode: "full" | "incremental",
 	) => string;
-	countChangedFiles: (changedFiles: {
-		added: string[];
-		modified: string[];
-		deleted: string[];
-	}) => number | undefined;
 	countRemovedFiles: (changedFiles: {
 		added: string[];
 		modified: string[];
@@ -155,6 +155,7 @@ const ensureIndexedInternals = await loadEnsureIndexedInternals<{
 		},
 		repoRoot: string,
 		metadata: {
+			knowledgeNeedsRefresh?: boolean;
 			codeSearchIndexNeedsRefresh: (
 				projectId: string,
 				snapshotId: string,
@@ -188,7 +189,7 @@ function metadataFromRecords(records = new Map<string, { sha256: string }>()) {
 	};
 }
 
-describe("ensureIndexed error formatting", () => {
+describe("ensureIndexed helpers", () => {
 	it("forces a full reindex before Git diffing when the code lexical side index is incomplete", async () => {
 		let gitWasRead = false;
 		const plan = await ensureIndexedInternals.getIndexPlan(
@@ -215,6 +216,98 @@ describe("ensureIndexed error formatting", () => {
 
 		expect(plan).toEqual({ isFullReindex: true, changedFiles: undefined });
 		expect(gitWasRead).toBe(false);
+	});
+
+	it("preserves committed and workspace code changes when refreshing all documents", async () => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-refresh-"));
+		try {
+			await mkdir(path.join(repoRoot, "docs"));
+			await writeFile(path.join(repoRoot, "docs/current.md"), "# Current\n");
+			await writeFile(path.join(repoRoot, "docs/new.md"), "# New\n");
+			await writeFile(path.join(repoRoot, "docs/unchanged.md"), "# Unchanged\n");
+			const plan = await ensureIndexedInternals.getIndexPlan(
+				{
+					getHeadCommit: async () => "new-head",
+					getChangedFiles: async () => ({
+						added: ["src/committed-new.ts", "docs/new.md"],
+						modified: ["src/committed.ts", "docs/current.md"],
+						deleted: ["src/committed-old.ts", "docs/removed.md"],
+					}),
+					getWorkingTreeChanges: async () => ({
+						added: ["src/local-new.ts"],
+						modified: ["src/local.ts", "docs/current.md"],
+						deleted: ["src/local-old.ts"],
+					}),
+				},
+				repoRoot,
+				{
+					knowledgeNeedsRefresh: true,
+					codeSearchIndexNeedsRefresh: async () => false,
+				},
+				{ id: "snapshot-1", meta: { headCommit: "base" } },
+			);
+			expect(plan).toEqual({
+				isFullReindex: false,
+				changedFiles: {
+					added: ["docs/new.md", "src/committed-new.ts", "src/local-new.ts"],
+					modified: ["docs/current.md", "docs/unchanged.md", "src/committed.ts", "src/local.ts"],
+					deleted: ["docs/removed.md", "src/committed-old.ts", "src/local-old.ts"],
+				},
+			});
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
+	});
+
+	it.each([true, false])("keeps workspace hash shortcuts subordinate to knowledge refresh=%s", async (knowledgeNeedsRefresh) => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-refresh-"));
+		try {
+			const content = "# Existing contract\n";
+			await writeFile(path.join(repoRoot, "contract.md"), content);
+			const records = new Map([["contract.md", { sha256: computeTestHash(content) }]]);
+			const plan = await ensureIndexedInternals.getIndexPlan(
+				{
+					getHeadCommit: async () => "base",
+					getChangedFiles: async () => { throw new Error("HEAD did not change"); },
+					getWorkingTreeChanges: async () => ({ added: [], modified: ["contract.md"], deleted: [] }),
+				},
+				repoRoot,
+				{
+					...metadataFromRecords(records),
+					knowledgeNeedsRefresh,
+					codeSearchIndexNeedsRefresh: async () => false,
+				},
+				{ id: "snapshot-1", meta: { headCommit: "base" } },
+			);
+			expect(plan).toEqual(knowledgeNeedsRefresh ? {
+				isFullReindex: false,
+				changedFiles: { added: [], modified: ["contract.md"], deleted: [] },
+			} : null);
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("retains a refresh plan when the current document selection is empty", async () => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-refresh-"));
+		try {
+			const plan = await ensureIndexedInternals.getIndexPlan(
+				{
+					getHeadCommit: async () => "base",
+					getChangedFiles: async () => { throw new Error("HEAD did not change"); },
+					getWorkingTreeChanges: async () => ({ added: [], modified: [], deleted: [] }),
+				},
+				repoRoot,
+				{ knowledgeNeedsRefresh: true, codeSearchIndexNeedsRefresh: async () => false },
+				{ id: "snapshot-1", meta: { headCommit: "base" } },
+			);
+			expect(plan).toEqual({
+				isFullReindex: false,
+				changedFiles: { added: [], modified: [], deleted: [] },
+			});
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
 	});
 
 	it("collects system error details from structured errors", () => {
@@ -270,14 +363,13 @@ describe("ensureIndexed error formatting", () => {
 		);
 	});
 
-	it("counts updated and removed files for compact IDX output", () => {
+	it("counts removed files separately for compact IDX output", () => {
 		const changedFiles = {
 			added: ["src/new.ts"],
 			modified: ["src/existing.ts", "src/other.ts"],
 			deleted: ["src/old.ts"],
 		};
 
-		expect(ensureIndexedInternals.countChangedFiles(changedFiles)).toBe(3);
 		expect(ensureIndexedInternals.countRemovedFiles(changedFiles)).toBe(1);
 	});
 

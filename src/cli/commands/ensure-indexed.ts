@@ -139,11 +139,6 @@ function formatAutoIndexError(
 	return `Auto-indexing failed during ${mode} reindex: ${describeError(error)}`;
 }
 
-function countChangedFiles(changedFiles: GitDiff | undefined): number | undefined {
-	if (!changedFiles) return undefined;
-	return changedFiles.added.length + changedFiles.modified.length;
-}
-
 function countRemovedFiles(changedFiles: GitDiff | undefined): number | undefined {
 	return changedFiles?.deleted.length;
 }
@@ -325,20 +320,11 @@ async function getIndexPlan(
 		return { isFullReindex: true, changedFiles: undefined };
 	}
 
-	if (
-		await knowledgeSnapshotNeedsRefresh(
-			metadata,
-			DEFAULT_PROJECT_ID,
-			snapshot.id,
-		)
-	) {
-		const documents = await scanProjectDocuments(repoRoot);
-		return {
-			isFullReindex: false,
-			changedFiles: { added: [], modified: documents, deleted: [] },
-		};
-	}
-
+	const knowledgeNeedsRefresh = await knowledgeSnapshotNeedsRefresh(
+		metadata,
+		DEFAULT_PROJECT_ID,
+		snapshot.id,
+	);
 	const headCommit = await git.getHeadCommit(repoRoot);
 	const workspaceChanges = await git.getWorkingTreeChanges(repoRoot);
 	const committedChanges =
@@ -346,6 +332,17 @@ async function getIndexPlan(
 			? await git.getChangedFiles(repoRoot, snapshot.meta.headCommit)
 			: { added: [], modified: [], deleted: [] };
 	const changedFiles = mergeGitDiffs(committedChanges, workspaceChanges);
+	if (knowledgeNeedsRefresh) {
+		const documents = await scanProjectDocuments(repoRoot);
+		// Refresh document configuration without dropping concurrent code changes.
+		// An empty document selection still needs a new snapshot/config artifact.
+		return {
+			isFullReindex: false,
+			changedFiles: mergeGitDiffs(changedFiles, {
+				added: [], modified: documents, deleted: [],
+			}),
+		};
+	}
 	const hasChanges =
 		changedFiles.added.length > 0 ||
 		changedFiles.modified.length > 0 ||
@@ -525,9 +522,7 @@ export async function ensureIndexed(
 
 			return {
 				status: "updated",
-				files: updatedPlan.isFullReindex
-					? result.filesIndexed
-					: countChangedFiles(updatedPlan.changedFiles),
+				files: result.filesIndexed,
 				removed: updatedPlan.isFullReindex
 					? 0
 					: countRemovedFiles(updatedPlan.changedFiles),

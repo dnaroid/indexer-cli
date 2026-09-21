@@ -1688,7 +1688,7 @@ describe("IndexerEngine internals", () => {
 
 			expect(result).toEqual({
 				snapshotId: "snapshot-1",
-				filesIndexed: 1,
+				filesIndexed: 0,
 				errors: [],
 			});
 			expect(options.metadata.copyUnchangedFileData).toHaveBeenCalledWith(
@@ -1790,7 +1790,7 @@ describe("IndexerEngine internals", () => {
 
 			expect(result).toEqual({
 				snapshotId: "snapshot-1",
-				filesIndexed: 1,
+				filesIndexed: 0,
 				errors: [],
 			});
 			expect(options.metadata.copyUnchangedFileData).toHaveBeenCalledWith(

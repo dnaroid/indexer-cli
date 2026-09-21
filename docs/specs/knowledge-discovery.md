@@ -1,11 +1,30 @@
-# Knowledge discovery cache
+# Knowledge discovery
 
-Implementation: `src/knowledge/service.ts`, `src/knowledge/discovery-cache.ts`.
+Implementation: `src/knowledge/service.ts`, `src/knowledge/discovery.ts`,
+`src/knowledge/document-scanner.ts`.
 
-Regression evidence: `tests/unit/knowledge/discovery-cache.test.ts`, `tests/unit/knowledge/service.test.ts`, `tests/unit/knowledge/manifest.test.ts`.
+Regression evidence: `tests/unit/knowledge/service.test.ts`,
+`tests/unit/knowledge/discovery.test.ts`,
+`tests/unit/knowledge/document-scanner.test.ts`,
+`tests/unit/knowledge/manifest.test.ts`.
 
-Discovery still authoritatively scans project documents (including current gitignore and configured document filters) on every invocation. The project-local `.indexer-cli/knowledge-discovery-v1.json` is only a bounded best-effort hint for title, discovery signals, and an exact-byte SHA-256 hash. A row is reusable only when its format/config/project identity and filesystem fingerprint (`dev`, `ino`, size, nanosecond mtime and ctime) match. Thus replacements, renames, deletes, same-size edits with restored mtime, configuration changes, and cache-format changes do not reuse stale data.
+Discovery scans project documents using the current gitignore and configured
+document filters on every invocation. Each readable document is read directly:
+its exact bytes supply the SHA-256 hash, and its decoded text supplies the title
+and discovery signals. Repeated calls therefore use current document contents
+and the current analysis implementation, including after same-size edits with
+restored mtime, renames, deletes, and filter changes. Files that disappear or
+become unreadable after scanning are skipped.
 
-Changed or unreadable files are read normally. Cache entries are committed only when pre- and post-read fingerprints agree, preventing a racing read from being persisted. Corrupt or unwritable caches are ignored; atomic replacement prevents partial writes. The cache is never used by record, status, prepare, or verify: those operations retain authoritative exact-byte reads and hashes. Discovery is deterministic and contains no LLM calls.
+Discovery has no persistent cache and does not write discovery state to disk or
+the database. Legacy discovery JSON files are unused, left untouched, and may
+be deleted. Record, status, prepare, and verify retain
+their independent exact-byte reads and hashes. Discovery is deterministic and
+contains no LLM calls.
 
-Classification entries indexed before exact-byte hashes were introduced have no `metadata.indexedSourceHashFormat` marker. For those legacy entries only, discovery and status may compare the former normalized-text hash so unchanged documents remain unattested rather than falsely changed. `record` and manifest apply write `sha256-exact-v1`; marked entries always use exact-byte comparison, including before they have verification receipts.
+Classification entries indexed before exact-byte hashes were introduced have no
+`metadata.indexedSourceHashFormat` marker. For those legacy entries only,
+discovery and status may compare the former normalized-text hash so unchanged
+documents remain unattested rather than falsely changed. `record` and manifest
+apply write `sha256-exact-v1`; marked entries always use exact-byte comparison,
+including before they have verification receipts.

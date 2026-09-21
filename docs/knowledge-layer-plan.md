@@ -6,8 +6,9 @@ Primary data directory: `.indexer-cli/`
 Last updated: 2026-09-19
 
 The focused current contracts for verification receipts, declarative manifests,
-durable review obligations, offline retrieval, discovery caching, and deterministic evaluation are
-under `docs/specs/knowledge-*.md`. They refine the original implementation plan;
+durable review obligations, offline retrieval, document discovery, and
+deterministic evaluation are under `docs/specs/knowledge-*.md`.
+They refine the original implementation plan;
 the architecture and semantic-ownership invariants below remain authoritative.
 
 ## Goal

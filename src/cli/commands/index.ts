@@ -230,12 +230,17 @@ export function registerIndexCommand(program: Command): void {
 							return;
 						}
 
-						const [files, chunks, symbols, dependencies] = await Promise.all([
-							metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, {}),
-							metadata.listChunks(DEFAULT_PROJECT_ID, snapshot.id),
-							metadata.listSymbols(DEFAULT_PROJECT_ID, snapshot.id),
-							metadata.listDependencies(DEFAULT_PROJECT_ID, snapshot.id),
-						]);
+						const [codeFiles, documentFiles, chunks, symbols, dependencies] =
+							await Promise.all([
+								metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, {}),
+								metadata.listFiles(DEFAULT_PROJECT_ID, snapshot.id, {
+									domain: "document",
+								}),
+								metadata.listChunks(DEFAULT_PROJECT_ID, snapshot.id),
+								metadata.listSymbols(DEFAULT_PROJECT_ID, snapshot.id),
+								metadata.listDependencies(DEFAULT_PROJECT_ID, snapshot.id),
+							]);
+						const files = [...codeFiles, ...documentFiles];
 
 						const vectors = new SqliteVecVectorStore({
 							dbPath,
@@ -417,16 +422,21 @@ export function registerIndexCommand(program: Command): void {
 
 						if (options?.dryRun) {
 							if (effectiveFullReindex) {
-								const plannedFiles = await scanProjectFiles(
-									resolvedProjectPath,
-									languagePlugins.flatMap((plugin) => plugin.fileExtensions),
-									{
-										includePaths: config.get("indexIncludePaths"),
-									},
-								);
+								const [plannedFiles, plannedDocuments] = await Promise.all([
+									scanProjectFiles(
+										resolvedProjectPath,
+										languagePlugins.flatMap((plugin) => plugin.fileExtensions),
+										{
+											includePaths: config.get("indexIncludePaths"),
+										},
+									),
+									scanProjectDocuments(resolvedProjectPath),
+								]);
 								console.log("Dry run complete.");
 								console.log("Mode: full reindex");
-								console.log(`Files to index: ${plannedFiles.length}`);
+								console.log(
+									`Files to index: ${plannedFiles.length + plannedDocuments.length}`,
+								);
 							} else {
 								const diff = changedFiles ?? {
 									added: [],

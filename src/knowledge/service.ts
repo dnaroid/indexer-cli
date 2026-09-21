@@ -19,7 +19,6 @@ import type {
 } from "../core/types.js";
 import { parseGitignore, type GitignoreFilter } from "../utils/gitignore.js";
 import { documentTitle, knowledgeDiscoverySignals } from "./discovery.js";
-import { DiscoveryCache } from "./discovery-cache.js";
 import { scanProjectDocuments } from "./document-scanner.js";
 import { extractExplicitKnowledgeRelations } from "./relations.js";
 import { validateLocallyExecutedVerificationReceipt, validateVerificationReceipt, type VerificationFacts } from "./verification/evidence.js";
@@ -458,16 +457,21 @@ export class KnowledgeService {
 			this.knowledge.listKnowledgeEntries(this.projectId),
 		]);
 		const known = new Map(entries.map((entry) => [entry.path, entry]));
-		const cache = new DiscoveryCache(this.repoRoot, this.projectId);
 		const minScore = options.minScore ?? 3;
 		const candidates: KnowledgeCandidate[] = [];
 
 		for (const filePath of paths) {
-			const document = await cache.document(filePath, (content) => ({
-				title: documentTitle(content, filePath), signals: knowledgeDiscoverySignals(filePath, content),
-			}));
-			if (!document) continue;
-			const { hash: sourceHash, title, signals } = document;
+			let sourceBytes: Buffer;
+			try {
+				sourceBytes = await readFile(path.join(this.repoRoot, filePath));
+			} catch {
+				// A document can disappear or become unreadable after scanning.
+				continue;
+			}
+			const sourceHash = sha256(sourceBytes);
+			const content = sourceBytes.toString("utf8");
+			const title = documentTitle(content, filePath);
+			const signals = knowledgeDiscoverySignals(filePath, content);
 			const existing = known.get(filePath);
 			const changed = Boolean(existing && !await this.matchesIndexedSourceHash(existing, sourceHash));
 			if (options.allUnclassified && existing) continue;
@@ -497,7 +501,6 @@ export class KnowledgeService {
 				changedSinceClassification: existing ? changed : undefined,
 			});
 		}
-		await cache.save(paths);
 
 		return candidates.sort((left, right) => {
 			const leftKnown = left.knownClassification ? 1 : 0;

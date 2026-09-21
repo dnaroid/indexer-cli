@@ -44,6 +44,7 @@ import { scanProjectFiles } from "./scanner.js";
 import {
 	DocumentIndexer,
 	type DocumentIncrementalPlan,
+	type DocumentIndexProgress,
 } from "../knowledge/document-indexer.js";
 
 const logger = new SystemLogger("indexer-engine");
@@ -189,6 +190,7 @@ export interface IndexProjectOptions {
 
 export interface IndexResult {
 	snapshotId: string;
+	/** Files handled in this run; copied/deleted files and failed documents are excluded. */
 	filesIndexed: number;
 	errors: string[];
 }
@@ -1135,20 +1137,6 @@ export class IndexerEngine {
 				diff: changedFiles,
 				previousFiles: previousFilesForSnapshot,
 			});
-			if (this.documentIndexer && documentPlan) {
-				await this.documentIndexer.copyUnchanged(
-					projectId,
-					latestSnapshot.id,
-					snapshotId,
-					documentPlan.unchanged,
-				);
-				const documentResult = await this.documentIndexer.indexIncremental(
-					projectId,
-					snapshotId,
-					documentPlan,
-				);
-				errors.push(...documentResult.errors.map((error) => `document: ${error}`));
-			}
 
 			const gitignore = parseGitignore(repoRoot);
 			const filesToIndex = [...new Set([
@@ -1162,13 +1150,49 @@ export class IndexerEngine {
 					),
 			);
 
-			const totalFiles = (await this.metadata.listFiles(projectId, snapshotId))
-				.length;
 			const knownFiles = new Set(
-				(await this.metadata.listFiles(projectId, snapshotId)).map((file) =>
-					this.normalizePath(file.path),
-				),
+				[
+					...(await this.metadata.listFiles(projectId, snapshotId)).map(
+						(file) => file.path,
+					),
+					...filesToIndex,
+				].map((filePath) => this.normalizePath(filePath)),
 			);
+			const documentWork = documentPlan
+				? documentPlan.added.length + documentPlan.modified.length
+				: 0;
+			// Snapshot progress includes copied files; filesIndexed only counts this run's work.
+			const totalFiles =
+				knownFiles.size + (documentPlan?.unchanged.length ?? 0) + documentWork;
+			const copiedFiles = totalFiles - filesToIndex.length - documentWork;
+			let documentsIndexed = 0;
+			await this.metadata.updateSnapshotProgress(
+				snapshotId,
+				copiedFiles,
+				totalFiles,
+			);
+			if (this.documentIndexer && documentPlan) {
+				await this.documentIndexer.copyUnchanged(
+					projectId,
+					latestSnapshot.id,
+					snapshotId,
+					documentPlan.unchanged,
+				);
+				const documentResult = await this.documentIndexer.indexIncremental(
+					projectId,
+					snapshotId,
+					documentPlan,
+					this.documentProgress(
+						snapshotId,
+						copiedFiles,
+						totalFiles,
+						options.onProgress,
+						options.onFileStart,
+					),
+				);
+				documentsIndexed = documentResult.indexed;
+				errors.push(...documentResult.errors.map((error) => `document: ${error}`));
+			}
 			if (filesToIndex.length === 0) {
 				await this.metadata.updateSnapshotProgress(
 					snapshotId,
@@ -1181,9 +1205,10 @@ export class IndexerEngine {
 					await this.metadata.updateSnapshotStatus(snapshotId, "failed", message);
 					throw new Error(message);
 				}
+				if (documentWork === 0) options.onProgress?.(totalFiles, totalFiles);
 				await this.metadata.updateSnapshotStatus(snapshotId, "completed");
 				await this.pruneHistoricalSnapshots(projectId, snapshotId);
-				return { snapshotId, filesIndexed: totalFiles, errors: [] };
+				return { snapshotId, filesIndexed: documentsIndexed, errors: [] };
 			}
 
 			await this.indexPreparedFiles({
@@ -1194,7 +1219,9 @@ export class IndexerEngine {
 				filesToIndex,
 				knownFiles,
 				totalFiles,
+				initialProcessed: copiedFiles + documentWork,
 				onProgress: options.onProgress,
+				onFileStart: options.onFileStart,
 				errors,
 				operation: "incremental batch indexing",
 			});
@@ -1212,7 +1239,11 @@ export class IndexerEngine {
 				totalFiles,
 			);
 			await this.pruneHistoricalSnapshots(projectId, snapshotId);
-			return { snapshotId, filesIndexed: filesToIndex.length, errors };
+			return {
+				snapshotId,
+				filesIndexed: filesToIndex.length + documentsIndexed,
+				errors,
+			};
 		} catch (error) {
 			await this.metadata.updateSnapshotStatus(
 				snapshotId,
@@ -1292,22 +1323,23 @@ export class IndexerEngine {
 		filesToIndex: string[];
 		knownFiles: Set<string>;
 		totalFiles: number;
+		initialProcessed?: number;
 		onProgress?: (processed: number, total: number) => void;
 		onFileStart?: (filePath: string, current: number, total: number) => void;
 		errors: string[];
 		operation: string;
 	}): Promise<void> {
 		const batchSize = this.getBatchSize();
-		let processedCount = 0;
+		let processedCount = options.initialProcessed ?? 0;
 
 		await this.metadataWithProgress.updateSnapshotProgress(
 			options.snapshotId,
-			0,
+			processedCount,
 			options.totalFiles,
 		);
 		await this.metadata.updateSnapshotProgress(
 			options.snapshotId,
-			0,
+			processedCount,
 			options.totalFiles,
 		);
 
@@ -1512,7 +1544,10 @@ export class IndexerEngine {
 				Math.min(processedCount, options.totalFiles),
 				options.totalFiles,
 			);
-			if (processedCount % 100 === 0 || processedCount >= options.totalFiles) {
+			if (
+				processedCount % 100 === 0 ||
+				index + batch.length >= options.filesToIndex.length
+			) {
 				await this.metadataWithProgress.updateSnapshotProgress(
 					options.snapshotId,
 					processedCount,
@@ -1917,27 +1952,9 @@ export class IndexerEngine {
 				),
 			);
 
-			if (filesToIndex.length === 0) {
-				if (this.documentIndexer) {
-					const documentResult = await this.documentIndexer.indexFull(
-						projectId,
-						snapshotId,
-					);
-					errors.push(
-						...documentResult.errors.map((error) => `document: ${error}`),
-					);
-				}
-				await this.metadata.updateSnapshotProgress(snapshotId, 0, 0);
-				await this.architectureGenerator.generate(projectId, snapshotId);
-				if (errors.length > 0) {
-					throw new Error(
-						`Full indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`,
-					);
-				}
-				await this.metadata.updateSnapshotStatus(snapshotId, "completed");
-				await this.pruneHistoricalSnapshots(projectId, snapshotId);
-				return { snapshotId, filesIndexed: 0, errors };
-			}
+			const documentPaths = (await this.documentIndexer?.scan()) ?? [];
+			const totalFiles = filesToIndex.length + documentPaths.length;
+			let documentsIndexed = 0;
 
 			await this.indexPreparedFiles({
 				projectId,
@@ -1948,7 +1965,7 @@ export class IndexerEngine {
 				knownFiles: new Set(
 					filesToIndex.map((filePath) => this.normalizePath(filePath)),
 				),
-				totalFiles: filesToIndex.length,
+				totalFiles,
 				onProgress,
 				onFileStart,
 				errors,
@@ -1958,27 +1975,45 @@ export class IndexerEngine {
 				const documentResult = await this.documentIndexer.indexFull(
 					projectId,
 					snapshotId,
+					{
+						paths: documentPaths,
+						...this.documentProgress(
+							snapshotId,
+							filesToIndex.length,
+							totalFiles,
+							onProgress,
+							onFileStart,
+						),
+					},
 				);
+				documentsIndexed = documentResult.indexed;
 				errors.push(...documentResult.errors.map((error) => `document: ${error}`));
 			}
+			const filesIndexed = filesToIndex.length + documentsIndexed;
 
 			try {
 				await this.architectureGenerator.generate(projectId, snapshotId);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				throw new Error(
-					`Failed after indexing ${filesToIndex.length} files while generating architecture snapshot: ${message}`,
+					`Failed after indexing ${filesIndexed} files while generating architecture snapshot: ${message}`,
 					{ cause: error },
 				);
 			}
+			if (filesToIndex.length === 0 && errors.length > 0) {
+				throw new Error(
+					`Full indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`,
+				);
+			}
+			if (totalFiles === 0) onProgress?.(0, 0);
 			await this.metadata.updateSnapshotStatus(snapshotId, "completed");
 			await this.metadataWithProgress.updateSnapshotProgress(
 				snapshotId,
-				filesToIndex.length,
-				filesToIndex.length,
+				totalFiles,
+				totalFiles,
 			);
 			await this.pruneHistoricalSnapshots(projectId, snapshotId);
-			return { snapshotId, filesIndexed: filesToIndex.length, errors };
+			return { snapshotId, filesIndexed, errors };
 		} catch (error) {
 			await this.metadata.updateSnapshotStatus(
 				snapshotId,
@@ -1992,6 +2027,31 @@ export class IndexerEngine {
 	private getBatchSize(): number {
 		const value = config.get("indexBatchSize");
 		return Number.isFinite(value) && value > 0 ? value : 50;
+	}
+
+	private documentProgress(
+		snapshotId: SnapshotId,
+		initialProcessed: number,
+		totalFiles: number,
+		onProgress?: (processed: number, total: number) => void,
+		onFileStart?: (filePath: string, current: number, total: number) => void,
+	): DocumentIndexProgress {
+		return {
+			onFileStart: (filePath, current) => {
+				onFileStart?.(filePath, initialProcessed + current, totalFiles);
+			},
+			onProgress: async (processed, total) => {
+				const current = initialProcessed + processed;
+				onProgress?.(current, totalFiles);
+				if (current % 100 === 0 || processed === total) {
+					await this.metadata.updateSnapshotProgress(
+						snapshotId,
+						current,
+						totalFiles,
+					);
+				}
+			},
+		};
 	}
 
 	private mergeDocumentChanges(
