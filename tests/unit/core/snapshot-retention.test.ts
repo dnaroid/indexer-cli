@@ -2,7 +2,6 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	withSnapshotReadLease,
@@ -46,36 +45,44 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
 }
 
 function startReader(projectRoot: string): ChildProcessWithoutNullStreams {
-	const retentionModule = pathToFileURL(
-		path.resolve("src/core/snapshot-retention.ts"),
-	).href;
+	const retentionModule = path.resolve("src/core/snapshot-retention.ts");
 	const script = `
-		import { withSnapshotReadLease } from ${JSON.stringify(retentionModule)};
-		await withSnapshotReadLease(process.env.PROJECT_ROOT, async () => {
-			process.stdout.write("lease-acquired\\n");
-			await new Promise((resolve) => process.stdin.once("data", resolve));
+		const { withSnapshotReadLease } = require(${JSON.stringify(retentionModule)});
+		void (async () => {
+			await withSnapshotReadLease(process.env.PROJECT_ROOT, async () => {
+				process.stdout.write("lease-acquired\\n");
+				await new Promise((resolve) => process.stdin.once("data", resolve));
+			});
+		})().catch((error) => {
+			console.error(error);
+			process.exitCode = 1;
 		});
 	`;
-	return spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+	return spawn(process.execPath, ["--import", "tsx", "--input-type=commonjs", "-e", script], {
 		env: { ...process.env, PROJECT_ROOT: projectRoot },
 		stdio: ["pipe", "pipe", "pipe"],
 	});
 }
 
 function tryAcquireIndexLockInChild(projectRoot: string): Promise<boolean> {
-	const lockModule = pathToFileURL(path.resolve("src/core/lock.ts")).href;
+	const lockModule = path.resolve("src/core/lock.ts");
 	const script = `
-		import { acquireIndexLock } from ${JSON.stringify(lockModule)};
-		try {
-			const release = await acquireIndexLock(process.env.PROJECT_ROOT);
-			await release();
-			process.stdout.write("acquired\\n");
-		} catch {
-			process.stdout.write("blocked\\n");
-		}
+		const { acquireIndexLock } = require(${JSON.stringify(lockModule)});
+		void (async () => {
+			try {
+				const release = await acquireIndexLock(process.env.PROJECT_ROOT);
+				await release();
+				process.stdout.write("acquired\\n");
+			} catch {
+				process.stdout.write("blocked\\n");
+			}
+		})().catch((error) => {
+			console.error(error);
+			process.exitCode = 1;
+		});
 	`;
 	return new Promise((resolve, reject) => {
-		const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+		const child = spawn(process.execPath, ["--import", "tsx", "--input-type=commonjs", "-e", script], {
 			env: { ...process.env, PROJECT_ROOT: projectRoot },
 		});
 		let output = "";

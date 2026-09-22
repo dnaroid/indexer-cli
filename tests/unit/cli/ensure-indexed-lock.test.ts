@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it, vi } from "vitest";
 import { ensureIndexed } from "../../../src/cli/commands/ensure-indexed.js";
@@ -73,15 +72,18 @@ function holdLockInChild(projectRoot: string, holdMs: number): {
 	acquired: Promise<void>;
 	done: Promise<void>;
 } {
-	const lockModule = pathToFileURL(
-		path.resolve(import.meta.dirname, "../../../src/core/lock.ts"),
-	).href;
+	const lockModule = path.resolve("src/core/lock.ts");
 	const child = execFile(process.execPath, [
-		"--import", "tsx", "--input-type=module", "--eval",
-		`import { acquireIndexLock } from ${JSON.stringify(lockModule)};
-const release = await acquireIndexLock(${JSON.stringify(projectRoot)});
-console.log("locked");
-setTimeout(async () => { await release(); }, ${holdMs});`,
+		"--import", "tsx", "--input-type=commonjs", "--eval",
+		`const { acquireIndexLock } = require(${JSON.stringify(lockModule)});
+void (async () => {
+	const release = await acquireIndexLock(${JSON.stringify(projectRoot)});
+	console.log("locked");
+	setTimeout(async () => { await release(); }, ${holdMs});
+})().catch((error) => {
+	console.error(error);
+	process.exitCode = 1;
+});`,
 	]);
 	const acquired = new Promise<void>((resolve, reject) => {
 		child.stdout?.on("data", (chunk) => {

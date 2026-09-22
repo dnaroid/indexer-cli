@@ -2,7 +2,6 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { IndexerEngine } from "../../../src/engine/indexer.js";
 import { SqliteMetadataStore } from "../../../src/storage/sqlite.js";
@@ -50,34 +49,39 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<void> {
 }
 
 function startSnapshotReader(projectRoot: string): ChildProcessWithoutNullStreams {
-	const retention = pathToFileURL(path.resolve("src/core/snapshot-retention.ts")).href;
-	const metadata = pathToFileURL(path.resolve("src/storage/sqlite.ts")).href;
-	const vectors = pathToFileURL(path.resolve("src/storage/vectors.ts")).href;
+	const retention = path.resolve("src/core/snapshot-retention.ts");
+	const metadata = path.resolve("src/storage/sqlite.ts");
+	const vectors = path.resolve("src/storage/vectors.ts");
 	const script = `
-		import { withSnapshotReadLease } from ${JSON.stringify(retention)};
-		import { SqliteMetadataStore } from ${JSON.stringify(metadata)};
-		import { SqliteVecVectorStore } from ${JSON.stringify(vectors)};
-		import path from "node:path";
-		const root = process.env.PROJECT_ROOT;
-		const dbPath = path.join(root, ".indexer-cli", "db.sqlite");
-		const metadata = new SqliteMetadataStore(dbPath);
-		const vectors = new SqliteVecVectorStore({ dbPath, vectorSize: 3 });
-		await metadata.initialize();
-		await vectors.initialize();
-		await withSnapshotReadLease(root, async () => {
-			const snapshot = await metadata.getLatestCompletedSnapshot(${JSON.stringify(PROJECT_ID)});
-			const read = async () => ({
-				files: await metadata.listFiles(${JSON.stringify(PROJECT_ID)}, snapshot.id),
-				vectors: await vectors.search([1, 0, 0], 10, { projectId: ${JSON.stringify(PROJECT_ID)}, snapshotId: snapshot.id }),
+		const { withSnapshotReadLease } = require(${JSON.stringify(retention)});
+		const { SqliteMetadataStore } = require(${JSON.stringify(metadata)});
+		const { SqliteVecVectorStore } = require(${JSON.stringify(vectors)});
+		const path = require("node:path");
+		void (async () => {
+			const root = process.env.PROJECT_ROOT;
+			const dbPath = path.join(root, ".indexer-cli", "db.sqlite");
+			const metadata = new SqliteMetadataStore(dbPath);
+			const vectors = new SqliteVecVectorStore({ dbPath, vectorSize: 3 });
+			await metadata.initialize();
+			await vectors.initialize();
+			await withSnapshotReadLease(root, async () => {
+				const snapshot = await metadata.getLatestCompletedSnapshot(${JSON.stringify(PROJECT_ID)});
+				const read = async () => ({
+					files: await metadata.listFiles(${JSON.stringify(PROJECT_ID)}, snapshot.id),
+					vectors: await vectors.search([1, 0, 0], 10, { projectId: ${JSON.stringify(PROJECT_ID)}, snapshotId: snapshot.id }),
+				});
+				process.stdout.write(JSON.stringify({ phase: "selected", snapshotId: snapshot.id, ...(await read()) }) + "\\n");
+				await new Promise((resolve) => process.stdin.once("data", resolve));
+				process.stdout.write(JSON.stringify({ phase: "after-publication", snapshotId: snapshot.id, ...(await read()) }) + "\\n");
 			});
-			process.stdout.write(JSON.stringify({ phase: "selected", snapshotId: snapshot.id, ...(await read()) }) + "\\n");
-			await new Promise((resolve) => process.stdin.once("data", resolve));
-			process.stdout.write(JSON.stringify({ phase: "after-publication", snapshotId: snapshot.id, ...(await read()) }) + "\\n");
+			await metadata.close();
+			await vectors.close();
+		})().catch((error) => {
+			console.error(error);
+			process.exitCode = 1;
 		});
-		await metadata.close();
-		await vectors.close();
 	`;
-	return spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+	return spawn(process.execPath, ["--import", "tsx", "--input-type=commonjs", "-e", script], {
 		env: { ...process.env, PROJECT_ROOT: projectRoot },
 		stdio: ["pipe", "pipe", "pipe"],
 	});
