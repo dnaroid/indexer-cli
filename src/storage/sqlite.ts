@@ -266,18 +266,23 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 
 	constructor(private readonly dbPath: string) {
 		this.db = new Database(this.dbPath);
-		this.db.pragma("journal_mode = WAL");
 		this.db.pragma("busy_timeout = 5000");
+		this.db.pragma("journal_mode = WAL");
 	}
 
 	async initialize(): Promise<void> {
 		if (this.initialized) return;
-		this.initialized = true;
 		logger.info("[SqliteMetadataStore] Initializing database at:", this.dbPath);
 		this.db.pragma("foreign_keys = ON");
-		this.createSchema();
-		await this.runMigrations();
-		this.cleanupStaleIndexingSnapshots();
+		// Query runtimes open this store before deciding whether an incremental
+		// index is needed. Do not take a write lock for an already-current DB:
+		// schema DDL, an IMMEDIATE migration transaction, and stale-snapshot
+		// cleanup all contend with the process currently holding the index lock.
+		if (!this.schemaIsCurrent()) {
+			this.createSchema();
+			await this.runMigrations();
+		}
+		this.initialized = true;
 	}
 
 	async close(): Promise<void> {
@@ -2105,19 +2110,47 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 		runInTransaction.immediate();
 	}
 
-	private cleanupStaleIndexingSnapshots(): void {
-		const staleThreshold = Date.now() - 30 * 60 * 1000;
-		const result = this.db
-			.prepare(
-				`UPDATE snapshots SET status = 'failed', failure_reason = 'Indexing process crashed'
-				 WHERE status = 'indexing' AND created_at < ?`,
-			)
-			.run(staleThreshold);
 
-		if (result.changes > 0) {
-			logger.info(
-				`[SqliteMetadataStore] Cleaned up ${result.changes} stale indexing snapshot(s)`,
-			);
+	private schemaIsCurrent(): boolean {
+		try {
+			const migrationTable = this.db
+				.prepare(
+					"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'",
+				)
+				.get();
+			if (!migrationTable) return false;
+			if (this.getCurrentSchemaVersion() !== migrations.at(-1)?.version) {
+				return false;
+			}
+
+			const requiredTables = [
+				"snapshots", "files", "chunks", "symbols", "dependencies",
+				"artifacts", "file_metrics", "knowledge_entries", "knowledge_chunks",
+				"knowledge_relations", "knowledge_verified_inputs", "code_search_fts",
+			];
+			for (const tableName of requiredTables) {
+				const exists = this.db
+					.prepare("SELECT 1 FROM sqlite_master WHERE name = ?")
+					.get(tableName);
+				if (!exists) return false;
+			}
+
+			const knowledgeColumns = this.db
+				.prepare("PRAGMA table_info(knowledge_entries)")
+				.all() as Array<{ name: string }>;
+			if (!knowledgeColumns.some((column) => column.name === "verification_receipt_json")) {
+				return false;
+			}
+
+			return [
+				"idx_files_project_path", "idx_files_snapshot", "idx_chunks_file_path",
+				"idx_symbols_snapshot_name", "idx_dependencies_snapshot",
+				"idx_knowledge_relations_source", "idx_knowledge_chunks_file",
+			].every((indexName) => Boolean(this.db
+				.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?")
+				.get(indexName)));
+		} catch {
+			return false;
 		}
 	}
 

@@ -435,11 +435,12 @@ Important semantics:
   relations. `manifest export` never exports trusted verification baselines; applying declarations is not verification;
 - evidence selectors localize review hints, but an unchanged symbol/section/config selector never hides a changed
   whole-file hash. Untracked one-hop helper changes remain uncovered while surfacing affected contracts;
-- when `status`, `audit`, `search`, or `context` finds document candidates, the response distinguishes unclassified
+- discovery guidance in verbose `status`/`audit`/`search` and their JSON responses distinguishes unclassified
   documents from already-classified documents whose source changed. Unclassified candidates must be read and recorded;
   changed classified candidates remain registered knowledge and require review of their existing classification/metadata.
   `status`/`audit`/`search` JSON exposes separate candidate-category counts, and `--all-unclassified` continues to exclude
-  existing entries;
+  existing entries. Default `status`/`audit` give a compact review pointer; ordinary search/context omit unrelated discovery
+  guidance while preserving evidence freshness/trust warnings;
 - legacy `.spec-wiki` state is not read, imported, or trusted.
 
 `idx wiki search` fuses independent document-vector and section-level lexical candidates. `--mode lexical` avoids

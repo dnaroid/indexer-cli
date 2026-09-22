@@ -8,6 +8,9 @@ vi.mock("../../../src/cli/project-root.js", () => ({
 }));
 vi.mock("../../../src/core/config.js", () => ({ config: { load: vi.fn() } }));
 vi.mock("../../../src/core/logger.js", () => ({ initLogger: vi.fn() }));
+vi.mock("../../../src/core/snapshot-retention.js", () => ({
+	withSnapshotReadLease: async (_root: string, action: () => Promise<unknown>) => action(),
+}));
 vi.mock("../../../src/cli/commands/ensure-indexed.js", () => ({ ensureIndexed: mocks.refresh }));
 vi.mock("../../../src/storage/sqlite.js", () => ({
 	SqliteMetadataStore: class {
@@ -37,12 +40,9 @@ describe("wiki runtime", () => {
 		expect(mocks.close).toHaveBeenCalledOnce();
 	});
 
-	it("labels the existing-index fallback after refresh failure", async () => {
+	it("does not use an existing snapshot after refresh failure", async () => {
 		mocks.refresh.mockResolvedValue({ status: "failed", reason: "embedding provider unavailable", ms: 1 });
-		const runtime = await withWikiRuntime(async (value) => value, { refresh: true });
-		expect(runtime.snapshotId).toBe("completed");
-		expect(runtime.indexWarning).toContain("embedding provider unavailable");
-		expect(console.error).toHaveBeenCalledWith(runtime.indexWarning);
+		await expect(withWikiRuntime(async (value) => value, { refresh: true })).rejects.toThrow("embedding provider unavailable");
 	});
 
 	it("does not fabricate a snapshot when refresh fails on a new project", async () => {
@@ -50,6 +50,15 @@ describe("wiki runtime", () => {
 		mocks.refresh.mockResolvedValue({ status: "failed", reason: "offline", ms: 1 });
 		const action = vi.fn();
 		await expect(withWikiRuntime(action, { refresh: true })).rejects.toThrow("offline");
+		expect(action).not.toHaveBeenCalled();
+		expect(mocks.close).toHaveBeenCalledOnce();
+	});
+
+	it("propagates descriptive lock timeout diagnostics rather than just the reason code", async () => {
+		const message = "Timed out waiting for another indexing process; existing data may be stale. Retry after it finishes.";
+		mocks.refresh.mockResolvedValue({ status: "failed", reason: "lock-held", message, ms: 10_000 });
+		const action = vi.fn();
+		await expect(withWikiRuntime(action, { refresh: true })).rejects.toThrow(message);
 		expect(action).not.toHaveBeenCalled();
 		expect(mocks.close).toHaveBeenCalledOnce();
 	});

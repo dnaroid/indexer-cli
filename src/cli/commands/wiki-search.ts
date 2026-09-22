@@ -13,10 +13,11 @@ export function registerWikiSearchCommand(wiki: Command): void {
 		.option("--include-secondary", "include design-only references")
 		.option("--path-prefix <path>", "limit document paths")
 		.option("--min-score <number>", "minimum final relevance score")
+		.option("--verbose", "show retrieval reason codes and discovery review guidance")
 		.option("--json", "emit JSON")
 		.action(async (query: string, options: {
 			limit?: string; mode?: string; refresh?: boolean; includeSecondary?: boolean;
-			pathPrefix?: string; minScore?: string; json?: boolean;
+			pathPrefix?: string; minScore?: string; verbose?: boolean; json?: boolean;
 		}) => {
 			try {
 				const mode = parseWikiSearchMode(options.mode);
@@ -25,20 +26,17 @@ export function registerWikiSearchCommand(wiki: Command): void {
 				const minScore = options.minScore === undefined ? undefined : Number(options.minScore);
 				if (minScore !== undefined && !Number.isFinite(minScore)) throw new Error("--min-score must be a number.");
 				await withWikiRuntime(async (runtime) => withWikiSearch(runtime, mode, async (engine, initializationWarning) => {
-					const [results, candidates] = await Promise.all([
-						engine.search(query, { limit, mode, includeSecondary: options.includeSecondary,
-							pathPrefix: options.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""), minScore }),
-						runtime.service.discover(),
-					]);
-					const candidateSummary = summarizeKnowledgeCandidates(candidates);
-					const recommendation = candidateReviewRecommendation(candidateSummary);
+					const results = await engine.search(query, { limit, mode, includeSecondary: options.includeSecondary,
+						pathPrefix: options.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""), minScore });
 					const diagnostics = { ...engine.getDiagnostics(), initializationWarning, indexWarning: runtime.indexWarning,
 						indexRefreshRequested: options.refresh !== false && mode !== "lexical" };
 					if (options.json) {
+						// JSON has always included these discovery fields.
+						const candidateSummary = summarizeKnowledgeCandidates(await runtime.service.discover());
+						const recommendation = candidateReviewRecommendation(candidateSummary);
 						console.log(JSON.stringify({ query, results, diagnostics, ...candidateSummary, recommendation }, null, 2));
 						return;
 					}
-					if (recommendation) console.log(`Recommendation: ${recommendation}`);
 					if (diagnostics.note) console.log(`Retrieval: ${diagnostics.note}`);
 					if (initializationWarning) console.error(`Semantic provider unavailable: ${initializationWarning}`);
 					const defaultTrusted = results.filter((result) =>
@@ -52,14 +50,26 @@ export function registerWikiSearchCommand(wiki: Command): void {
 						console.log(`Warning: ${explicitlyTrusted.length} explicitly trusted result${explicitlyTrusted.length === 1 ? " has" : "s have"} stale or absent verification; trust is not verification.`);
 					}
 					if (results.some((result) => result.authority === "unreviewed-indexed")) {
-						console.log("Warning: indexed unclassified documents are trusted by default for retrieval but remain unreviewed; record selected documents only when you need durable primary-spec classification, relations, or verification.");
+						console.log("Warning: indexed unclassified results are default-trusted but unreviewed; inspect before relying on them.");
 					}
 					if (results.length === 0) console.log("no indexed project knowledge or unreviewed document fallback matched; absence is not proof of no contract");
 					for (const result of results) {
 						const authority = result.authority === "unreviewed-indexed" ? "unreviewed" : "registered";
-						console.log(`${result.score.toFixed(2).padStart(6)} ${authority.padEnd(10)} ${result.status.padEnd(19)} trust=${result.trust.padEnd(10)} ${result.path} — ${result.title}`);
-						console.log(`       ${result.summary}`);
-						console.log(`       why=${result.reasonCodes.slice(0, 6).join(",")}`);
+						const range = result.bestRanges[0];
+						const evidence = range ? `:${range.startLine}-${range.endLine}` : "";
+						const summary = options.verbose || result.summary.length <= 160
+							? result.summary
+							: `${result.summary.slice(0, 159)}…`;
+						console.log(`${result.score.toFixed(2)} ${authority} ${result.status} trust=${result.trust} ${result.path}${evidence} — ${summary}`);
+						if (options.verbose) {
+							console.log(`  title=${result.title || "(untitled)"}`);
+							console.log(`  why=${result.reasonCodes.join(",") || "none"}`);
+						}
+					}
+					if (options.verbose) {
+						const candidateSummary = summarizeKnowledgeCandidates(await runtime.service.discover());
+						const recommendation = candidateReviewRecommendation(candidateSummary);
+						if (recommendation) console.log(`Recommendation: ${recommendation}`);
 					}
 				}), { refresh: options.refresh !== false && mode !== "lexical" });
 			} catch (error) {

@@ -9,6 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ts from "typescript";
+vi.mock("../../../src/core/snapshot-retention.js", () => ({
+	withSnapshotPruneGuard: async (_root: string, action: () => Promise<unknown>) => action(),
+}));
 import {
 	DEFAULT_LANGUAGE_PLUGIN_IDS,
 	IndexerEngine,

@@ -51,3 +51,7 @@ also proceeds when the current document selection is empty, allowing excluded
 documents to be removed and the current fingerprint to be recorded. Planning
 is rechecked against the latest completed snapshot after the index lock is
 acquired.
+
+Cross-session refresh coordination, timeout diagnostics, and snapshot retention
+for concurrent wiki/context readers are specified in
+[`concurrent-index-access.md`](concurrent-index-access.md).

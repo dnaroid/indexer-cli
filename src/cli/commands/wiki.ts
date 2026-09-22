@@ -85,8 +85,9 @@ export function registerWikiCommand(program: Command): void {
 			"--all-unclassified",
 			"include all unclassified document-like files regardless heuristic score",
 		)
+		.option("--verbose", "show candidate signals")
 		.option("--json", "print JSON")
-		.action(async (options?: { limit?: string; cursor?: string; all?: boolean; allUnclassified?: boolean; json?: boolean }) => {
+		.action(async (options?: { limit?: string; cursor?: string; all?: boolean; allUnclassified?: boolean; verbose?: boolean; json?: boolean }) => {
 			try {
 				if (options?.all && options?.allUnclassified) {
 					throw new Error("--all and --all-unclassified are mutually exclusive.");
@@ -118,11 +119,8 @@ export function registerWikiCommand(program: Command): void {
 						const known = candidate.knownClassification
 							? ` known=${candidate.knownClassification}`
 							: "";
-						console.log(
-							`score=${candidate.score.toString().padStart(3)} ${candidate.roleHint.padEnd(16)} ${candidate.path}${known}`,
-						);
-						console.log(`      title: ${candidate.title}`);
-						console.log(`      signals: ${candidate.signals.join(", ") || "none"}`);
+						console.log(`score=${candidate.score.toString().padStart(3)} ${candidate.roleHint.padEnd(16)} ${candidate.path}${known} — ${candidate.title}`);
+						if (options?.verbose) console.log(`  signals: ${candidate.signals.join(", ") || "none"}`);
 					}
 				});
 			} catch (error) {
@@ -412,8 +410,9 @@ export function registerWikiCommand(program: Command): void {
 			.description("Report knowledge freshness and discovery health")
 			.option("--candidate-limit <number>", "maximum candidates to print", "20")
 			.option("--strict", "exit nonzero for freshness, coverage, reference, or discovery obligations")
+			.option("--verbose", "show detailed discovery review guidance")
 			.option("--json", "print JSON")
-			.action(async (options?: { candidateLimit?: string; strict?: boolean; json?: boolean }) => {
+			.action(async (options?: { candidateLimit?: string; strict?: boolean; verbose?: boolean; json?: boolean }) => {
 				try {
 					await withWikiRuntime(async ({ service }) => {
 						const audit = await service.audit();
@@ -442,7 +441,9 @@ export function registerWikiCommand(program: Command): void {
 							console.log("Bootstrap: no registered primary specs yet; indexed documents are still available to search/context as default-trusted, unreviewed knowledge.");
 						}
 						if (payload.recommendation) {
-							console.log(`Recommendation: ${payload.recommendation}`);
+							console.log(options?.verbose
+								? `Recommendation: ${payload.recommendation}`
+								: `Review: ${payload.candidateCount} discovery candidate${payload.candidateCount === 1 ? "" : "s"}; run \`idx wiki discover\` for details.`);
 						}
 						for (const status of payload.statuses) {
 							if (status.status === "fresh" || status.lifecycle === "historical" || status.lifecycle === "superseded") continue;

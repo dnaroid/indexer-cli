@@ -8,8 +8,12 @@ changed document candidates.
 
 ## Behavior
 
-- When one or more candidates require review, human-readable output includes an
-  explicit `Recommendation:` alongside the command response.
+- Default `status`/`audit` print a compact `Review:` count and
+  `idx wiki discover` pointer when candidates require review;
+  `--verbose` restores the detailed `Recommendation:`.
+  `search --verbose` and search JSON retain discovery guidance; ordinary search
+  and context do not perform unrelated discovery or repeat maintenance guidance
+  on every retrieval. Their evidence freshness/trust warnings remain visible.
 - Candidate review distinguishes two categories from normal discovery:
   - an **unclassified candidate** has no `knownClassification` and must be read
     and classified with `idx wiki record` before it becomes registered project
@@ -38,7 +42,7 @@ changed document candidates.
   Trust controls whether evidence may be used with warnings; a changed
   classified source still requires review, and unclassified documents still
   require classification before becoming registered knowledge.
-- The recommendation explicitly tells the agent to inform the user that the
+- The detailed recommendation explicitly tells the agent to inform the user that the
   applicable candidate reviews remain.
 - `status`/`audit` JSON exposes `candidateCount`,
   `unclassifiedCandidateCount`, and `changedClassifiedCandidateCount`. `search`
@@ -46,7 +50,7 @@ changed document candidates.
   equivalent `recommendation` string when either review category is non-zero.
 - When no candidates require review, human-readable output does not print a
   recommendation and JSON output omits the `recommendation` property. This
-  applies independently to each covered command.
+  applies to commands and modes that include discovery guidance.
 - Normal `idx wiki discover` continues to surface changed already-classified
   documents. `idx wiki discover --all-unclassified` continues to exclude every
   existing knowledge entry, even when its source has changed.

@@ -1391,7 +1391,7 @@ describe("SqliteMetadataStore", () => {
 			rmSync(tempDir, { recursive: true, force: true });
 		});
 
-		it("marks stale indexing snapshots as failed on initialize", async () => {
+		it("does not age-expire indexing snapshots on initialize", async () => {
 			const db = (staleStore as any).db;
 			const oldTimestamp = Date.now() - 31 * 60 * 1000;
 
@@ -1404,7 +1404,7 @@ describe("SqliteMetadataStore", () => {
 			await staleStore.initialize();
 
 			const snapshot = await staleStore.getSnapshot("stale-snap-1");
-			expect(snapshot?.status).toBe("failed");
+			expect(snapshot?.status).toBe("indexing");
 		});
 
 		it("preserves recent indexing snapshots", async () => {

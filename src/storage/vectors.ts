@@ -69,6 +69,14 @@ export class SqliteVecVectorStore implements VectorStore {
 		}
 
 		const db = this.getDb();
+		// Semantic queries commonly run while another process is incrementally
+		// indexing. A current vector schema needs no mutation, so avoid the
+		// IMMEDIATE transaction (and its database-wide writer contention) on the
+		// read path. Legacy/new databases still take the transactional setup path.
+		if (this.vectorSchemaIsCurrent(db)) {
+			this.initialized = true;
+			return;
+		}
 		const initSchema = db.transaction(() => {
 			this.ensureVectorMetaSchema(db);
 
@@ -92,6 +100,83 @@ export class SqliteVecVectorStore implements VectorStore {
 		initSchema.immediate();
 
 		this.initialized = true;
+	}
+
+	private vectorSchemaIsCurrent(db: Database.Database): boolean {
+		if (!this.tableExists(db, "vector_meta") || !this.tableExists(db, "vec_chunks")) {
+			return false;
+		}
+
+		const columns = db.prepare("PRAGMA table_info(vector_meta)").all() as Array<{
+			name: string;
+			pk: number;
+		}>;
+		const primaryKey = columns
+			.filter((column) => column.pk > 0)
+			.sort((left, right) => left.pk - right.pk)
+			.map((column) => column.name);
+		const expectedColumns = [
+			"chunk_id", "project_id", "snapshot_id", "file_path", "start_line",
+			"end_line", "content_hash", "chunk_type", "primary_symbol", "file_domain",
+		];
+		const columnNames = new Set(columns.map((column) => column.name));
+		const vectorColumns = db.prepare("PRAGMA table_info(vec_chunks)").all() as Array<{
+			name: string;
+		}>;
+		const vectorColumnNames = new Set(vectorColumns.map((column) => column.name));
+		const requiredIndexes = [
+			"idx_vector_meta_snapshot_id", "idx_vector_meta_project_id",
+			"idx_vector_meta_file_path", "idx_vector_meta_file_domain",
+		];
+		return (
+			expectedColumns.every((column) => columnNames.has(column)) &&
+			vectorColumnNames.has("chunk_id") &&
+			vectorColumnNames.has("embedding") &&
+			primaryKey.join(",") === "project_id,snapshot_id,chunk_id" &&
+			requiredIndexes.every((indexName) => this.indexExists(db, indexName)) &&
+			!this.vectorMetaNeedsBackfill(db)
+		);
+	}
+
+	private indexExists(db: Database.Database, indexName: string): boolean {
+		return Boolean(db
+			.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?")
+			.get(indexName));
+	}
+
+	private vectorMetaNeedsBackfill(db: Database.Database): boolean {
+		// A snapshot being indexed may temporarily reference a vector already
+		// stored for an earlier snapshot. That membership is filled as part of
+		// indexing, so it must not make query-only initialization acquire a write
+		// transaction. Older databases without snapshot tracking retain the
+		// legacy all-source check.
+		const completedSnapshotFilter = this.tableExists(db, "snapshots")
+			? `
+				AND EXISTS (
+					SELECT 1 FROM snapshots snapshot
+					WHERE snapshot.id = source.snapshot_id
+					AND snapshot.project_id = source.project_id
+					AND snapshot.status IN ('ready', 'completed')
+				)
+			`
+			: "";
+		for (const tableName of ["chunks", "knowledge_chunks"]) {
+			if (!this.tableExists(db, tableName)) continue;
+			const missing = db.prepare(`
+				SELECT 1 FROM ${tableName} source
+				WHERE EXISTS (SELECT 1 FROM vec_chunks vector WHERE vector.chunk_id = source.chunk_id)
+				AND NOT EXISTS (
+					SELECT 1 FROM vector_meta meta
+					WHERE meta.project_id = source.project_id
+					AND meta.snapshot_id = source.snapshot_id
+					AND meta.chunk_id = source.chunk_id
+				)
+				${completedSnapshotFilter}
+				LIMIT 1
+			`).get();
+			if (missing) return true;
+		}
+		return false;
 	}
 
 	private ensureVectorMetaSchema(db: Database.Database): void {

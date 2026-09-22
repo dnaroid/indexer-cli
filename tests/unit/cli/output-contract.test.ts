@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { formatAutoIndexResult } from "../../../src/cli/format/compact.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -10,6 +11,12 @@ function readSource(relativePath: string): string {
 }
 
 describe("CLI text-only output contract", () => {
+	it("keeps descriptive refresh failures on one compact text line", () => {
+		expect(formatAutoIndexResult({
+			status: "failed", reason: "lock-held", ms: 10000,
+			message: "Timed out after waiting 10000ms.\nRetry after indexing finishes.",
+		})).toBe("IDX failed reason=lock-held message=Timed-out-after-waiting-10000ms.-Retry-after-indexing-finishes. ms=10000");
+	});
 	it("keeps a compact IDX auto-index line available for idx commands", () => {
 		const files = [
 			"../../../src/cli/commands/search.ts",

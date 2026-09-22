@@ -84,14 +84,38 @@ reservation. Test hints are ranked by direct dependency and query/path
 relevance. Indexed unreviewed documents are separated from `Primary knowledge`,
 emit an explicit default-trusted/unreviewed warning, do not contribute knowledge
 relations, and are labeled `Indexed knowledge (unreviewed)` plus
-`Read (unreviewed)` in formatted context. When no registered primary knowledge
+an unreviewed evidence/read row in formatted context. When no registered primary knowledge
 matches, context may use up to its normal `maxSpecs` allowance from this tier;
 when registered primary knowledge matches, only one indexed unreviewed result is
 reserved by default. Formatting enforces a minimum 200-token hard budget and
-reserves a compact row (with omission counts) for each nonempty warnings,
-primary knowledge, unreviewed fallback, implementation, and tests source before
-verbose details; warning source counts remain visible even when individual
-warnings are clipped. A matched knowledge or fallback document path is included
-in `readNext`, even where no section range is indexed. Text is snapshot-keyed;
+reserves a compact row for each nonempty warnings, primary knowledge,
+unreviewed fallback, implementation, tests, knowledge-relations, and
+read-next-only source before using remaining budget for additional selected rows.
+It emits each evidence path once where possible (rather than repeating it in
+`Read next`), retains warnings and knowledge relations, and reports the exact
+count of source rows hidden by the budget. After reserving source coverage,
+remaining space restores exact paths, complete warnings, reasons and brief
+summaries; budget-shortened rows are counted separately as `clipped` in `TRUNC`.
+Distinct follow-up ranges are retained even when their file already appears.
+Knowledge relation rows retain both source and target identity.
+Each full knowledge row includes its range, status/trust, and brief summary.
+A matched knowledge or fallback document
+path is included in `readNext`, even where no section range is indexed. Text is snapshot-keyed;
 callers must create a new search engine (or use a different snapshot id) after
 indexing.
+
+CLI text is intentionally more compact than JSON. `idx wiki search` emits one
+evidence-bearing row per result (including its best range when available), and
+does not run discovery merely to repeat review guidance; `--verbose` adds full
+title/summary and reason-code details plus an optional discovery recommendation.
+Its JSON payload retains the established discovery counts and recommendation
+fields. `idx wiki discover` defaults to 40 one-line candidates,
+retains total/cursor/next-cursor omission information, and exposes signals with
+`--verbose`. `idx wiki status`/`audit` use a short discovery pointer by default
+and retain the full recommendation under `--verbose`; JSON is unchanged.
+`idx context` does not emit unrelated discovery recommendations. Its default
+source rows include paths, ranges, status/trust, and knowledge summaries,
+then state omitted counts rather than duplicating those paths in detailed and
+`Read next` sections. `--verbose` adds titles and reason-code detail within the
+same budget. Auto incremental refresh, freshness, trust, unreviewed, and degradation
+warnings remain enabled in both modes.

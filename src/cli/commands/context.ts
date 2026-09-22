@@ -12,14 +12,13 @@ import {
 import { KnowledgeSearchEngine } from "../../knowledge/search.js";
 import {
 	KnowledgeService,
-	summarizeKnowledgeCandidates,
 } from "../../knowledge/service.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { formatAutoIndexResult } from "../format/compact.js";
-import { candidateReviewRecommendation } from "../format/knowledge.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { withSnapshotReadLease } from "../../core/snapshot-retention.js";
 
 function parsePositiveInteger(value: string | undefined, fallback: number): number {
 	if (!value) return fallback;
@@ -41,6 +40,7 @@ export function registerContextCommand(program: Command): void {
 		.option("--path-prefix <path>", "limit implementation discovery to a code area")
 		.option("--include-secondary", "allow design-only knowledge in retrieval")
 		.option("--mode <mode>", "retrieval mode: hybrid, semantic, or lexical", "hybrid")
+		.option("--verbose", "include titles and retrieval reason-code details")
 		.action(
 			async (
 				query: string,
@@ -52,6 +52,7 @@ export function registerContextCommand(program: Command): void {
 					pathPrefix?: string;
 					includeSecondary?: boolean;
 					mode?: "hybrid" | "semantic" | "lexical";
+					verbose?: boolean;
 				},
 			) => {
 				if (options.mode && !["hybrid", "semantic", "lexical"].includes(options.mode)) throw new Error("--mode must be hybrid, semantic, or lexical.");
@@ -97,81 +98,76 @@ export function registerContextCommand(program: Command): void {
 					await metadata.initialize();
 					const indexResult = offline ? undefined : await ensureIndexed(metadata, repoRoot, { silent: !process.stderr.isTTY });
 					if (indexResult) console.log(formatAutoIndexResult(indexResult));
-					const snapshot =
-						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
-					if (!snapshot) throw new Error("No completed index snapshot is available.");
-					if (indexResult?.status === "failed") {
-						console.error("Auto-index failed; using the existing completed snapshot (it may be stale).");
-					}
-					let embeddingsAvailable = !offline;
-					try {
-						if (!offline) {
-							await vectors.initialize();
-							await Promise.all([embedder.initialize(), knowledgeEmbedder.initialize()]);
+					await withSnapshotReadLease(repoRoot, async () => {
+						const snapshot = await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+						if (!snapshot) throw new Error("No completed index snapshot is available.");
+						if (indexResult?.status === "failed") {
+							console.error(`Auto-index failed: ${indexResult.message ?? indexResult.reason}; using the existing completed snapshot (it may be stale).`);
 						}
-					} catch (error) {
-						embeddingsAvailable = false;
-						console.error(`Embedding provider unavailable; context uses bounded lexical knowledge retrieval only: ${error instanceof Error ? error.message : String(error)}`);
-					}
-
-					const service = new KnowledgeService(
-						DEFAULT_PROJECT_ID,
-						repoRoot,
-						metadata,
-						metadata,
-					);
-					const candidates = await service.discover();
-					const recommendation = candidateReviewRecommendation(
-						summarizeKnowledgeCandidates(candidates),
-					);
-					if (recommendation) {
-						console.log(`Recommendation: ${recommendation}`);
-					}
-					const knowledgeSearch = new KnowledgeSearchEngine(
-						DEFAULT_PROJECT_ID,
-						snapshot.id,
-						metadata,
-						metadata,
-						vectors,
-						embeddingsAvailable ? knowledgeEmbedder : null,
-						service,
-					);
-					const rawCodeSearch = new SearchEngine(metadata, vectors, embedder, repoRoot);
-					const codeSearch = {
-						search: async (...args: Parameters<SearchEngine["search"]>) => {
-							try {
-								return await rawCodeSearch.search(...args);
-							} catch (error) {
-								// A provider can fail after initialization. Hybrid context must
-								// remain useful, but do not relabel lexical results as semantic.
-								if (args[3]?.mode !== "hybrid") throw error;
-								console.error(`Code semantic retrieval degraded to lexical: ${error instanceof Error ? error.message : String(error)}`);
-								return rawCodeSearch.search(args[0], args[1], args[2], { ...args[3], mode: "lexical" });
+						let embeddingsAvailable = !offline;
+						try {
+							if (!offline) {
+								await vectors.initialize();
+								await Promise.all([embedder.initialize(), knowledgeEmbedder.initialize()]);
 							}
-						},
-					};
-					const engine = new KnowledgeContextEngine(
-						DEFAULT_PROJECT_ID,
-						snapshot.id,
-						metadata,
-						metadata,
-						knowledgeSearch,
-						codeSearch,
-					);
-					const pack = await engine.build(query, {
-						maxSpecs: parsePositiveInteger(options.maxSpecs, 4),
-						maxCode: parsePositiveInteger(options.maxCode, 6),
-						maxTests: parsePositiveInteger(options.maxTests, 4),
-						includeSecondary: options.includeSecondary,
-						pathPrefix: options.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""),
-						mode: options.mode,
+						} catch (error) {
+							embeddingsAvailable = false;
+							console.error(`Embedding provider unavailable; context uses bounded lexical knowledge retrieval only: ${error instanceof Error ? error.message : String(error)}`);
+						}
+
+						const service = new KnowledgeService(
+							DEFAULT_PROJECT_ID,
+							repoRoot,
+							metadata,
+							metadata,
+						);
+						const knowledgeSearch = new KnowledgeSearchEngine(
+							DEFAULT_PROJECT_ID,
+							snapshot.id,
+							metadata,
+							metadata,
+							vectors,
+							embeddingsAvailable ? knowledgeEmbedder : null,
+							service,
+						);
+						const rawCodeSearch = new SearchEngine(metadata, vectors, embedder, repoRoot);
+						const codeSearch = {
+							search: async (...args: Parameters<SearchEngine["search"]>) => {
+								try {
+									return await rawCodeSearch.search(...args);
+								} catch (error) {
+									// A provider can fail after initialization. Hybrid context must
+									// remain useful, but do not relabel lexical results as semantic.
+									if (args[3]?.mode !== "hybrid") throw error;
+									console.error(`Code semantic retrieval degraded to lexical: ${error instanceof Error ? error.message : String(error)}`);
+									return rawCodeSearch.search(args[0], args[1], args[2], { ...args[3], mode: "lexical" });
+								}
+							},
+						};
+						const engine = new KnowledgeContextEngine(
+							DEFAULT_PROJECT_ID,
+							snapshot.id,
+							metadata,
+							metadata,
+							knowledgeSearch,
+							codeSearch,
+						);
+						const pack = await engine.build(query, {
+							maxSpecs: parsePositiveInteger(options.maxSpecs, 4),
+							maxCode: parsePositiveInteger(options.maxCode, 6),
+							maxTests: parsePositiveInteger(options.maxTests, 4),
+							includeSecondary: options.includeSecondary,
+							pathPrefix: options.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""),
+							mode: options.mode,
+						});
+						process.stdout.write(
+							formatKnowledgeContext(
+								pack,
+								parsePositiveInteger(options.budget, 1400),
+								options.verbose,
+							),
+						);
 					});
-					process.stdout.write(
-						formatKnowledgeContext(
-							pack,
-							parsePositiveInteger(options.budget, 1400),
-						),
-					);
 				} catch (error) {
 					console.error(
 						`Context failed: ${error instanceof Error ? error.message : String(error)}`,

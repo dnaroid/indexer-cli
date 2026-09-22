@@ -320,72 +320,125 @@ function formatRange(startLine?: number, endLine?: number): string {
 export function formatKnowledgeContext(
 	pack: KnowledgeContextPack,
 	budgetTokens = 1400,
+	verbose = false,
 ): string {
 	const budget = Math.max(200, budgetTokens);
 	const estimator = new TokenEstimator();
 	const unreviewed = pack.unreviewed ?? [];
-	const lines: string[] = [];
-	let used = 0;
-	let omitted = 0;
-	const footerReserve = estimator.estimate(`TRUNC budget=${budget} omitted=999999 estimated-used=${budget}\n`);
-	const clip = (value: string, max = 72): string =>
-		value.length <= max ? value : `${value.slice(0, Math.max(1, max - 1))}…`;
-	const push = (line: string): boolean => {
-		const next = estimator.estimate([...lines, line].join("\n"));
-		if (next + footerReserve + 1 > budget) return false;
-		lines.push(line);
-		used = next;
-		return true;
+	const clip = (value: string, max = 40): string => {
+		const characters = Array.from(value);
+		return characters.length <= max ? value : `${characters.slice(0, Math.max(1, max - 1)).join("")}…`;
 	};
-
-	push(`CONTEXT query=${JSON.stringify(clip(pack.query, 80))} budget=${budget}`);
-	// Reserve concise evidence from each nonempty primary source before details.
-	// Counts remain visible even when the source path itself must be clipped.
-	const compact = (heading: string, total: number, row: string) => {
-		omitted += Math.max(0, total - 1);
-		return push(`${heading}: (${total}) ${row}${total > 1 ? ` … ${total - 1} omitted` : ""}`);
-	};
-	if (pack.warnings.length && !compact("Warnings", pack.warnings.length, `! ${clip(pack.warnings[0])}`)) omitted += pack.warnings.length;
-	if (pack.specs.length && !compact("Primary knowledge", pack.specs.length, `S ${clip(pack.specs[0].path)} status=${pack.specs[0].status} trust=${pack.specs[0].trust}`)) omitted += pack.specs.length;
-	if (unreviewed.length && !compact("Indexed knowledge (unreviewed)", unreviewed.length, `U ${clip(unreviewed[0].path)} status=unreviewed trust=${unreviewed[0].trust}`)) omitted += unreviewed.length;
-	if (pack.implementation.length && !compact("Implementation", pack.implementation.length, `C ${clip(pack.implementation[0].path)}${formatRange(pack.implementation[0].startLine, pack.implementation[0].endLine)} reason=${pack.implementation[0].reason}`)) omitted += pack.implementation.length;
-	if (pack.tests.length && !compact("Tests", pack.tests.length, `T ${clip(pack.tests[0].path)} reason=${pack.tests[0].reason}`)) omitted += pack.tests.length;
-
-	for (const spec of pack.specs) {
-		if (spec.summary && !push(`  S ${clip(spec.path, 48)}: ${clip(spec.summary, 160)}`)) omitted += 1;
+	type Row = { text: string; compact: string };
+	type Category = { heading: string; rows: Row[] };
+	const row = (text: string, compact = text): Row => ({ text, compact });
+	const emittedPaths = new Set<string>();
+	const uniqueRows = <T extends { path: string }>(
+		values: T[],
+		format: (value: T) => Row,
+	): Row[] => values.map((value) => {
+		emittedPaths.add(value.path);
+		return format(value);
+	});
+	const specs = uniqueRows(pack.specs, (spec) => {
 		const range = spec.bestRanges[0];
-		if (range && !push(`  Read: ${clip(spec.path)}:${range.startLine}-${range.endLine}`)) omitted += 1;
-	}
-	for (const document of unreviewed) {
-		if (document.summary && !push(`  U ${clip(document.path, 48)}: ${clip(document.summary, 160)}`)) omitted += 1;
+		const suffix = `${range ? `:${range.startLine}-${range.endLine}` : ""} status=${spec.status} trust=${spec.trust}`;
+		return row(`S ${spec.path}${suffix}${spec.summary ? ` — ${clip(spec.summary, 160)}` : ""}`, `S ${clip(spec.path)}${suffix}`);
+	});
+	const indexed = uniqueRows(unreviewed, (document) => {
 		const range = document.bestRanges[0];
-		if (range && !push(`  Read (unreviewed): ${clip(document.path)}:${range.startLine}-${range.endLine}`)) omitted += 1;
-	}
-
-	const relatedKnowledge = pack.relations.filter(
-		(relation) => relation.targetKind === "knowledge",
+		const suffix = `${range ? `:${range.startLine}-${range.endLine}` : ""} status=${document.status} trust=${document.trust}`;
+		return row(`U ${document.path}${suffix}${document.summary ? ` — ${clip(document.summary, 160)}` : ""}`, `U ${clip(document.path)}${suffix}`);
+	});
+	const implementation = uniqueRows(pack.implementation, (item) =>
+		row(`C ${item.path}${formatRange(item.startLine, item.endLine)} reason=${item.reason}`, `C ${clip(item.path)}${formatRange(item.startLine, item.endLine)}`),
 	);
-	if (relatedKnowledge.length > 0) {
-		push("Related knowledge:");
-		for (const relation of relatedKnowledge) {
-			if (
-				!push(
-					`R ${relation.sourcePath} -[${relation.relationKind}/${relation.provenance}]-> ${relation.targetPath}`,
-				)
-			) {
-				omitted += 1;
-				break;
-			}
+	const tests = uniqueRows(pack.tests, (test) =>
+		row(`T ${test.path} reason=${test.reason} confidence=${test.confidence}`, `T ${clip(test.path)} reason=${test.reason}`),
+	);
+	const relatedKnowledge = pack.relations.filter((relation) => relation.targetKind === "knowledge");
+	const knownEvidencePaths = new Set(emittedPaths);
+	for (const item of [...pack.specs, ...unreviewed]) {
+		const range = item.bestRanges[0];
+		if (range) knownEvidencePaths.add(`${item.path}:${range.startLine}-${range.endLine}`);
+	}
+	for (const item of pack.implementation) {
+		knownEvidencePaths.add(`${item.path}${formatRange(item.startLine, item.endLine)}`);
+	}
+	for (const relation of relatedKnowledge) knownEvidencePaths.add(relation.targetPath);
+	const readNext = [...new Set(pack.readNext)].filter((item) => !knownEvidencePaths.has(item));
+	const categories: Category[] = [
+		{ heading: "Warnings", rows: pack.warnings.map((warning) => row(`! ${warning}`, `! ${clip(warning, 56)}`)) },
+		{ heading: "Primary knowledge", rows: specs },
+		{ heading: "Indexed knowledge (unreviewed)", rows: indexed },
+		{ heading: "Implementation", rows: implementation },
+		{ heading: "Tests", rows: tests },
+		{ heading: "Knowledge relations", rows: relatedKnowledge.map((relation) =>
+			row(`R ${relation.sourcePath} --${relation.relationKind}/${relation.provenance}--> ${relation.targetPath}`, `R ${clip(relation.sourcePath)} --${relation.relationKind}--> ${clip(relation.targetPath)}`),
+		) },
+		{ heading: "Read next", rows: readNext.map((item) => row(`> ${item}`, `> ${clip(item)}`)) },
+	].filter((category) => category.rows.length > 0);
+	const selected = categories.map(() => new Set<number>());
+	const expanded = categories.map(() => new Set<number>());
+	const render = (): { text: string; omitted: number } => {
+		const omitted = categories.reduce((count, category, index) => count + category.rows.length - selected[index].size, 0);
+		const lines = [`CONTEXT query=${JSON.stringify(clip(pack.query, 48))} budget=${budget}`];
+		let clipped = 0;
+		for (const [index, category] of categories.entries()) {
+			const visible = [...selected[index]].sort((left, right) => left - right);
+			if (visible.length === 0) continue;
+			const hidden = category.rows.length - visible.length;
+			const text = (rowIndex: number): string => {
+				const item = category.rows[rowIndex];
+				if (expanded[index].has(rowIndex)) return item.text;
+				if (item.compact !== item.text) clipped += 1;
+				return item.compact;
+			};
+			lines.push(`${category.heading}: (${category.rows.length}) ${text(visible[0])}${hidden > 0 ? ` … ${hidden} omitted` : ""}`);
+			for (const rowIndex of visible.slice(1)) lines.push(`  ${text(rowIndex)}`);
+		}
+		if (omitted > 0 || clipped > 0) {
+			const used = estimator.estimate(lines.join("\n"));
+			lines.push(`TRUNC budget=${budget} omitted=${omitted} clipped=${clipped} estimated-used=${used}`);
+		}
+		return { text: lines.join("\n"), omitted };
+	};
+	const fits = (): boolean => estimator.estimate(render().text) <= budget;
+	const select = (categoryIndex: number, rowIndex: number): boolean => {
+		selected[categoryIndex].add(rowIndex);
+		if (fits()) return true;
+		selected[categoryIndex].delete(rowIndex);
+		return false;
+	};
+
+	// Reserve one concise row per source category, then spend the remaining budget
+	// on every additional selected source that fits.  Do not stop after one miss:
+	// a later, shorter row may still fit.
+	for (const [index] of categories.entries()) select(index, 0);
+	for (let rowIndex = 1; rowIndex < Math.max(...categories.map((category) => category.rows.length)); rowIndex += 1) {
+		for (const [index, category] of categories.entries()) {
+			if (rowIndex < category.rows.length) select(index, rowIndex);
 		}
 	}
-
-	if (pack.readNext.length > 0) {
-		push("Read next:");
-		for (const item of pack.readNext) {
-			if (!push(`> ${clip(item)}`)) { omitted += 1; break; }
+	// Expand reserved rows only after preserving source coverage. In normal-sized
+	// packs this restores exact paths and complete warnings instead of clipping
+	// them unconditionally even when most of the token budget is still unused.
+	for (const [index] of categories.entries()) {
+		for (const rowIndex of selected[index]) {
+			expanded[index].add(rowIndex);
+			if (!fits()) expanded[index].delete(rowIndex);
 		}
 	}
-
-	if (omitted > 0) lines.push(`TRUNC budget=${budget} omitted=${omitted} estimated-used=${used}`);
-	return `${lines.join("\n")}\n`;
+	const output = render();
+	if (!verbose) return `${output.text}\n`;
+	const details = [
+		...pack.specs.map((spec) => `detail S ${clip(spec.title, 72)} — ${clip(spec.summary, 120)} why=${spec.reasonCodes.join(",") || "none"}`),
+		...unreviewed.map((document) => `detail U ${clip(document.title, 72)} — ${clip(document.summary, 120)} why=${document.reasonCodes.join(",") || "none"}`),
+	];
+	const verboseLines = output.text.split("\n");
+	for (const detail of details) {
+		if (estimator.estimate([...verboseLines, detail].join("\n")) > budget) break;
+		verboseLines.push(detail);
+	}
+	return `${verboseLines.join("\n")}\n`;
 }

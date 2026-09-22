@@ -1,6 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	acquireIndexLock,
@@ -56,6 +58,26 @@ describe("acquireIndexLock", () => {
 		await releaseAfterRetry();
 	});
 
+	it("waits for a lock held by another process and times out within its bound", async () => {
+		const child = holdLockInChild(tempDir, 1_000);
+		try {
+			await child.acquired;
+			const startedAt = Date.now();
+			await expect(
+				acquireIndexLock(tempDir, { waitMs: 150, retryIntervalMs: 50 }),
+			).rejects.toThrow("Indexing is already in progress");
+			expect(Date.now() - startedAt).toBeLessThan(600);
+
+			const release = await acquireIndexLock(tempDir, {
+				waitMs: 2_000,
+				retryIntervalMs: 50,
+			});
+			await release();
+		} finally {
+			await child.done;
+		}
+	}, 5_000);
+
 	it("uses custom staleMs", async () => {
 		const release = await acquireIndexLock(tempDir, { staleMs: 60_000 });
 		await release();
@@ -96,6 +118,47 @@ describe("acquireIndexLock", () => {
 		}
 	});
 });
+
+function holdLockInChild(projectRoot: string, holdMs: number): {
+	acquired: Promise<void>;
+	done: Promise<void>;
+} {
+	const lockModule = pathToFileURL(
+		path.resolve(import.meta.dirname, "../../../src/core/lock.ts"),
+	).href;
+	const child = spawn(process.execPath, [
+		"--import",
+		"tsx",
+		"--input-type=module",
+		"--eval",
+		`import { acquireIndexLock } from ${JSON.stringify(lockModule)};
+const release = await acquireIndexLock(${JSON.stringify(projectRoot)});
+console.log("locked");
+setTimeout(async () => { await release(); }, ${holdMs});`,
+	]);
+	let stderr = "";
+	child.stderr.on("data", (chunk) => {
+		stderr += String(chunk);
+	});
+
+	const acquired = new Promise<void>((resolve, reject) => {
+		child.stdout.on("data", (chunk) => {
+			if (String(chunk).includes("locked")) resolve();
+		});
+		child.once("error", reject);
+		child.once("exit", (code) => {
+			if (code !== 0) reject(new Error(`Lock child exited ${code}: ${stderr}`));
+		});
+	});
+	const done = new Promise<void>((resolve, reject) => {
+		child.once("error", reject);
+		child.once("exit", (code) => {
+			if (code === 0) resolve();
+			else reject(new Error(`Lock child exited ${code}: ${stderr}`));
+		});
+	});
+	return { acquired, done };
+}
 
 describe("getActiveIndexingInfo", () => {
 	it("returns null when no indexing snapshot exists", async () => {

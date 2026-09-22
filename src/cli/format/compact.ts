@@ -29,6 +29,7 @@ export function formatAutoIndexResult(result: AutoIndexResult): string {
 
 	if (result.status === "failed") {
 		parts.push(`reason=${sanitizeValue(result.reason)}`);
+		if (result.message) parts.push(`message=${sanitizeValue(result.message)}`);
 		if (result.action) {
 			parts.push(`action=${sanitizeValue(result.action)}`);
 		}

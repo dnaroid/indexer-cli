@@ -14,6 +14,8 @@ describe("wiki command registration", () => {
 			expect.arrayContaining(["--path", "--receipt"]),
 		);
 		expect(wiki?.commands.find((command) => command.name() === "search")?.options.map((option) => option.long)).toContain("--mode");
+		expect(wiki?.commands.find((command) => command.name() === "search")?.options.map((option) => option.long)).toContain("--verbose");
+		expect(wiki?.commands.find((command) => command.name() === "discover")?.options.map((option) => option.long)).toContain("--verbose");
 		expect(wiki?.commands.find((command) => command.name() === "trust")?.options.map((option) => option.long)).toEqual(
 			expect.arrayContaining(["--path", "--all", "--clear", "--rationale"]),
 		);

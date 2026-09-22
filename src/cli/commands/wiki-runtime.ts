@@ -6,6 +6,7 @@ import { KnowledgeService } from "../../knowledge/service.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
 import { ensureIndexed } from "./ensure-indexed.js";
+import { withSnapshotReadLease } from "../../core/snapshot-retention.js";
 
 export interface WikiRuntime {
 	projectRoot: string;
@@ -32,18 +33,22 @@ export async function withWikiRuntime<T>(
 		const indexResult = options.refresh
 			? await ensureIndexed(metadata, projectRoot, { silent: !process.stderr.isTTY })
 			: undefined;
-		const snapshot = await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
-		if (!snapshot) {
-			if (indexResult?.status === "failed") throw new Error(indexResult.reason);
-			throw new Error("No completed index snapshot is available. Run idx index first.");
+		if (indexResult?.status === "failed") {
+			throw new Error(indexResult.message ?? indexResult.reason);
 		}
-		let indexWarning: string | undefined;
-		if (indexResult?.status === "failed" || indexResult?.status === "stale") {
-			indexWarning = `Using existing completed index: ${indexResult.reason}`;
-			console.error(indexWarning);
-		}
-		const service = new KnowledgeService(DEFAULT_PROJECT_ID, projectRoot, metadata, metadata);
-		return await action({ projectRoot, metadata, service, snapshotId: snapshot.id, indexWarning });
+		return await withSnapshotReadLease(projectRoot, async () => {
+			const snapshot = await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+			if (!snapshot) {
+				throw new Error("No completed index snapshot is available. Run idx index first.");
+			}
+			let indexWarning: string | undefined;
+			if (indexResult?.status === "stale") {
+				indexWarning = `Using existing completed index: ${indexResult.reason}`;
+				console.error(indexWarning);
+			}
+			const service = new KnowledgeService(DEFAULT_PROJECT_ID, projectRoot, metadata, metadata);
+			return action({ projectRoot, metadata, service, snapshotId: snapshot.id, indexWarning });
+		});
 	} finally {
 		await metadata.close();
 	}

@@ -1703,11 +1703,19 @@ describe.sequential("CLI e2e", () => {
 				cwd: knowledgeRoot,
 			});
 			expect(candidateStatus.exitCode).toBe(0);
-			expect(candidateStatus.stdout).toContain("Recommendation:");
 			expect(candidateStatus.stdout).toContain("Bootstrap: no registered primary specs yet");
 			expect(candidateStatus.stdout).toContain("default-trusted");
-			expect(candidateStatus.stdout).toContain("idx wiki discover");
-			expect(candidateStatus.stdout).toContain("durable primary-spec semantics");
+			expect(candidateStatus.stdout).toContain(
+				"Review: 1 discovery candidate; run `idx wiki discover` for details.",
+			);
+			expect(candidateStatus.stdout).not.toContain("Recommendation:");
+
+			const candidateStatusVerbose = runCLI(["wiki", "status", "--verbose"], {
+				cwd: knowledgeRoot,
+			});
+			expect(candidateStatusVerbose.exitCode).toBe(0);
+			expect(candidateStatusVerbose.stdout).toContain("Recommendation:");
+			expect(candidateStatusVerbose.stdout).toContain("durable primary-spec semantics");
 
 			const candidateStatusJson = runCLI(["wiki", "status", "--json"], {
 				cwd: knowledgeRoot,
@@ -1729,8 +1737,21 @@ describe.sequential("CLI e2e", () => {
 				cwd: knowledgeRoot,
 			});
 			expect(candidateSearch.exitCode).toBe(0);
-			expect(candidateSearch.stdout).toContain("Recommendation:");
-			expect(candidateSearch.stdout).toContain("trusted by default for retrieval");
+			expect(candidateSearch.stdout).toContain("default-trusted but unreviewed");
+			expect(candidateSearch.stdout).toContain("inspect before relying on them");
+			expect(candidateSearch.stdout).toContain("docs/session-contract.md:");
+			expect(candidateSearch.stdout).not.toContain("Recommendation:");
+
+			const candidateSearchVerbose = runCLI(
+				["wiki", "search", "session", "--verbose"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(candidateSearchVerbose.exitCode).toBe(0);
+			expect(candidateSearchVerbose.stdout).toContain(
+				"title=Session authentication contract",
+			);
+			expect(candidateSearchVerbose.stdout).toContain("  why=");
+			expect(candidateSearchVerbose.stdout).toContain("Recommendation:");
 
 			const candidateSearchJson = runCLI(
 				["wiki", "search", "session", "--json"],
@@ -1744,8 +1765,19 @@ describe.sequential("CLI e2e", () => {
 				cwd: knowledgeRoot,
 			});
 			expect(candidateContext.exitCode).toBe(0);
-			expect(candidateContext.stdout).toContain("Recommendation:");
 			expect(candidateContext.stdout).toContain("Indexed knowledge (unreviewed):");
+			expect(candidateContext.stdout).toContain("docs/session-contract.md:");
+			expect(candidateContext.stdout).not.toContain("Recommendation:");
+
+			const candidateContextVerbose = runCLI(
+				["context", "session ownership", "--budget", "2000", "--verbose"],
+				{ cwd: knowledgeRoot },
+			);
+			expect(candidateContextVerbose.exitCode).toBe(0);
+			expect(candidateContextVerbose.stdout).toContain("docs/session-contract.md:");
+			expect(candidateContextVerbose.stdout).toMatch(/^detail U .+ — .+ why=.+$/m);
+			expect(candidateContextVerbose.stdout).toContain("why=");
+			expect(candidateContextVerbose.stdout).not.toContain("Recommendation:");
 
 			const record = runCLI(
 				[
@@ -2025,9 +2057,21 @@ describe.sequential("CLI e2e", () => {
 				const changedStatus = runCLI(["wiki", "status"], { cwd: knowledgeRoot });
 				expect(changedStatus.exitCode).toBe(0);
 				expect(changedStatus.stdout).toContain(
-					"candidates: 1 (0 unclassified, 1 changed classified)",
+					"candidates: 1 (0 spec-like, 0 unclassified, 1 changed classified)",
 				);
-				expect(changedStatus.stdout).toContain("already registered project knowledge");
+				expect(changedStatus.stdout).toContain(
+					"Review: 1 discovery candidate; run `idx wiki discover` for details.",
+				);
+				expect(changedStatus.stdout).not.toContain("Recommendation:");
+
+				const changedStatusVerbose = runCLI(["wiki", "status", "--verbose"], {
+					cwd: knowledgeRoot,
+				});
+				expect(changedStatusVerbose.exitCode).toBe(0);
+				expect(changedStatusVerbose.stdout).toContain("Recommendation:");
+				expect(changedStatusVerbose.stdout).toContain(
+					"already registered project knowledge",
+				);
 
 				const changedSearch = runCLI(["wiki", "search", "release", "--json"], {
 					cwd: knowledgeRoot,
@@ -2042,8 +2086,7 @@ describe.sequential("CLI e2e", () => {
 					cwd: knowledgeRoot,
 				});
 				expect(changedContext.exitCode).toBe(0);
-				expect(changedContext.stdout).toContain("Recommendation:");
-				expect(changedContext.stdout).toContain("already registered project knowledge");
+				expect(changedContext.stdout).not.toContain("Recommendation:");
 				expect(changedContext.stdout).not.toContain(
 					"do not treat candidates as registered knowledge before review",
 				);
@@ -2070,11 +2113,12 @@ describe.sequential("CLI e2e", () => {
 				expect(mixedAudit.stdout).toContain('"unclassifiedCandidateCount": 1');
 				expect(mixedAudit.stdout).toContain('"changedClassifiedCandidateCount": 1');
 				expect(mixedAudit.stdout).toContain(
-					"is unclassified and requires review and classification",
+					"is unclassified (1 heuristic spec candidate)",
 				);
+				expect(mixedAudit.stdout).toContain("default-trusted, unreviewed indexed knowledge");
 				expect(mixedAudit.stdout).toContain("previously classified");
 				expect(mixedAudit.stdout).toContain(
-					"only unclassified candidates are not yet registered",
+					"Changed classified candidates remain registered knowledge",
 				);
 
 				const rerecordGuide = runCLI(
@@ -2098,9 +2142,9 @@ describe.sequential("CLI e2e", () => {
 				expect(unclassifiedOnly.stdout).toContain('"unclassifiedCandidateCount": 1');
 				expect(unclassifiedOnly.stdout).toContain('"changedClassifiedCandidateCount": 0');
 				expect(unclassifiedOnly.stdout).toContain("idx wiki discover");
-				expect(unclassifiedOnly.stdout).toContain("idx wiki record");
+				expect(unclassifiedOnly.stdout).toContain("Record selected documents only when you want durable classification");
 				expect(unclassifiedOnly.stdout).toContain(
-					"do not treat unclassified candidates as registered project knowledge before review",
+					"registration is optional for retrieval but required for durable primary-spec semantics",
 				);
 
 				const recordNew = runCLI(

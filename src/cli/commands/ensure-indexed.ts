@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { extname } from "node:path";
 import { config } from "../../core/config.js";
-import { acquireIndexLock, getIndexLockStatus } from "../../core/lock.js";
+import { acquireIndexLock } from "../../core/lock.js";
 import type { Snapshot } from "../../core/types.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
@@ -56,8 +56,8 @@ export type AutoIndexResult =
 			errors?: number;
 			ms: number;
 	  }
-	| { status: "stale"; reason: string; action?: string; ms: number }
-	| { status: "failed"; reason: string; action?: string; ms: number };
+	| { status: "stale"; reason: string; message?: string; action?: string; ms: number }
+	| { status: "failed"; reason: string; message: string; action?: string; ms: number };
 
 function getErrorMessage(error: unknown): string {
 	if (error instanceof Error) {
@@ -143,46 +143,21 @@ function countRemovedFiles(changedFiles: GitDiff | undefined): number | undefine
 	return changedFiles?.deleted.length;
 }
 
-async function useExistingIndexOnLockHeld(
-	metadata: SqliteMetadataStore,
-	repoRoot: string,
+function lockRefreshFailure(
 	options: {
 		silent: boolean;
 		startedAt: number;
-		getLockStatus?: typeof getIndexLockStatus;
+		lockWaitMs: number;
 	},
-): Promise<AutoIndexResult> {
-	const completedSnapshot =
-		await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
-	const getLockStatus = options.getLockStatus ?? getIndexLockStatus;
-	const lockStatus = await getLockStatus(repoRoot);
-	const reason = lockStatus.status === "stale" ? "stale-lock" : "lock-held";
-
-	if (completedSnapshot) {
-		if (!options.silent) {
-			const detail =
-				reason === "stale-lock"
-					? "stale index lock detected"
-					: "another process is still indexing";
-			console.error(`Using existing completed index: ${detail}.`);
-		}
-
-		return {
-			status: "stale",
-			reason,
-			action: "using-existing-index",
-			ms: Date.now() - options.startedAt,
-		};
-	}
-
+): AutoIndexResult {
+	const message = `Timed out after waiting ${options.lockWaitMs}ms for another indexing process; index refresh did not complete and existing data may be stale. Retry after it finishes.`;
 	if (!options.silent) {
-		console.error(
-			"Cannot use existing index: another process is indexing and no completed snapshot exists.",
-		);
+		console.error(message);
 	}
 	return {
 		status: "failed",
-		reason,
+		reason: "lock-held",
+		message,
 		action: "run-idx-index",
 		ms: Date.now() - options.startedAt,
 	};
@@ -394,6 +369,8 @@ export async function ensureIndexed(
 	let release: (() => Promise<void>) | null = null;
 	try {
 		release = await acquireIndexLock(repoRoot, {
+			// Query commands wait briefly for an active indexer, then recompute their
+			// plan below. A timeout fails rather than silently using stale data.
 			waitMs: options?.lockWaitMs ?? READ_COMMAND_LOCK_WAIT_MS,
 			retryIntervalMs:
 				options?.lockRetryIntervalMs ?? READ_COMMAND_LOCK_RETRY_MS,
@@ -401,9 +378,10 @@ export async function ensureIndexed(
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (message.includes("already in progress")) {
-			return useExistingIndexOnLockHeld(metadata, repoRoot, {
+			return lockRefreshFailure({
 				silent,
 				startedAt: ensureStartedAt,
+				lockWaitMs: options?.lockWaitMs ?? READ_COMMAND_LOCK_WAIT_MS,
 			});
 		}
 		throw error;
@@ -493,6 +471,24 @@ export async function ensureIndexed(
 							console.error(`  ${processed}/${total} files...`);
 						},
 			});
+			const completedSnapshot =
+				(await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID)) ??
+				undefined;
+			const postIndexPlan = await getIndexPlan(
+				git,
+				repoRoot,
+				metadata,
+				completedSnapshot,
+			);
+			if (postIndexPlan) {
+				return {
+					status: "stale",
+					reason: "files-changed-during-index",
+					message: "Files changed while indexing completed; run `idx index` to refresh the new changes.",
+					action: "run-idx-index",
+					ms: Date.now() - ensureStartedAt,
+				};
+			}
 
 			const elapsedMs = Date.now() - startedAt;
 			const [chunkCount, embeddingCount] = await Promise.all([

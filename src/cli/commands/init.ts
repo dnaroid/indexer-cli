@@ -377,7 +377,10 @@ export async function performInit(
 			console.log(
 				"Tip: run `idx --no-auto-update doctor <projectPath>` if you need to verify dependencies separately.",
 			);
-			await ensureIndexed(metadata, projectRoot);
+			const indexResult = await ensureIndexed(metadata, projectRoot);
+			if (indexResult.status === "failed") {
+				throw new Error(`Initial indexing failed: ${indexResult.message}`);
+			}
 		}
 	} finally {
 		if (metadata) {

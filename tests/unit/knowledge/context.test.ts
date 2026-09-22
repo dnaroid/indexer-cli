@@ -189,7 +189,9 @@ describe("KnowledgeContextEngine", () => {
 		const output = formatKnowledgeContext(pack, 200);
 		expect(output).toContain("docs/auth.md: inputs-changed");
 		expect(output).toContain("Primary knowledge:");
-		expect(output).toContain("Read: docs/auth.md:10-24");
+		expect(output).toContain("docs/auth.md:10-24");
+		expect(output).not.toContain("Read next:");
+		expect(formatKnowledgeContext(pack, 200, true)).not.toContain("Read next:");
 	});
 
 	it("keeps unreviewed indexed documents separate from primary knowledge", async () => {
@@ -220,7 +222,8 @@ describe("KnowledgeContextEngine", () => {
 
 		const output = formatKnowledgeContext(pack, 300);
 		expect(output).toContain("Indexed knowledge (unreviewed):");
-		expect(output).toContain("Read (unreviewed): docs/draft-auth-notes.md:4-8");
+		expect(output).toContain("docs/draft-auth-notes.md:4-8");
+		expect(output).not.toContain("Read next:");
 		expect(output).not.toContain("Primary knowledge:");
 	});
 
@@ -359,5 +362,81 @@ describe("KnowledgeContextEngine", () => {
 		expect(output).toContain("Primary knowledge:");
 		expect(output).toContain("Implementation:");
 		expect(output).toContain("Tests:");
+	});
+
+	it("keeps configured coverage without repeating paths and reports exact hidden sources", () => {
+		const specs = [SPEC, { ...SPEC, path: "docs/auth-errors.md", title: "Errors", summary: "Failures are observable." }];
+		const pack = {
+			query: "auth refresh",
+			specs,
+			unreviewed: [UNREVIEWED, UNREVIEWED_TWO],
+			implementation: [
+				{ path: "src/auth/refresh.ts", startLine: 10, endLine: 20, reason: "semantic" as const },
+				{ path: "src/auth/session.ts", reason: "graph" as const },
+			],
+			tests: [
+				{ path: "tests/auth/refresh.test.ts", reason: "direct" as const, confidence: "high" as const },
+				{ path: "tests/auth/session.test.ts", reason: "related-path" as const, confidence: "medium" as const },
+			],
+			relations: [relation("docs/related-auth.md", "related", "knowledge")],
+			warnings: ["first warning", "second warning"],
+			readNext: ["docs/auth.md:10-24", "src/auth/refresh.ts:10-20", "tests/auth/refresh.test.ts", "tests/auth/session.test.ts", "docs/unique-follow-up.md:2-4"],
+		};
+		const complete = formatKnowledgeContext(pack, 1_400);
+		for (const path of [
+			"docs/auth-errors.md", "docs/draft-auth-notes.md",
+			"docs/draft-session-notes.md", "src/auth/refresh.ts", "src/auth/session.ts",
+			"tests/auth/refresh.test.ts", "tests/auth/session.test.ts", "docs/related-auth.md", "docs/unique-follow-up.md",
+		]) expect(complete.match(new RegExp(path.replace(/[-/\.]/g, "\\$&"), "g"))?.length).toBe(1);
+		expect(complete).toContain("Knowledge relations:");
+		expect(complete).toContain("Read next:");
+		expect(complete).not.toContain("TRUNC");
+
+		const constrained = formatKnowledgeContext(pack, 200);
+		const omitted = Number(constrained.match(/TRUNC budget=200 omitted=(\d+)/)?.[1]);
+		const visible = ["first warning", "second warning", ...specs.map((item) => item.path), UNREVIEWED.path,
+			UNREVIEWED_TWO.path, "src/auth/refresh.ts", "src/auth/session.ts", "tests/auth/refresh.test.ts",
+			"tests/auth/session.test.ts", "docs/related-auth.md", "docs/unique-follow-up.md"]
+			.filter((value) => constrained.includes(value)).length;
+		expect(omitted + visible).toBe(12);
+	});
+
+	it("uses fewer bytes than verbose detail for equivalent complete coverage", () => {
+		const pack = {
+			query: "auth refresh",
+			specs: [SPEC, { ...SPEC, path: "docs/refresh.md", title: "Refresh details", summary: "A longer explanation of the refresh contract." }],
+			implementation: [], tests: [], relations: [], warnings: [], readNext: [],
+		};
+		const compact = formatKnowledgeContext(pack, 1_400);
+		const verbose = formatKnowledgeContext(pack, 1_400, true);
+		expect(compact).toContain("docs/refresh.md");
+		expect(verbose).toContain("docs/refresh.md");
+		expect(Buffer.byteLength(compact)).toBeLessThan(Buffer.byteLength(verbose));
+	});
+
+	it("keeps exact long paths, warning meaning, and distinct follow-up ranges when budget permits", () => {
+		const specPath = "docs/specs/a-long-directory-name/nested/concurrent-index-access.md";
+		const warning = `${specPath}: inputs-changed; verification is stale, not current`;
+		const output = formatKnowledgeContext({
+			query: "concurrency",
+			specs: [{ ...SPEC, path: specPath }],
+			implementation: [], tests: [], relations: [], warnings: [warning],
+			readNext: [`${specPath}:90-110`],
+		}, 1400);
+		expect(output).toContain(warning);
+		expect(output).toContain(`${specPath}:90-110`);
+		expect(output).not.toContain("TRUNC");
+	});
+
+	it("retains the source identity of knowledge relations from different specs", () => {
+		const output = formatKnowledgeContext({
+			query: "relations", specs: [], implementation: [], tests: [], warnings: [], readNext: [],
+			relations: [
+				{ ...relation("docs/shared.md", "related", "knowledge"), sourcePath: "docs/a.md" },
+				{ ...relation("docs/shared.md", "related", "knowledge"), sourcePath: "docs/b.md" },
+			],
+		}, 1400);
+		expect(output).toContain("R docs/a.md --related/");
+		expect(output).toContain("R docs/b.md --related/");
 	});
 });

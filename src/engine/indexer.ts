@@ -33,6 +33,7 @@ import { CppPlugin } from "../languages/cpp.js";
 import { SveltePlugin } from "../languages/svelte.js";
 import { SystemLogger } from "../core/logger.js";
 import { config } from "../core/config.js";
+import { withSnapshotPruneGuard } from "../core/snapshot-retention.js";
 import { TokenEstimator } from "../utils/token-estimator.js";
 import { computeHash } from "../utils/hash.js";
 import { parseGitignore } from "../utils/gitignore.js";
@@ -1884,28 +1885,35 @@ export class IndexerEngine {
 		projectId: ProjectId,
 		keepSnapshotId: SnapshotId,
 	): Promise<void> {
-		const staleSnapshotIds = await this.listStaleSnapshotIds(
-			projectId,
-			keepSnapshotId,
-		);
+		// A reader registers its lease under the same guard before selecting a
+		// snapshot. Deferring collection retains metadata and vectors as a pair.
+		let pruned = false;
+		await withSnapshotPruneGuard(this.repoRoot, async () => {
+			pruned = true;
+			const staleSnapshotIds = await this.listStaleSnapshotIds(
+				projectId,
+				keepSnapshotId,
+			);
 
-		if (staleSnapshotIds.length === 0) {
-			return;
-		}
+			if (staleSnapshotIds.length === 0) return;
 
-		await this.metadata.clearProjectMetadata(projectId, keepSnapshotId, {
-			preserveActiveIndexing: true,
+			await this.metadata.clearProjectMetadata(projectId, keepSnapshotId, {
+				preserveActiveIndexing: true,
+			});
+
+			const remainingSnapshots = await this.metadata.listSnapshots(projectId);
+			const remainingIds = new Set(remainingSnapshots.map((s) => s.id));
+
+			const confirmedDeletedIds = staleSnapshotIds.filter(
+				(id) => !remainingIds.has(id),
+			);
+
+			for (const snapshotId of confirmedDeletedIds) {
+				await this.deleteSnapshotVectorsWithRetry(projectId, snapshotId);
+			}
 		});
-
-		const remainingSnapshots = await this.metadata.listSnapshots(projectId);
-		const remainingIds = new Set(remainingSnapshots.map((s) => s.id));
-
-		const confirmedDeletedIds = staleSnapshotIds.filter(
-			(id) => !remainingIds.has(id),
-		);
-
-		for (const snapshotId of confirmedDeletedIds) {
-			await this.deleteSnapshotVectorsWithRetry(projectId, snapshotId);
+		if (!pruned) {
+			logger.info("[indexer] Deferring historical snapshot pruning while readers are active");
 		}
 	}
 
