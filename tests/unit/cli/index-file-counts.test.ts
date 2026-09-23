@@ -15,6 +15,17 @@ import { gitInit } from "../../helpers/cli-runner.js";
 
 describe("index file counts", () => {
 	const roots: string[] = [];
+	const mockOllamaUrl = "http://127.0.0.1:1";
+
+	function runWithMockOllama(root: string, ...args: string[]) {
+		const preload = join(__dirname, "../../helpers/ollama-fetch-mock.cjs");
+		return runCLI(["--no-auto-update", "index", ...args], {
+			cwd: root,
+			env: {
+				NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require="${preload}"`].filter(Boolean).join(" "),
+			},
+		});
+	}
 
 	afterEach(() => {
 		for (const root of roots.splice(0)) {
@@ -143,6 +154,10 @@ describe("index file counts", () => {
 			"src/main.ts": "export const value = 1;\n",
 			"docs/guide.md": "# Original\n",
 		});
+		writeFileSync(join(root, ".indexer-cli/config.json"), JSON.stringify({
+			...DEFAULT_CONFIG, version: PACKAGE_VERSION, vectorSize: 3,
+			ollamaBaseUrl: mockOllamaUrl,
+		}));
 		gitInit(root);
 		writeFileSync(join(root, "src/main.ts"), "export const value = 2;\n");
 		writeFileSync(join(root, "docs/guide.md"), "# Indexed dirty version\n");
@@ -170,7 +185,7 @@ describe("index file counts", () => {
 			await metadata.close();
 		}
 
-		const run = (...args: string[]) => runCLI(["--no-auto-update", "index", ...args], { cwd: root });
+		const run = (...args: string[]) => runWithMockOllama(root, ...args);
 		const repeated = run();
 		expect(repeated.exitCode, repeated.stderr).toBe(0);
 		expect(repeated.stdout).toContain("Index is already up to date.");
@@ -232,6 +247,7 @@ describe("index file counts", () => {
 		writeFileSync(join(root, ".indexer-cli/config.json"), JSON.stringify({
 			...DEFAULT_CONFIG, version: PACKAGE_VERSION, vectorSize: 3,
 			documentIncludePaths: ["ignored/**"],
+			ollamaBaseUrl: mockOllamaUrl,
 		}));
 		gitInit(root);
 		const dirtyCode = "export const value = 2;\n";
@@ -250,7 +266,7 @@ describe("index file counts", () => {
 		await metadata.updateSnapshotStatus(snapshot.id, "completed");
 		await metadata.close();
 
-		const run = (...args: string[]) => runCLI(["--no-auto-update", "index", ...args], { cwd: root });
+		const run = (...args: string[]) => runWithMockOllama(root, ...args);
 		expect(run().stdout).toContain("Index is already up to date.");
 		mkdirSync(join(root, "ignored"));
 		writeFileSync(join(root, "ignored/new.md"), "");
