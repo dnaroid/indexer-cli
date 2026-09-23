@@ -9,11 +9,7 @@ import type {
 	FileMetricsRecord,
 	FileRecord,
 	KnowledgeChunkRecord,
-	KnowledgeEntry,
-	KnowledgeRelation,
 	KnowledgeStore,
-	KnowledgeVerifiedInput,
-	KnowledgeVerificationReceipt,
 	MetadataStore,
 	ProjectId,
 	Snapshot,
@@ -23,7 +19,6 @@ import type {
 	SymbolRecord,
 } from "../core/types.js";
 import { SystemLogger } from "../core/logger.js";
-import type { ManifestApplyOperation } from "../knowledge/manifest.js";
 
 const logger = new SystemLogger("storage-sqlite");
 
@@ -56,43 +51,6 @@ type Migration = {
 	version: number;
 	name: string;
 	up: (db: Database.Database) => void;
-};
-
-type KnowledgeEntryRow = {
-	project_id: string;
-	path: string;
-	classification: string;
-	behavior_type: string;
-	lifecycle: string;
-	confidence: string;
-	title: string;
-	summary: string;
-	topics_json: string;
-	indexed_source_hash: string;
-	indexed_at: number;
-	verified_source_hash: string | null;
-	verified_relations_hash: string | null;
-	verified_at: number | null;
-	verification_receipt_json: string | null;
-	metadata_json: string | null;
-};
-
-type KnowledgeRelationRow = {
-	project_id: string;
-	source_path: string;
-	target_path: string;
-	target_kind: string;
-	relation_kind: string;
-	provenance: string;
-	metadata_json: string | null;
-};
-
-type KnowledgeVerifiedInputRow = {
-	project_id: string;
-	source_path: string;
-	input_path: string;
-	input_hash: string;
-	verified_at: number;
 };
 
 type KnowledgeChunkRow = {
@@ -143,48 +101,6 @@ const migrations: Migration[] = [
 			}
 
 			db.exec(`
-			CREATE TABLE IF NOT EXISTS knowledge_entries (
-				project_id TEXT NOT NULL,
-				path TEXT NOT NULL,
-				classification TEXT NOT NULL,
-				behavior_type TEXT NOT NULL,
-				lifecycle TEXT NOT NULL,
-				confidence TEXT NOT NULL,
-				title TEXT NOT NULL DEFAULT '',
-				summary TEXT NOT NULL DEFAULT '',
-				topics_json TEXT NOT NULL DEFAULT '[]',
-				indexed_source_hash TEXT NOT NULL,
-				indexed_at INTEGER NOT NULL,
-				verified_source_hash TEXT,
-				verified_relations_hash TEXT,
-				verified_at INTEGER,
-				metadata_json TEXT,
-				PRIMARY KEY (project_id, path)
-			);
-
-			CREATE TABLE IF NOT EXISTS knowledge_relations (
-				project_id TEXT NOT NULL,
-				source_path TEXT NOT NULL,
-				target_path TEXT NOT NULL,
-				target_kind TEXT NOT NULL,
-				relation_kind TEXT NOT NULL,
-				provenance TEXT NOT NULL,
-				metadata_json TEXT,
-				PRIMARY KEY (
-					project_id, source_path, target_path, target_kind,
-					relation_kind, provenance
-				)
-			);
-
-			CREATE TABLE IF NOT EXISTS knowledge_verified_inputs (
-				project_id TEXT NOT NULL,
-				source_path TEXT NOT NULL,
-				input_path TEXT NOT NULL,
-				input_hash TEXT NOT NULL,
-				verified_at INTEGER NOT NULL,
-				PRIMARY KEY (project_id, source_path, input_path)
-			);
-
 			CREATE TABLE IF NOT EXISTS knowledge_chunks (
 				project_id TEXT NOT NULL,
 				snapshot_id TEXT NOT NULL,
@@ -200,12 +116,6 @@ const migrations: Migration[] = [
 				FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
 			);
 
-			CREATE INDEX IF NOT EXISTS idx_knowledge_relations_source
-				ON knowledge_relations(project_id, source_path);
-			CREATE INDEX IF NOT EXISTS idx_knowledge_relations_target
-				ON knowledge_relations(project_id, target_path);
-			CREATE INDEX IF NOT EXISTS idx_knowledge_verified_inputs_source
-				ON knowledge_verified_inputs(project_id, source_path);
 			CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_file
 				ON knowledge_chunks(project_id, snapshot_id, file_path);
 		`);
@@ -250,12 +160,17 @@ const migrations: Migration[] = [
 	},
 	{
 		version: 5,
-		name: "add_knowledge_verification_receipts",
+		name: "reserved_removed_verification",
+		up: () => {},
+	},
+	{
+		version: 6,
+		name: "drop_obsolete_knowledge_registry_tables",
 		up: (db) => {
-			const columns = db.prepare("PRAGMA table_info(knowledge_entries)").all() as Array<{ name: string }>;
-			if (!columns.some((column) => column.name === "verification_receipt_json")) {
-				db.exec("ALTER TABLE knowledge_entries ADD COLUMN verification_receipt_json TEXT");
-			}
+			// Drop dependents before the registry parent. Document chunks are retained.
+			db.exec(`DROP TABLE IF EXISTS knowledge_verified_inputs;
+				DROP TABLE IF EXISTS knowledge_relations;
+				DROP TABLE IF EXISTS knowledge_entries;`);
 		},
 	},
 ];
@@ -321,400 +236,6 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 				throw error;
 			}
 		});
-	}
-
-	async upsertKnowledgeEntry(entry: KnowledgeEntry): Promise<void> {
-		await this.transaction(async () => {
-			this.db
-				.prepare(`
-					INSERT INTO knowledge_entries (
-						project_id, path, classification, behavior_type, lifecycle,
-						confidence, title, summary, topics_json, indexed_source_hash,
-						indexed_at, verified_source_hash, verified_relations_hash,
-						verified_at, verification_receipt_json, metadata_json
-					) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(project_id, path) DO UPDATE SET
-						classification = excluded.classification,
-						behavior_type = excluded.behavior_type,
-						lifecycle = excluded.lifecycle,
-						confidence = excluded.confidence,
-						title = excluded.title,
-						summary = excluded.summary,
-						topics_json = excluded.topics_json,
-						indexed_source_hash = excluded.indexed_source_hash,
-						indexed_at = excluded.indexed_at,
-						verified_source_hash = COALESCE(
-							excluded.verified_source_hash,
-							knowledge_entries.verified_source_hash
-						),
-						verified_relations_hash = COALESCE(
-							excluded.verified_relations_hash,
-							knowledge_entries.verified_relations_hash
-						),
-						verified_at = COALESCE(
-							excluded.verified_at,
-							knowledge_entries.verified_at
-						),
-						verification_receipt_json = COALESCE(excluded.verification_receipt_json, knowledge_entries.verification_receipt_json),
-						metadata_json = excluded.metadata_json
-				`).run(
-					entry.projectId,
-					entry.path,
-					entry.classification,
-					entry.behaviorType,
-					entry.lifecycle,
-					entry.confidence,
-					entry.title,
-					entry.summary,
-					JSON.stringify(entry.topics),
-					entry.indexedSourceHash,
-					entry.indexedAt,
-					entry.verifiedSourceHash ?? null,
-					entry.verifiedRelationsHash ?? null,
-					entry.verifiedAt ?? null,
-					entry.verificationReceipt ? JSON.stringify(entry.verificationReceipt) : null,
-					entry.metadata ? JSON.stringify(entry.metadata) : null,
-				);
-		});
-	}
-
-	async getKnowledgeEntry(
-		projectId: ProjectId,
-		path: string,
-	): Promise<KnowledgeEntry | null> {
-		const row = this.db
-			.prepare("SELECT * FROM knowledge_entries WHERE project_id = ? AND path = ?")
-			.get(projectId, path) as KnowledgeEntryRow | undefined;
-		return row ? this.mapKnowledgeEntryRow(row) : null;
-	}
-
-	async listKnowledgeEntries(projectId: ProjectId): Promise<KnowledgeEntry[]> {
-		const rows = this.db
-			.prepare(
-				"SELECT * FROM knowledge_entries WHERE project_id = ? ORDER BY path",
-			)
-			.all(projectId) as KnowledgeEntryRow[];
-		return rows.map((row) => this.mapKnowledgeEntryRow(row));
-	}
-
-	async deleteKnowledgeEntry(projectId: ProjectId, path: string): Promise<void> {
-		await this.transaction(async () => {
-			this.db
-				.prepare(
-					"DELETE FROM knowledge_relations WHERE project_id = ? AND (source_path = ? OR (target_kind = 'knowledge' AND target_path = ?))",
-				)
-				.run(projectId, path, path);
-			this.db
-				.prepare(
-					"DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?",
-				)
-				.run(projectId, path);
-			this.db
-				.prepare("DELETE FROM knowledge_entries WHERE project_id = ? AND path = ?")
-				.run(projectId, path);
-		});
-	}
-
-	async upsertKnowledgeRelation(relation: KnowledgeRelation): Promise<void> {
-		await this.transaction(async () => {
-			this.db
-				.prepare(`
-					INSERT INTO knowledge_relations (
-						project_id, source_path, target_path, target_kind,
-						relation_kind, provenance, metadata_json
-					) VALUES (?, ?, ?, ?, ?, ?, ?)
-					ON CONFLICT(
-						project_id, source_path, target_path, target_kind,
-						relation_kind, provenance
-					) DO UPDATE SET metadata_json = excluded.metadata_json
-				`).run(
-					relation.projectId,
-					relation.sourcePath,
-					relation.targetPath,
-					relation.targetKind,
-					relation.relationKind,
-					relation.provenance,
-					relation.metadata ? JSON.stringify(relation.metadata) : null,
-				);
-		});
-	}
-
-	async listKnowledgeRelations(
-		projectId: ProjectId,
-		options?: { sourcePath?: string },
-	): Promise<KnowledgeRelation[]> {
-		let sql = "SELECT * FROM knowledge_relations WHERE project_id = ?";
-		const params: string[] = [projectId];
-		if (options?.sourcePath) {
-			sql += " AND source_path = ?";
-			params.push(options.sourcePath);
-		}
-		sql += " ORDER BY source_path, target_path, relation_kind, provenance";
-		const rows = this.db.prepare(sql).all(...params) as KnowledgeRelationRow[];
-		return rows.map((row) => this.mapKnowledgeRelationRow(row));
-	}
-
-	/** Replace only this declaration owner's rows, without the broad delete API. */
-	async applyKnowledgeManifestAtomically(
-		projectId: ProjectId,
-		operations: ManifestApplyOperation[],
-	): Promise<{ staleDeclarations: string[] }> {
-		// better-sqlite3 transactions are synchronous. In particular, do not call
-		// async store methods from this callback: that would commit before they run.
-		return this.db.transaction(() => {
-			const state = operations.map((operation) => ({
-				operation,
-				prior: this.db.prepare("SELECT * FROM knowledge_entries WHERE project_id = ? AND path = ?")
-					.get(projectId, operation.sourcePath) as KnowledgeEntryRow | undefined,
-				rows: this.db.prepare("SELECT * FROM knowledge_relations WHERE project_id = ? AND source_path = ?")
-					.all(projectId, operation.sourcePath) as KnowledgeRelationRow[],
-			}));
-			const owns = (row: KnowledgeRelationRow, manifestId: string): boolean => {
-				const metadata = row.metadata_json ? JSON.parse(row.metadata_json) : undefined;
-				return row.provenance === "explicit" && metadata?.manifest?.id === manifestId;
-			};
-			// Check every collision before changing any row. Any malformed persisted
-			// metadata also aborts this transaction without a partial manifest apply.
-			for (const { operation, rows } of state) for (const relation of operation.relations) {
-				if (relation.projectId !== projectId || relation.sourcePath !== operation.sourcePath || relation.provenance !== "explicit") throw new Error("Invalid manifest apply scope.");
-				if (rows.some((row) => row.target_path === relation.targetPath && row.target_kind === relation.targetKind && row.relation_kind === relation.relationKind && row.provenance === "explicit" && !owns(row, operation.manifestId))) throw new Error(`Manifest declaration collides with another explicit relation: ${relation.targetPath}`);
-			}
-			const staleDeclarations: string[] = [];
-			const upsert = this.db.prepare(`INSERT INTO knowledge_entries (
-				project_id, path, classification, behavior_type, lifecycle, confidence, title, summary, topics_json,
-				indexed_source_hash, indexed_at, metadata_json
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON CONFLICT(project_id, path) DO UPDATE SET
-				classification = excluded.classification, behavior_type = excluded.behavior_type, lifecycle = excluded.lifecycle,
-				confidence = excluded.confidence, title = excluded.title, summary = excluded.summary, topics_json = excluded.topics_json,
-				indexed_source_hash = excluded.indexed_source_hash, indexed_at = excluded.indexed_at, metadata_json = excluded.metadata_json`);
-			const clear = this.db.prepare(`UPDATE knowledge_entries SET verified_source_hash = NULL, verified_relations_hash = NULL,
-				verified_at = NULL, verification_receipt_json = NULL WHERE project_id = ? AND path = ?`);
-			const clearInputs = this.db.prepare("DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?");
-			const remove = this.db.prepare("DELETE FROM knowledge_relations WHERE project_id = ? AND source_path = ? AND target_path = ? AND target_kind = ? AND relation_kind = ? AND provenance = ?");
-			const insert = this.db.prepare("INSERT INTO knowledge_relations (project_id, source_path, target_path, target_kind, relation_kind, provenance, metadata_json) VALUES (?, ?, ?, ?, ?, ?, ?)");
-			for (const { operation, prior, rows } of state) {
-				const priorMetadata = prior?.metadata_json ? JSON.parse(prior.metadata_json) : {};
-				upsert.run(projectId, operation.sourcePath, operation.classification, operation.behaviorType, operation.lifecycle,
-					prior?.confidence ?? "unknown", prior?.title ?? operation.title, operation.summary, JSON.stringify(operation.topics),
-					operation.indexedSourceHash, Date.now(), JSON.stringify({ ...priorMetadata, indexedSourceHashFormat: "sha256-exact-v1", manifest: { id: operation.manifestId, authoritative: true, ...(operation.owner ? { owner: operation.owner } : {}) } }));
-				if ((operation.classification !== "spec" && operation.classification !== "spec-like") && (prior?.classification === "spec" || prior?.classification === "spec-like")) {
-					clear.run(projectId, operation.sourcePath); clearInputs.run(projectId, operation.sourcePath);
-				}
-				const desiredKeys = new Set(operation.relations.map((relation) => `${relation.targetPath}\0${relation.targetKind}\0${relation.relationKind}`));
-				for (const row of rows.filter((row) => owns(row, operation.manifestId))) {
-					if (!desiredKeys.has(`${row.target_path}\0${row.target_kind}\0${row.relation_kind}`)) staleDeclarations.push(`${operation.sourcePath}:${row.relation_kind}:${row.target_path}`);
-					remove.run(projectId, operation.sourcePath, row.target_path, row.target_kind, row.relation_kind, row.provenance);
-				}
-				for (const relation of operation.relations) insert.run(projectId, relation.sourcePath, relation.targetPath, relation.targetKind, relation.relationKind, relation.provenance, JSON.stringify(relation.metadata));
-			}
-			return { staleDeclarations };
-		})();
-	}
-
-	/** Replace only this declaration owner's rows, without the broad delete API. */
-	async replaceManifestKnowledgeRelations(
-		projectId: ProjectId,
-		sourcePath: string,
-		manifestId: string,
-		relations: KnowledgeRelation[],
-	): Promise<void> {
-		this.db.transaction(() => {
-			const rows = this.db.prepare("SELECT * FROM knowledge_relations WHERE project_id = ? AND source_path = ?")
-				.all(projectId, sourcePath) as KnowledgeRelationRow[];
-			const owned = (row: KnowledgeRelationRow): boolean => {
-				const metadata = row.metadata_json ? JSON.parse(row.metadata_json) : undefined;
-				return row.provenance === "explicit" && metadata?.manifest?.id === manifestId;
-			};
-			for (const relation of relations) {
-				if (relation.projectId !== projectId || relation.sourcePath !== sourcePath || relation.provenance !== "explicit") {
-					throw new Error("Invalid manifest relation replacement scope.");
-				}
-				if (rows.some((row) => row.target_path === relation.targetPath && row.target_kind === relation.targetKind &&
-					row.relation_kind === relation.relationKind && row.provenance === "explicit" && !owned(row))) {
-					throw new Error(`Manifest declaration collides with another explicit relation: ${relation.targetPath}`);
-				}
-			}
-			const remove = this.db.prepare(`DELETE FROM knowledge_relations WHERE project_id = ? AND source_path = ?
-				AND target_path = ? AND target_kind = ? AND relation_kind = ? AND provenance = ?`);
-			for (const row of rows.filter(owned)) remove.run(projectId, sourcePath, row.target_path, row.target_kind, row.relation_kind, row.provenance);
-			const insert = this.db.prepare(`INSERT INTO knowledge_relations
-				(project_id, source_path, target_path, target_kind, relation_kind, provenance, metadata_json)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`);
-			for (const relation of relations) insert.run(projectId, sourcePath, relation.targetPath, relation.targetKind,
-				relation.relationKind, relation.provenance, JSON.stringify(relation.metadata));
-		})();
-	}
-
-	async deleteKnowledgeRelation(
-		projectId: ProjectId,
-		relation: Pick<
-			KnowledgeRelation,
-			"sourcePath" | "targetPath" | "targetKind" | "relationKind"
-		>,
-	): Promise<number> {
-		return this.transaction(async () => {
-			return this.db
-				.prepare(`
-					DELETE FROM knowledge_relations
-					WHERE project_id = ? AND source_path = ? AND target_path = ?
-					  AND target_kind = ? AND relation_kind = ?
-				`)
-				.run(
-					projectId,
-					relation.sourcePath,
-					relation.targetPath,
-					relation.targetKind,
-					relation.relationKind,
-				).changes;
-		});
-	}
-
-	async upsertKnowledgeVerifiedInput(
-		input: KnowledgeVerifiedInput,
-	): Promise<void> {
-		await this.transaction(async () => {
-			this.db
-				.prepare(`
-					INSERT INTO knowledge_verified_inputs
-						(project_id, source_path, input_path, input_hash, verified_at)
-					VALUES (?, ?, ?, ?, ?)
-					ON CONFLICT(project_id, source_path, input_path) DO UPDATE SET
-						input_hash = excluded.input_hash,
-						verified_at = excluded.verified_at
-				`)
-				.run(
-					input.projectId,
-					input.sourcePath,
-					input.inputPath,
-					input.inputHash,
-					input.verifiedAt,
-				);
-		});
-	}
-
-	async listKnowledgeVerifiedInputs(
-		projectId: ProjectId,
-		sourcePath: string,
-	): Promise<KnowledgeVerifiedInput[]> {
-		const rows = this.db
-			.prepare(`
-				SELECT * FROM knowledge_verified_inputs
-				WHERE project_id = ? AND source_path = ? ORDER BY input_path
-			`)
-			.all(projectId, sourcePath) as KnowledgeVerifiedInputRow[];
-		return rows.map((row) => ({
-			projectId: row.project_id,
-			sourcePath: row.source_path,
-			inputPath: row.input_path,
-			inputHash: row.input_hash,
-			verifiedAt: row.verified_at,
-		}));
-	}
-
-	async deleteKnowledgeVerifiedInput(
-		projectId: ProjectId,
-		sourcePath: string,
-		inputPath: string,
-	): Promise<void> {
-		await this.transaction(async () => {
-			this.db
-				.prepare(`
-					DELETE FROM knowledge_verified_inputs
-					WHERE project_id = ? AND source_path = ? AND input_path = ?
-				`)
-				.run(projectId, sourcePath, inputPath);
-		});
-	}
-
-	async replaceKnowledgeVerifiedInputs(
-		projectId: ProjectId,
-		sourcePath: string,
-		inputs: Array<Omit<KnowledgeVerifiedInput, "projectId" | "sourcePath">>,
-	): Promise<void> {
-		await this.transaction(async () => {
-			this.db
-				.prepare(
-					"DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?",
-				)
-				.run(projectId, sourcePath);
-
-			if (inputs.length === 0) return;
-			const insert = this.db.prepare(`
-				INSERT INTO knowledge_verified_inputs
-					(project_id, source_path, input_path, input_hash, verified_at)
-				VALUES (?, ?, ?, ?, ?)
-			`);
-			for (const input of inputs) {
-				insert.run(
-					projectId,
-					sourcePath,
-					input.inputPath,
-					input.inputHash,
-					input.verifiedAt,
-				);
-			}
-		});
-	}
-
-	async clearKnowledgeVerification(
-		projectId: ProjectId,
-		sourcePath: string,
-	): Promise<void> {
-		await this.transaction(async () => {
-			this.db
-				.prepare(`
-					UPDATE knowledge_entries
-					SET verified_source_hash = NULL,
-						verified_relations_hash = NULL,
-						verified_at = NULL
-						, verification_receipt_json = NULL
-					WHERE project_id = ? AND path = ?
-				`)
-				.run(projectId, sourcePath);
-			this.db
-				.prepare(
-					"DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?",
-				)
-				.run(projectId, sourcePath);
-		});
-	}
-
-	/** Atomically replaces the baseline rows and the receipt-bound entry. */
-	async commitKnowledgeVerification(
-		entry: KnowledgeEntry,
-		inputs: Array<Omit<KnowledgeVerifiedInput, "projectId" | "sourcePath">>,
-	): Promise<void> {
-		// This is intentionally a synchronous better-sqlite3 transaction. Do not
-		// await storage methods inside it: an async callback can let unrelated work
-		// run while a transaction is open.
-		this.db.transaction(() => {
-			this.db.prepare(
-				"DELETE FROM knowledge_verified_inputs WHERE project_id = ? AND source_path = ?",
-			).run(entry.projectId, entry.path);
-			const insert = this.db.prepare(`
-				INSERT INTO knowledge_verified_inputs
-					(project_id, source_path, input_path, input_hash, verified_at)
-				VALUES (?, ?, ?, ?, ?)
-			`);
-			for (const input of inputs) {
-				insert.run(entry.projectId, entry.path, input.inputPath, input.inputHash, input.verifiedAt);
-			}
-			const changed = this.db.prepare(`
-				UPDATE knowledge_entries SET
-					verified_source_hash = ?, verified_relations_hash = ?, verified_at = ?,
-					verification_receipt_json = ?
-				WHERE project_id = ? AND path = ?
-			`).run(
-				entry.verifiedSourceHash ?? null,
-				entry.verifiedRelationsHash ?? null,
-				entry.verifiedAt ?? null,
-				entry.verificationReceipt ? JSON.stringify(entry.verificationReceipt) : null,
-				entry.projectId,
-				entry.path,
-			).changes;
-			if (changed !== 1) throw new Error(`Knowledge entry disappeared during verification: ${entry.path}`);
-		})();
 	}
 
 	async replaceKnowledgeChunks(
@@ -1832,55 +1353,6 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 		};
 	}
 
-	private mapKnowledgeEntryRow(row: KnowledgeEntryRow): KnowledgeEntry {
-		return {
-			projectId: row.project_id,
-			path: row.path,
-			classification: row.classification as KnowledgeEntry["classification"],
-			behaviorType: row.behavior_type as KnowledgeEntry["behaviorType"],
-			lifecycle: row.lifecycle as KnowledgeEntry["lifecycle"],
-			confidence: row.confidence,
-			title: row.title,
-			summary: row.summary,
-			topics: this.parseJsonArray(row.topics_json),
-			indexedSourceHash: row.indexed_source_hash,
-			indexedAt: row.indexed_at,
-			verifiedSourceHash: row.verified_source_hash ?? undefined,
-			verifiedRelationsHash: row.verified_relations_hash ?? undefined,
-			verifiedAt: row.verified_at ?? undefined,
-			verificationReceipt: this.parseVerificationReceipt(row.verification_receipt_json),
-			metadata: this.parseJsonObject(row.metadata_json),
-		};
-	}
-
-	private parseVerificationReceipt(value: string | null): KnowledgeVerificationReceipt | undefined {
-		const parsed = this.parseJsonObject(value);
-		return parsed && parsed.version === 1 ? parsed as unknown as KnowledgeVerificationReceipt : undefined;
-	}
-
-	private mapKnowledgeRelationRow(row: KnowledgeRelationRow): KnowledgeRelation {
-		return {
-			projectId: row.project_id,
-			sourcePath: row.source_path,
-			targetPath: row.target_path,
-			targetKind: row.target_kind as KnowledgeRelation["targetKind"],
-			relationKind: row.relation_kind as KnowledgeRelation["relationKind"],
-			provenance: row.provenance as KnowledgeRelation["provenance"],
-			metadata: this.parseJsonObject(row.metadata_json),
-		};
-	}
-
-	private parseJsonArray(value: string | null | undefined): string[] {
-		try {
-			const parsed = JSON.parse(value ?? "[]");
-			return Array.isArray(parsed)
-				? parsed.filter((item): item is string => typeof item === "string")
-				: [];
-		} catch {
-			return [];
-		}
-	}
-
 	private parseJsonObject(
 		value: string | null | undefined,
 	): Record<string, unknown> | undefined {
@@ -2110,7 +1582,6 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 		runInTransaction.immediate();
 	}
 
-
 	private schemaIsCurrent(): boolean {
 		try {
 			const migrationTable = this.db
@@ -2125,8 +1596,8 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 
 			const requiredTables = [
 				"snapshots", "files", "chunks", "symbols", "dependencies",
-				"artifacts", "file_metrics", "knowledge_entries", "knowledge_chunks",
-				"knowledge_relations", "knowledge_verified_inputs", "code_search_fts",
+				"artifacts", "file_metrics", "knowledge_chunks",
+				"code_search_fts",
 			];
 			for (const tableName of requiredTables) {
 				const exists = this.db
@@ -2135,17 +1606,10 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 				if (!exists) return false;
 			}
 
-			const knowledgeColumns = this.db
-				.prepare("PRAGMA table_info(knowledge_entries)")
-				.all() as Array<{ name: string }>;
-			if (!knowledgeColumns.some((column) => column.name === "verification_receipt_json")) {
-				return false;
-			}
-
 			return [
 				"idx_files_project_path", "idx_files_snapshot", "idx_chunks_file_path",
 				"idx_symbols_snapshot_name", "idx_dependencies_snapshot",
-				"idx_knowledge_relations_source", "idx_knowledge_chunks_file",
+				"idx_knowledge_chunks_file",
 			].every((indexName) => Boolean(this.db
 				.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?")
 				.get(indexName)));

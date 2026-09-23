@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import type { Command } from "commander";
 import { ensureIdxBinary, installGlobal } from "../../core/idx-binary.js";
+import { reportAskConfig } from "../../ask/setup-config.js";
 
 const PLATFORM = os.platform();
 const IS_MAC = PLATFORM === "darwin";
@@ -620,6 +621,7 @@ function printSummary(): void {
 // ── Main ────────────────────────────────────────────────────────────────
 
 export function performSetup(): void {
+	reportAskConfig();
 	console.log(bold("\n  indexer-cli dependency setup\n"));
 	console.log(`  Platform: ${os.type()} ${os.release()} (${os.arch()})\n`);
 

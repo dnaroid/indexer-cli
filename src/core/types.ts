@@ -7,29 +7,6 @@ export type DependencyId = string;
 
 export type FileDomain = "code" | "document";
 
-export type KnowledgeClassification =
-	| "spec"
-	| "spec-like"
-	| "meta-index"
-	| "design-only"
-	| "guide"
-	| "other";
-export type KnowledgeBehaviorType = "as-is" | "change" | "mixed" | "unknown";
-export type KnowledgeLifecycle =
-	| "active"
-	| "proposed"
-	| "historical"
-	| "superseded"
-	| "unknown";
-export type KnowledgeRelationTargetKind = "code" | "knowledge";
-export type KnowledgeRelationKind =
-	| "implements"
-	| "tests"
-	| "related"
-	| "supersedes"
-	| "superseded-by";
-export type KnowledgeRelationProvenance = "explicit" | "inferred";
-
 export type SnapshotStatus = "pending" | "indexing" | "completed" | "failed";
 
 export interface Snapshot {
@@ -198,103 +175,11 @@ export interface VectorSearchResult {
 	domain?: FileDomain;
 }
 
-export interface KnowledgeEntry {
-	projectId: ProjectId;
-	path: string;
-	classification: KnowledgeClassification;
-	behaviorType: KnowledgeBehaviorType;
-	lifecycle: KnowledgeLifecycle;
-	confidence: string;
-	title: string;
-	summary: string;
-	topics: string[];
-	indexedSourceHash: string;
-	indexedAt: number;
-	verifiedSourceHash?: string;
-	verifiedRelationsHash?: string;
-	verifiedAt?: number;
-	/** Versioned caller attestation; absent receipts leave legacy baselines unattested. */
-	verificationReceipt?: KnowledgeVerificationReceipt;
-	metadata?: Record<string, unknown>;
-}
-
-export interface KnowledgeVerificationSelector {
-	kind: "code-symbol" | "json-pointer" | "document-section";
-	value: string;
-	fingerprint: string;
-}
-
-export interface KnowledgeVerificationInput {
-	inputPath: string;
-	inputHash: string;
-	/** A relevance fingerprint only; whole-file hash remains authoritative for drift. */
-	selector?: KnowledgeVerificationSelector;
-}
-
 /** A machine-readable claim/evidence location. String references remain labels only. */
-export interface KnowledgeVerificationEvidenceBinding {
-	path: string;
-	hash: string;
-	range?: { startLine: number; endLine: number };
-	assertion?: string;
-}
-
-export interface KnowledgeVerificationRunnerCheck {
-	command: string;
-	resultHash: string;
-	logHash?: string;
-	exitCode: number;
-	complete: boolean;
-	/** Caller-provided records are attestations, not proof this process ran them. */
-	recordedBy: "attested" | "local-runner";
-}
-
 /**
  * Checks returned by `runVerificationChecks`. The array identity is an
  * in-memory capability: deserialized arrays are deliberately not trusted.
  */
-export type LocalVerificationRunnerChecks = readonly KnowledgeVerificationRunnerCheck[];
-
-export interface KnowledgeVerificationReceipt {
-	version: 1;
-	sourcePath: string;
-	sourceHash: string;
-	relationsHash: string;
-	inputs: KnowledgeVerificationInput[];
-	preparedAt: number;
-	reviewer: string;
-	/** Why the reviewer considers the assertion supported. */
-	rationale: string;
-	assertionReferences: string[];
-	evidenceReferences: string[];
-	/** Required coverage; references above are human-readable labels, not proof. */
-	assertionBindings: KnowledgeVerificationEvidenceBinding[];
-	evidenceBindings: KnowledgeVerificationEvidenceBinding[];
-	limitations: string[];
-	/** Never inferred from an empty input list. */
-	zeroTrackedInputsAcknowledged?: true;
-	attestedRunnerChecks?: KnowledgeVerificationRunnerCheck[];
-	locallyRecordedRunnerChecks?: KnowledgeVerificationRunnerCheck[];
-}
-
-export interface KnowledgeRelation {
-	projectId: ProjectId;
-	sourcePath: string;
-	targetPath: string;
-	targetKind: KnowledgeRelationTargetKind;
-	relationKind: KnowledgeRelationKind;
-	provenance: KnowledgeRelationProvenance;
-	metadata?: Record<string, unknown>;
-}
-
-export interface KnowledgeVerifiedInput {
-	projectId: ProjectId;
-	sourcePath: string;
-	inputPath: string;
-	inputHash: string;
-	verifiedAt: number;
-}
-
 export interface KnowledgeChunkRecord {
 	projectId: ProjectId;
 	snapshotId: SnapshotId;
@@ -309,48 +194,6 @@ export interface KnowledgeChunkRecord {
 }
 
 export interface KnowledgeStore {
-	upsertKnowledgeEntry(entry: KnowledgeEntry): Promise<void>;
-	getKnowledgeEntry(
-		projectId: ProjectId,
-		path: string,
-	): Promise<KnowledgeEntry | null>;
-	listKnowledgeEntries(projectId: ProjectId): Promise<KnowledgeEntry[]>;
-	deleteKnowledgeEntry(projectId: ProjectId, path: string): Promise<void>;
-	upsertKnowledgeRelation(relation: KnowledgeRelation): Promise<void>;
-	listKnowledgeRelations(
-		projectId: ProjectId,
-		options?: { sourcePath?: string },
-	): Promise<KnowledgeRelation[]>;
-	deleteKnowledgeRelation(
-		projectId: ProjectId,
-		relation: Pick<
-			KnowledgeRelation,
-			"sourcePath" | "targetPath" | "targetKind" | "relationKind"
-		>,
-	): Promise<number>;
-	upsertKnowledgeVerifiedInput(input: KnowledgeVerifiedInput): Promise<void>;
-	listKnowledgeVerifiedInputs(
-		projectId: ProjectId,
-		sourcePath: string,
-	): Promise<KnowledgeVerifiedInput[]>;
-	deleteKnowledgeVerifiedInput(
-		projectId: ProjectId,
-		sourcePath: string,
-		inputPath: string,
-	): Promise<void>;
-	replaceKnowledgeVerifiedInputs(
-		projectId: ProjectId,
-		sourcePath: string,
-		inputs: Array<Omit<KnowledgeVerifiedInput, "projectId" | "sourcePath">>,
-	): Promise<void>;
-	clearKnowledgeVerification(
-		projectId: ProjectId,
-		sourcePath: string,
-	): Promise<void>;
-	commitKnowledgeVerification(
-		entry: KnowledgeEntry,
-		inputs: Array<Omit<KnowledgeVerifiedInput, "projectId" | "sourcePath">>,
-	): Promise<void>;
 	replaceKnowledgeChunks(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,

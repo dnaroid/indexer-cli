@@ -68,6 +68,14 @@ locations before consulting the current npm prefix, so changing nvm/mise/asdf
 selection cannot silently route `idx` to a stale package installed under another
 Node tree.
 
+The npm package postinstall and source global install must ensure the commented
+global ask configuration template exists; the source installer also invokes the
+shared bootstrap explicitly so the resolved path is visible when npm suppresses
+lifecycle output or scripts. With npm lifecycle scripts disabled, users must run
+`idx doctor` to create the template. Doctor also
+ensures it on every invocation. Creation failure is warning-only and must not
+break installation or doctor.
+
 ## Evidence
 
 - Runtime declaration: `package.json`

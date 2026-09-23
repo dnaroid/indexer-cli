@@ -29,7 +29,7 @@ describe("CLI text-only output contract", () => {
 		for (const file of files) {
 			const source = readSource(file);
 			expect(source).toContain("formatAutoIndexResult(indexResult)");
-			expect(source).toContain('indexResult.status === "failed"');
+			expect(source).toMatch(/indexResult\??\.status === "failed"/);
 		}
 	});
 

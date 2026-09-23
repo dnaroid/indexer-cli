@@ -26,12 +26,12 @@ Then, inside any Git repository:
 ```bash
 idx init
 idx index
-idx search "authentication middleware"
-idx context "how authentication refresh works"
+idx ask "how authentication refresh works" --budget 2000
 ```
 
 > **Local by default:** source code and embeddings stay in your project. Embeddings are generated through your local
 > [Ollama](https://ollama.com/) instance and stored under `.indexer-cli/`.
+> **Exception:** `idx ask` sends your question and bounded retrieved excerpts to the configured model provider. For discovery without an LLM, use `idx search '<query>' --mode lexical` or the other low-level commands directly.
 
 ## Overview
 
@@ -45,7 +45,7 @@ local Ollama instance, and stores everything in a per-project `.indexer-cli/` di
 separate search domains by default. That gives both humans and agents fast natural-language code search, project
 contract/spec retrieval, repo structure snapshots, and low-friction incremental reindexing without any daemon or
 background service. A Git post-commit hook keeps deterministic index state up to date automatically; semantic
-classification and verification remain explicit agent actions.
+document-purpose inference is optional and advisory.
 
 ## Features
 
@@ -56,12 +56,9 @@ classification and verification remain explicit agent actions.
   context loading
 - **Multi-language support**: TypeScript/JavaScript, Python, C#, GDScript, Ruby, Rust, C/C++, Svelte
 - **Semantic code search**: Natural language queries over your entire codebase
-- **Project knowledge/wiki**: Discover, classify, search, relate, and verify behavioral specs/contracts without a second
-  state directory
-- **Knowledge-aware context packs**: `idx context` combines primary contracts, freshness, implementation ranges, and
-  relevant tests under a token budget
-- **Spec/code impact checks**: `idx wiki impact` combines durable relations, changed paths, dependency context, and
-  semantic candidates while leaving final semantic decisions to the agent
+- **Project documents**: Search and retrieve all indexed Markdown alongside code
+- **Unified context**: `idx context` combines relevant documents, implementation ranges, and tests under a token budget
+- **Task-scoped documentation audit**: `idx audit <changed-paths...>` separates explicit spec declarations from possible document candidates
 - **Incremental indexing**: Uses `git diff` to re-index only changed files, bulk-copies unchanged vectors
 - **Local-first**: All data stored in `.indexer-cli/` inside the project (SQLite + sqlite-vec)
 - **Ollama-powered embeddings**: Uses `jina-8k` for code and multilingual `nomic-embed-text-v2-moe` for project
@@ -145,12 +142,143 @@ idx init --codex
 # 4. Index code and document-domain knowledge
 idx index
 
-# 5. Search semantically yourself
-idx search "authentication middleware"
-
-# 6. Ask for a behavior-aware context pack
-idx context "how authentication refresh works"
+# 5. Start coding-agent discovery with one natural-language request
+idx ask "how authentication refresh works" --budget 2000
 ```
+
+`idx ask '<task>' --budget 2000` is the primary discovery entry point for coding
+agents: the model calls read-only idx tools, follows up on gaps, and writes a
+coherent answer with references to retrieved evidence. For example,
+`idx ask 'What is this project about?'` investigates the repository and explains
+its purpose from README first rather than just printing search excerpts. Focused
+questions use narrow retrieval and stop once evidence suffices; architecture
+is not an automatic prerequisite. Existing commands such
+as `idx context`, `idx search`, and `idx structure` remain available directly.
+Set `OPENAI_API_KEY` to enable the default `gpt-6-luna` model. Optional
+`IDX_ASK_MODEL` and `OPENAI_BASE_URL` override the model and Responses API base.
+The loop is bounded to eight model turns, twelve retrieval calls, and two minutes.
+`--budget` limits model output tokens (200–20000, default 2000), not evidence pages.
+If the model is unavailable or its response is invalid, ask explains the failure
+and suggests targeted low-level discovery; insufficient evidence is not
+treated as a credentials problem. It does not silently substitute
+lexical search. There is no `--no-llm` mode or ask-level `--cursor`.
+Setup, initialization, and indexing remain explicit commands;
+underlying discovery commands can still refresh their local index as usual.
+
+### Global LLM configuration
+
+Installing the npm package creates a commented template at `~/.config/idx/.env`
+when absent; `idx doctor` also ensures it exists and prints its path. The same
+applies to `$XDG_CONFIG_HOME/idx/.env` when `XDG_CONFIG_HOME` is absolute.
+Creation is optional and never overwrites an existing file. All `idx ask` instances for your user read `~/.config/idx/.env`, regardless of
+the current repository. If `XDG_CONFIG_HOME` is an absolute path, the file is
+`$XDG_CONFIG_HOME/idx/.env` instead. Exported environment variables override the
+file, including explicitly empty values. Project-local `.env` files are **not**
+loaded, and these settings do not change the embedding provider.
+
+The source installer prints the resolved path. npm may hide postinstall output;
+use `npm install -g indexer-cli --foreground-scripts` to see it. If npm lifecycle
+scripts are disabled (`--ignore-scripts`), run `idx doctor` to create the template.
+
+All template assignments are commented. Uncomment only settings you use; never
+put real credentials in shared/source-controlled files. The file is created
+with private permissions (0600):
+
+```dotenv
+# ~/.config/idx/.env — direct OpenAI-compatible Responses API (default)
+IDX_ASK_BACKEND=openai
+OPENAI_API_KEY=your-api-key
+IDX_ASK_MODEL=gpt-6-luna
+# OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+To use your installed Pi and its saved authentication instead:
+
+```dotenv
+IDX_ASK_BACKEND=pi
+IDX_PI_PROVIDER=openai-codex
+IDX_PI_MODEL=your-model-id
+# PI_CODING_AGENT_DIR=/absolute/path/to/custom/pi-agent-directory
+```
+
+Install a Pi version exposing `ModelRuntime` (tested against 0.87.1), make `pi`
+available on `PATH`, and authenticate in Pi with `/login` if necessary. Set the
+provider and exact model ID to an available model shown by Pi's `/model` picker.
+Both `IDX_PI_PROVIDER` and `IDX_PI_MODEL` are required; Pi mode does not use
+`IDX_ASK_MODEL`. Pi resolves
+its own saved OAuth/API credentials; do not copy subscription tokens into this
+file. Model access depends on your provider/account.
+
+Pi mode makes ordinary model requests through its SDK, not Pi agent sessions.
+Only idx's allowlisted retrieval tools and the current ask conversation are
+provided; Pi's own tools, extensions, skills, project instructions, and saved
+history are not loaded. Calls run in bounded child processes. idx validates and
+executes tool calls itself; no model-authored shell commands are accepted.
+Backend configuration or inference failures show the low-level tool guide.
+The file uses Node dotenv syntax (quotes/comments supported); values are literal,
+without shell execution or variable interpolation. Model inference never writes
+this file; installation/doctor only create a missing template.
+
+### Retries and an optional fallback
+
+```dotenv
+# Extra attempts for transient inference failures (0–5; default 2)
+# IDX_ASK_RETRIES=2
+
+# Fallback is disabled until a fallback model is configured.
+# Backend defaults to IDX_ASK_BACKEND; set it explicitly to change backends.
+# IDX_ASK_FALLBACK_BACKEND=pi
+# IDX_ASK_FALLBACK_PROVIDER=openai-codex
+# IDX_ASK_FALLBACK_MODEL=your-fallback-model-id
+
+# Optional overrides for an OpenAI-compatible fallback endpoint
+# IDX_ASK_FALLBACK_API_KEY=your-fallback-api-key
+# IDX_ASK_FALLBACK_BASE_URL=https://api.openai.com/v1
+```
+
+Retries repeat only the failed model request, not completed retrieval tools.
+Configuration/invalid-response errors are not transient retries. When the primary
+model fails, an explicitly configured fallback is tried and remains selected for
+that invocation. Retries and switching are disclosed; the total ask deadline
+still applies. Switching models restarts the model conversation from the question
+and collected observations, without carrying native provider signatures across
+models. If both models fail, ask prints the low-level tool guide.
+
+### Individual model token limits
+
+Pi supplies context/output limits from its model catalog. For OpenAI-compatible
+APIs without that metadata, set the limits for your actual models; defaults are
+16000 context tokens and 2000 output tokens. Primary and fallback limits are separate:
+
+```dotenv
+# IDX_ASK_CONTEXT_TOKENS=16000
+# IDX_ASK_MAX_OUTPUT_TOKENS=2000
+# IDX_ASK_FALLBACK_CONTEXT_TOKENS=16000
+# IDX_ASK_FALLBACK_MAX_OUTPUT_TOKENS=2000
+```
+
+Overrides cap known Pi limits. `--budget` requests output tokens per turn, capped
+by the selected model; it is not a total spending limit. Context accounting
+includes instructions, tool schemas, history, evidence, and output reserve.
+Overlarge histories are compacted with a visible notice; fallback recomputes the
+limits. Without a tokenizer, input accounting uses a conservative byte estimate,
+not exact token usage or billing.
+
+### Answers and evidence
+
+```bash
+idx ask "trace authentication, its contract and tests" --budget 2000
+```
+
+Each question starts a fresh, in-memory investigation. Answers cite the evidence
+collected in that run; citations aid inspection but are not proof that every
+generated claim is correct. Retrieval diagnostics, audit notices, and truncation
+warnings remain visible independently of the generated answer. Failed or bounded
+retrieval is reported as incomplete, not silently presented as exhaustive.
+There is no answer pagination or conversation cache. Use individual tools' own
+limits and cursors when you need to inspect more results manually.
+Ask uses the existing index without automatic reindexing; refresh explicitly with
+`idx index` when needed.
 
 After `idx init`, you can run project commands from subdirectories too: `indexer-cli` will detect the initialized
 project root automatically. If a project has not been initialized yet, commands such as `idx search` and `idx index`
@@ -161,7 +289,7 @@ When enabled, the generated skill is written to the selected agent's canonical p
 - Claude Code: `.claude/skills/repo-discovery/SKILL.md`
 - OpenAI Codex: `.agents/skills/repo-discovery/SKILL.md`
 
-Both variants use the same generated guidance and route agents toward `idx context`, `idx wiki`, `idx search`,
+Both variants use the same generated guidance and route agents toward `idx context`, `idx search`, `idx search`,
 `idx structure`, `idx ast`, `idx architecture`, `idx explain`, and `idx deps` before they start burning tokens on broad
 filesystem scans.
 
@@ -208,32 +336,28 @@ That skill routes repository discovery flows such as:
 
 ```bash
 idx context "how session refresh works"
-idx wiki search "session refresh contract"
-idx wiki impact src/auth/session.ts src/auth/refresh-worker.ts
+idx search "session refresh contract" --domain document
+idx audit src/auth/session.ts src/auth/refresh-worker.ts
 idx search "<query>"
 idx structure --path-prefix src/<area>
 idx ast src/<large-file.ts>
 idx architecture
 ```
 
-For material behavior-changing work, the generated skill also treats project
-knowledge maintenance as part of task completion rather than a separate manual
-cleanup step. The agent should find the governing primary contract before or
-during implementation, update it in the same task (or create a focused primary
-spec when no suitable authority exists), then run task-scoped
-`idx wiki impact <changed-paths...>`, review uncovered/new/moved knowledge, repair
-only evidence-backed relations, and run `idx wiki verify` only after checking the
-final primary source against the relevant implementation/tests. Mechanical edits
-that do not change project behavior skip this lifecycle, and a reviewed no-impact
-result is valid.
-
-`idx wiki record` never means "verified": newly classified or newly created
-primary knowledge stays unverified until semantic evidence review establishes a
-baseline. Likewise, changed code never rewrites spec semantics automatically;
-non-fresh states such as `inputs-changed`, `spec-changed`, and `missing-source`
-remain explicit review obligations.
+For material behavior changes, run `idx audit <changed-paths...>`, review explicit
+spec matches separately from possible document candidates, and correct genuine
+semantic drift. No documentation edits or review ceremony are required when
+source documents remain accurate or the change is non-behavioral.
 
 All discovery commands return human-readable text output, optimized for coding agents.
+
+For a coding task, start with `idx ask '<task>' --budget 2000`. It is the primary
+natural-language discovery entry point; commands documented below remain
+available when you need a specific low-level operation. `ask` investigates through
+discovery tools and generates a cited answer—it does not set up, initialize,
+acknowledge review, or verify knowledge. Those actions remain explicit. Retrieval
+may refresh the local index and reconcile the derived spec registry; ask does not
+persist its conversation or an answer cache.
 
 This is especially useful in Claude Code and OpenAI Codex setups, where project-local skills can guide the agent away
 from blind `rg`/`grep`/`find` usage and toward indexed discovery, which usually means less wasted context and lower token
@@ -314,20 +438,21 @@ Document-domain indexing is configured separately with:
 
 - `documentExtensions` — default `.md`, `.mdx`, `.rst`, `.adoc`, `.txt`;
 - `documentIncludePaths` — force document paths/globs into knowledge indexing;
-- `documentExcludePaths` — exclude fixture/eval/example/skill-resource noise by default;
+- `documentExcludePaths` — optional document exclusions; empty by default;
 - `documentMaxBytes` — maximum document size to embed.
-- `knowledgeEmbeddingModel` — multilingual document/wiki embedding model;
+- `knowledgeEmbeddingModel` — multilingual document embedding model;
 - `knowledgeEmbeddingQueryPrefix` / `knowledgeEmbeddingDocumentPrefix` — retrieval prefixes used by the knowledge
   embedding model.
 
-Document indexing is deterministic. It updates file hashes/chunks/vectors only; it never classifies a document as an
-authoritative contract and never creates a semantic verification baseline by itself.
+Document indexing stores file hashes, chunks, and vectors. When ask's LLM is configured,
+it may also infer advisory document purpose. Explicit frontmatter takes precedence;
+inference never makes a document authoritative or excludes it from retrieval.
 
 If you run `idx index` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
 
-Only one indexing process writes at a time. Discovery commands that auto-index, such as `idx context`, `idx wiki`,
-`idx search`, `idx structure`, `idx architecture`, `idx explain`, and `idx deps`, wait up to 10 seconds when another
+Only one indexing process writes at a time. Discovery commands that auto-index, such as `idx context`, `idx search`,
+`idx structure`, `idx architecture`, `idx explain`, and `idx deps`, wait up to 10 seconds when another
 process holds the index lock. If
 the lock is still held and a completed snapshot already exists, they continue with that existing index and print an
 `IDX stale reason=lock-held action=using-existing-index` diagnostic. If the lock file itself is older than the stale
@@ -345,8 +470,8 @@ threshold, the diagnostic uses `reason=stale-lock`; read commands still do not r
 
 ### `idx context <query>`
 
-Build a compact project context pack that prioritizes primary knowledge/contracts and then adds implementation ranges,
-first-hop dependency context, relevant tests, freshness warnings, and `Read next:` hints.
+Build a compact project context pack with explicit active specs and other relevant documents,
+implementation ranges, first-hop dependencies, relevant tests, and `Read next:` hints.
 
 ```bash
 idx context "how session refresh retries work" --budget 1800
@@ -356,111 +481,36 @@ idx context "payment cancellation" --path-prefix src/payments/
 | Option                    | Default | Description                                      |
 |---------------------------|---------|--------------------------------------------------|
 | `--budget <tokens>`       | 1400    | Approximate output token budget                  |
-| `--max-specs <number>`    | 4       | Maximum primary knowledge results                |
+| `--max-specs <number>`    | 4       | Maximum entries per document group               |
 | `--max-code <number>`     | 6       | Maximum implementation paths/ranges              |
 | `--max-tests <number>`    | 4       | Maximum relevant test hints                      |
-| `--path-prefix <path>`    | —       | Limit implementation discovery to a code area    |
-| `--include-secondary`     | —       | Allow `design-only` secondary knowledge retrieval |
+| `--path-prefix <path>`    | —       | Limit document and code discovery to an area     |
+| `--mode <mode>`           | hybrid  | `hybrid`, `semantic`, or offline `lexical`        |
 
-The command reports non-fresh knowledge explicitly. Registered knowledge and
-indexed unclassified documents are trusted by default for retrieval, but
-`unverified`, `spec-changed`, `inputs-changed`, and `unreviewed` remain warnings
-that verification/classification may be absent or stale. A fresh repository can
-therefore answer from indexed Markdown before any `wiki record` step. Default
-trust never changes freshness or creates registered primary knowledge.
+### `idx audit <changed-paths...>`
 
-### `idx wiki`
+Reports specs whose explicitly declared `Implementation` or `Tests` paths
+intersect this task's changed files, separately from possible candidates found
+through ordinary references or retrieval. This is advisory: inspect the source
+and fix actual semantic drift; a match does not mean the document is wrong.
+No edit or review ceremony is required if the document remains accurate.
 
-Maintain the project behavioral knowledge layer. Primary source documents remain authoritative; SQLite metadata,
-summaries, vectors, catalogs, and search rankings are derived navigation state.
+Use `--no-semantic` for an offline audit and `--json` for structured output.
 
-Core commands:
-
-```bash
-idx wiki discover
-idx wiki record --path docs/auth.md --classification spec --type as-is --lifecycle active \
-  --summary "Authentication session and refresh contract." --topic auth --topic sessions
-idx wiki prepare --path docs/auth.md --output auth-review.json
-# Review the source and evidence; fill the receipt's reviewer, rationale and bindings.
-idx wiki verify --path docs/auth.md --receipt auth-review.json
-idx wiki trust --all --rationale "Imported project documentation is trusted"
-idx wiki trust --path docs/auth.md
-idx wiki trust --all --clear # return to default trust policy
-idx wiki relate --path docs/auth.md --add-code src/auth/refresh.ts
-idx wiki status
-idx wiki audit
-idx wiki catalog
-idx wiki search "почему refresh token повторяется"
-idx wiki impact src/auth/refresh.ts src/auth/session.ts
-idx wiki review collect src/auth/refresh.ts src/auth/session.ts --scope auth-change
-idx wiki review list --scope auth-change
-idx wiki check src/auth/refresh.ts src/auth/session.ts --scope auth-change
-idx wiki search "refresh" --mode lexical # offline, existing completed index
-idx wiki manifest validate --file knowledge.json
-idx wiki manifest apply --file knowledge.json
-```
-
-Important semantics:
-
-- `record` means semantic classification/index metadata only; it does **not** establish `fresh`;
-- registered knowledge is trusted by default for retrieval. `wiki trust`
-  records explicit user trust without claiming verification. Explicit trust is
-  bound to the current source hash; later source changes fall back to default
-  trust and continue to warn. `--clear` removes explicit trust. A current
-  attested verification reports `trust=verified`;
-- indexed documents that have not been recorded are also trusted by default for
-  retrieval and remain clearly `unreviewed`. If a project has no registered
-  entries yet, `wiki search`/`context` still use these documents up to their
-  normal result limits. `wiki trust --all` reports that state instead of silently
-  succeeding on an empty registered catalog;
-- `prepare` produces current hashes, not an accepted verification. `verify --receipt` requires an explicitly
-  reviewed, versioned receipt bound to current source, relations and evidence. A source changed since `record`
-  must be recorded again first. Baseline and receipt are committed atomically;
-- freshness describes declared evidence only, not semantic correctness or complete coverage. Caller-attested
-  test outcomes are distinct from checks actually executed by the local runner; hashes never prove correctness;
-- source, non-gitignored tracked input, or durable relation-map changes invalidate freshness; gitignored code
-  relations remain documented but are excluded from verification baselines and emit a warning when added;
-- `wiki relate --remove-*` removes matching inferred or source-explicit relations by semantic identity and reports
-  unmatched removals as unchanged rather than silently claiming an update; re-recording restores explicit relations
-  that remain declared in the source document;
-- context packs omit related implementation/test paths that are absent from the current code index;
-- `impact` prefers task-scoped paths; uncovered paths require semantic review, but graph/vector similarity never creates
-  a durable relation automatically;
-- historical/superseded knowledge remains searchable but active knowledge wins ranking ties;
-- active as-is specs without effective non-gitignored code/test inputs are reported as relation gaps;
-- `review collect` persists hash-bound obligations, including reviewed `no-impact` decisions without invented
-  relations. `review resolve` requires a reviewer, rationale and evidence. Changed inputs reopen review;
-  `needs-human` remains blocking. `wiki check` recollects and exits nonzero for unresolved obligations;
-- optional version-1 JSON manifests provide Git-portable IDs, ownership, assertion declarations and typed
-  relations. `manifest export` never exports trusted verification baselines; applying declarations is not verification;
-- evidence selectors localize review hints, but an unchanged symbol/section/config selector never hides a changed
-  whole-file hash. Untracked one-hop helper changes remain uncovered while surfacing affected contracts;
-- discovery guidance in verbose `status`/`audit`/`search` and their JSON responses distinguishes unclassified
-  documents from already-classified documents whose source changed. Unclassified candidates must be read and recorded;
-  changed classified candidates remain registered knowledge and require review of their existing classification/metadata.
-  `status`/`audit`/`search` JSON exposes separate candidate-category counts, and `--all-unclassified` continues to exclude
-  existing entries. Default `status`/`audit` give a compact review pointer; ordinary search/context omit unrelated discovery
-  guidance while preserving evidence freshness/trust warnings;
-- legacy `.spec-wiki` state is not read, imported, or trusted.
-
-`idx wiki search` fuses independent document-vector and section-level lexical candidates. `--mode lexical` avoids
-Ollama and auto-indexing; hybrid retrieval degrades with explicit diagnostics when embeddings are unavailable.
-Offline retrieval requires an existing completed index and may use stale indexed text. Live evidence freshness
-is checked separately. `--mode semantic` fails rather than silently changing modes. Empty retrieval is not proof
-that no relevant contract exists. Multilingual semantic quality still depends on the configured embedding model.
-
-Detailed contracts: [verification](docs/specs/knowledge-verification.md),
-[declarations](docs/specs/knowledge-manifest.md), [review](docs/specs/knowledge-review-workflow.md),
-[retrieval](docs/specs/knowledge-retrieval.md),
-[discovery](docs/specs/knowledge-discovery.md), and
-[quality evaluation](docs/specs/knowledge-quality-evaluation.md).
+All Markdown is eligible for indexing subject to project ignore rules and
+configured exclusions. Explicit frontmatter `kind` and `status` take precedence;
+optional inferred purpose is advisory, and unknown documents remain searchable
+and eligible audit candidates. Recommended specs declare project-root-relative
+backticked paths in `Implementation` and `Tests`, optionally with `::Symbol`.
 
 ### `idx search <query>`
 
-Run local code retrieval against the indexed codebase. The default `hybrid` mode
+Retrieve code and documents together (`--domain code` or `--domain document` narrows the search). The default `hybrid` mode
 unions independent semantic-vector, FTS lexical, symbol-index, and path candidates
 before code-aware fusion/ranking; a lexical/symbol/path hit can therefore be found
 even when vector retrieval misses it. Automatically re-indexes changed files if needed.
+Explicit `lexical`/`symbol` modes use the existing snapshot offline; run `idx index`
+first when it needs refreshing.
 
 If you run `idx search` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.
@@ -468,6 +518,7 @@ project root. If no `.indexer-cli/` data exists yet, it stops and tells you to r
 | Option                   | Default | Description                                                                                                  |
 |--------------------------|---------|--------------------------------------------------------------------------------------------------------------|
 | `--max-files <number>`   | 3       | Number of results to return                                                                                  |
+| `--domain <domain>`      | all     | Search `all`, `code`, or `document`                                                                          |
 | `--path-prefix <string>` | —       | Limit results to files under this path                                                                       |
 | `--chunk-types <string>` | —       | Comma-separated filter. Types: `full_file`, `imports`, `preamble`, `declaration`, `module_section`, `impl`, `types`; aliases: `api`, `impl`, `tests`, `imports` |
 | `--mode <mode>`          | hybrid  | Retriever/ranking mode: `hybrid`, `semantic`, `lexical`, or `symbol`                                         |

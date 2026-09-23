@@ -34,7 +34,7 @@ describe("SqliteMetadataStore", () => {
 			.prepare("PRAGMA table_info(symbols)")
 			.all() as Array<{ name: string }>;
 
-		expect(migrationRow.version).toBe(5);
+		expect(migrationRow.version).toBe(6);
 		expect(symbolColumns.map((column) => column.name)).toContain(
 			"metadata_json",
 		);
@@ -45,10 +45,17 @@ describe("SqliteMetadataStore", () => {
 		expect(
 			db
 				.prepare(
-					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_entries'",
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_chunks'",
 				)
 				.get(),
 		).toBeDefined();
+		expect(
+			db
+				.prepare(
+					"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'knowledge_entries'",
+				)
+				.get(),
+		).toBeUndefined();
 		expect(
 			db
 				.prepare(
@@ -56,6 +63,42 @@ describe("SqliteMetadataStore", () => {
 				)
 				.get(),
 		).toBeDefined();
+	});
+
+	it("upgrades v5 databases by removing obsolete registry tables without losing indexed data", async () => {
+		const upgradePath = path.join(tempDir, "v5.sqlite");
+		const initial = new SqliteMetadataStore(upgradePath);
+		await initial.initialize();
+		const initialDb = (initial as any).db as Database.Database;
+		initialDb.prepare("DELETE FROM schema_migrations WHERE version = 6").run();
+		initialDb.exec(`
+			CREATE TABLE knowledge_entries (project_id TEXT, path TEXT, PRIMARY KEY (project_id, path));
+			CREATE TABLE knowledge_relations (project_id TEXT, source_path TEXT,
+				FOREIGN KEY (project_id, source_path) REFERENCES knowledge_entries(project_id, path));
+			CREATE TABLE knowledge_verified_inputs (project_id TEXT, source_path TEXT,
+				FOREIGN KEY (project_id, source_path) REFERENCES knowledge_entries(project_id, path));
+			INSERT INTO knowledge_entries VALUES ('project-a', 'docs/keep.md');
+			INSERT INTO knowledge_relations VALUES ('project-a', 'docs/keep.md');
+			INSERT INTO knowledge_verified_inputs VALUES ('project-a', 'docs/keep.md');
+			INSERT INTO snapshots (id, project_id, status, created_at) VALUES ('v5-snapshot', 'project-a', 'completed', 1);
+			INSERT INTO files (project_id, snapshot_id, path, sha256, mtime_ms, size, language_id, file_domain)
+				VALUES ('project-a', 'v5-snapshot', 'docs/keep.md', 'hash', 1, 4, 'markdown', 'document');
+			INSERT INTO knowledge_chunks (project_id, snapshot_id, chunk_id, file_path, start_line, end_line, content_hash, chunk_type)
+				VALUES ('project-a', 'v5-snapshot', 'keep-chunk', 'docs/keep.md', 1, 2, 'chunk-hash', 'doc_section');
+		`);
+		await initial.close();
+
+		const upgraded = new SqliteMetadataStore(upgradePath);
+		await upgraded.initialize();
+		const db = (upgraded as any).db as Database.Database;
+		expect((db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(6);
+		for (const table of ["knowledge_entries", "knowledge_relations", "knowledge_verified_inputs"]) {
+			expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)).toBeUndefined();
+		}
+		expect(await upgraded.getSnapshot("v5-snapshot")).not.toBeNull();
+		expect(await upgraded.getFile("project-a", "v5-snapshot", "docs/keep.md", { domain: "document" })).not.toBeNull();
+		expect(await upgraded.listKnowledgeChunks("project-a", "v5-snapshot")).toHaveLength(1);
+		await upgraded.close();
 	});
 
 	it("migrates a pre-knowledge 0.12.x database and defaults old rows to code", async () => {
@@ -91,7 +134,7 @@ describe("SqliteMetadataStore", () => {
 			(migratedDb
 				.prepare("SELECT MAX(version) AS version FROM schema_migrations")
 				.get() as { version: number }).version,
-		).toBe(5);
+		).toBe(6);
 		const columns = migratedDb
 			.prepare("PRAGMA table_info(files)")
 			.all() as Array<{ name: string }>;
@@ -119,57 +162,9 @@ describe("SqliteMetadataStore", () => {
 		await migratedStore.close();
 	});
 
-	it("persists knowledge entries, relation provenance, verified inputs, and document chunks", async () => {
+	it("persists document chunks", async () => {
 		const snapshot = await createSnapshot();
-		const entry = {
-			projectId: PROJECT_ID,
-			path: "docs/auth.md",
-			classification: "spec" as const,
-			behaviorType: "as-is" as const,
-			lifecycle: "active" as const,
-			confidence: "high",
-			title: "Authentication",
-			summary: "Refresh behavior",
-			topics: ["auth", "sessions"],
-			indexedSourceHash: "source-1",
-			indexedAt: 10,
-			verifiedSourceHash: "source-1",
-			verifiedRelationsHash: "relations-1",
-			verifiedAt: 11,
-			verificationReceipt: {
-				version: 1, sourcePath: "docs/auth.md", sourceHash: "source-1", relationsHash: "relations-1", inputs: [], preparedAt: 11,
-				reviewer: "sqlite-test", rationale: "Persisted test receipt.", assertionReferences: ["refresh assertion"], evidenceReferences: ["source"],
-				assertionBindings: [{ path: "docs/auth.md", hash: "source-1", assertion: "refresh assertion" }],
-				evidenceBindings: [{ path: "docs/auth.md", hash: "source-1" }], limitations: ["No command was executed."], zeroTrackedInputsAcknowledged: true,
-			},
-			metadata: { owner: "team-auth" },
-		};
-		await store.upsertKnowledgeEntry(entry);
-		await store.upsertKnowledgeRelation({
-			projectId: PROJECT_ID,
-			sourcePath: entry.path,
-			targetPath: "src/auth/refresh.ts",
-			targetKind: "code",
-			relationKind: "implements",
-			provenance: "explicit",
-		});
-		await store.upsertKnowledgeRelation({
-			projectId: PROJECT_ID,
-			sourcePath: entry.path,
-			targetPath: "docs/auth-v1.md",
-			targetKind: "knowledge",
-			relationKind: "supersedes",
-			provenance: "inferred",
-			metadata: { reason: "newer" },
-		});
-		await store.upsertKnowledgeVerifiedInput({
-			projectId: PROJECT_ID,
-			sourcePath: entry.path,
-			inputPath: "src/auth/refresh.ts",
-			inputHash: "input-1",
-			verifiedAt: 11,
-		});
-		await store.replaceKnowledgeChunks(PROJECT_ID, snapshot.id, entry.path, [
+		await store.replaceKnowledgeChunks(PROJECT_ID, snapshot.id, "docs/auth.md", [
 			{
 				chunkId: "doc-chunk-1",
 				startLine: 1,
@@ -181,24 +176,12 @@ describe("SqliteMetadataStore", () => {
 			},
 		]);
 
-		expect(await store.getKnowledgeEntry(PROJECT_ID, entry.path)).toEqual(entry);
-		expect(await store.listKnowledgeEntries(PROJECT_ID)).toEqual([entry]);
-		expect(await store.listKnowledgeRelations(PROJECT_ID)).toHaveLength(2);
-		expect(await store.listKnowledgeVerifiedInputs(PROJECT_ID, entry.path)).toEqual([
-			{
-				projectId: PROJECT_ID,
-				sourcePath: entry.path,
-				inputPath: "src/auth/refresh.ts",
-				inputHash: "input-1",
-				verifiedAt: 11,
-			},
-		]);
 		expect(await store.listKnowledgeChunks(PROJECT_ID, snapshot.id)).toEqual([
 			{
 				projectId: PROJECT_ID,
 				snapshotId: snapshot.id,
 				chunkId: "doc-chunk-1",
-				filePath: entry.path,
+				filePath: "docs/auth.md",
 				startLine: 1,
 				endLine: 4,
 				contentHash: "chunk-hash",
@@ -207,91 +190,23 @@ describe("SqliteMetadataStore", () => {
 				metadata: { level: 2 },
 			},
 		]);
-		await expect(
-			store.deleteKnowledgeRelation(PROJECT_ID, {
-				sourcePath: entry.path,
-				targetPath: "src/auth/refresh.ts",
-				targetKind: "code",
-				relationKind: "implements",
-			}),
-		).resolves.toBe(1);
-		await expect(
-			store.deleteKnowledgeRelation(PROJECT_ID, {
-				sourcePath: entry.path,
-				targetPath: "src/auth/refresh.ts",
-				targetKind: "code",
-				relationKind: "implements",
-			}),
-		).resolves.toBe(0);
-		expect(await store.listKnowledgeRelations(PROJECT_ID)).toHaveLength(1);
-
-		await store.upsertKnowledgeEntry({
-			...entry,
-			summary: "Updated semantic summary",
-			indexedSourceHash: "source-2",
-			indexedAt: 12,
-			verifiedSourceHash: undefined,
-			verifiedRelationsHash: undefined,
-			verifiedAt: undefined,
-		});
-		expect(await store.getKnowledgeEntry(PROJECT_ID, entry.path)).toMatchObject({
-			summary: "Updated semantic summary",
-			indexedSourceHash: "source-2",
-			verifiedSourceHash: "source-1",
-			verifiedRelationsHash: "relations-1",
-			verifiedAt: 11,
-		});
-
-		await store.replaceKnowledgeVerifiedInputs(PROJECT_ID, entry.path, [
-			{
-				inputPath: "src/auth/new-refresh.ts",
-				inputHash: "input-2",
-				verifiedAt: 13,
-			},
-		]);
-		expect(await store.listKnowledgeVerifiedInputs(PROJECT_ID, entry.path)).toEqual([
-			{
-				projectId: PROJECT_ID,
-				sourcePath: entry.path,
-				inputPath: "src/auth/new-refresh.ts",
-				inputHash: "input-2",
-				verifiedAt: 13,
-			},
-		]);
-
-		await store.clearKnowledgeVerification(PROJECT_ID, entry.path);
-		expect(await store.getKnowledgeEntry(PROJECT_ID, entry.path)).toMatchObject({
-			verifiedSourceHash: undefined,
-			verifiedRelationsHash: undefined,
-			verifiedAt: undefined,
-		});
-		expect(await store.listKnowledgeVerifiedInputs(PROJECT_ID, entry.path)).toEqual([]);
-
-		await store.deleteKnowledgeEntry(PROJECT_ID, entry.path);
-		expect(await store.getKnowledgeEntry(PROJECT_ID, entry.path)).toBeNull();
-		expect(await store.listKnowledgeRelations(PROJECT_ID)).toEqual([]);
 	});
 
-	it("rolls back knowledge writes with the surrounding transaction", async () => {
+	it("rolls back document chunk writes with the surrounding transaction", async () => {
+		const snapshot = await createSnapshot();
 		await expect(
 			store.transaction(async () => {
-				await store.upsertKnowledgeEntry({
-					projectId: PROJECT_ID,
-					path: "docs/rollback.md",
-					classification: "guide",
-					behaviorType: "unknown",
-					lifecycle: "unknown",
-					confidence: "low",
-					title: "Rollback",
-					summary: "",
-					topics: [],
-					indexedSourceHash: "hash",
-					indexedAt: 1,
-				});
+				await store.replaceKnowledgeChunks(PROJECT_ID, snapshot.id, "docs/rollback.md", [{
+					chunkId: "rollback-chunk",
+					startLine: 1,
+					endLine: 2,
+					contentHash: "hash",
+					chunkType: "doc_section",
+				}]);
 				throw new Error("rollback");
 			}),
 		).rejects.toThrow("rollback");
-		expect(await store.getKnowledgeEntry(PROJECT_ID, "docs/rollback.md")).toBeNull();
+		expect(await store.listKnowledgeChunks(PROJECT_ID, snapshot.id)).toEqual([]);
 	});
 
 	it("creates, updates, reads, and lists snapshots", async () => {

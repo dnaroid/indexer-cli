@@ -91,6 +91,9 @@ remove_managed_launcher "${BIN_DIR}/indexer-cli"
 echo "→ Installing indexer-cli into the selected npm global prefix..."
 "$NPM_BIN" install -g .
 
+# npm may hide lifecycle output or have scripts disabled; always show this path.
+"$NODE_BIN" "$REPO_ROOT/scripts/create-ask-config.cjs"
+
 if [[ ! -f "$CLI_ENTRY" ]]; then
 	echo "Error: global indexer-cli entry point was not installed at $CLI_ENTRY" >&2
 	exit 1

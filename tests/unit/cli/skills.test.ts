@@ -29,19 +29,19 @@ describe("generated skills", () => {
 		expect(skill?.content).toContain("## Route");
 		expect(skill?.content).toContain("## Compact tool guidance");
 		expect(skill?.content).toContain("## Knowledge rules");
-		expect(skill?.content).toContain("## Material-change completion checkpoint");
+		expect(skill?.content).not.toContain("## Material-change completion checkpoint");
 		expect(skill?.content).toContain("## Stop conditions");
 		expect(skill?.content).toContain(
 			"Pick the single cheapest indexed command that answers the question.",
 		);
 		expect(skill?.content).toContain("idx context <query>");
-		expect(skill?.content).toContain("idx wiki search <query>");
-		expect(skill?.content).toContain("idx wiki impact <task-paths...>");
-		expect(skill?.content).toContain("idx wiki record` classifies/indexes metadata");
-		expect(skill?.content).toContain("same task");
-		expect(skill?.content).toContain("metadata alone is not a spec");
-		expect(skill?.content).toContain("Empty known impact does not prove no impact");
-		expect(skill?.content).toContain("remove old metadata only after the new authority is established");
+		expect(skill?.content).toContain("idx ask '<task>' --budget 2000");
+		expect(skill?.content).toContain("generates a coherent answer with evidence citations");
+		expect(skill?.content).toContain("idx search '<query>' --mode lexical");
+		expect(skill?.content).not.toContain("idx ask --no-llm");
+		expect(skill?.content).toContain("idx audit <changed-paths...>");
+		expect(skill?.content).toContain("All Markdown documents are indexed");
+		expect(skill?.content).not.toContain("idx wiki");
 	});
 
 	it("mirrors the proven compact repo-discovery guidance", () => {
@@ -70,7 +70,7 @@ describe("generated skills", () => {
 			const hasIdxCommand = [
 				"idx search",
 				"idx context",
-				"idx wiki",
+				"idx audit",
 				"idx structure",
 				"idx architecture",
 				"idx explain",
@@ -96,7 +96,8 @@ describe("generated skills", () => {
 			expect(skill.content).toContain("Bash(idx explain:*)");
 			expect(skill.content).toContain("Bash(idx deps:*)");
 			expect(skill.content).toContain("Bash(idx context:*)");
-			expect(skill.content).toContain("Bash(idx wiki:*)");
+			expect(skill.content).toContain("Bash(idx ask:*)");
+			expect(skill.content).toContain("Bash(idx audit:*)");
 		}
 	});
 

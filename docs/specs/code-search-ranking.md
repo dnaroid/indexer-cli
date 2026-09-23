@@ -2,8 +2,9 @@
 
 ## Scope
 
-This specification defines retrieval and ranking semantics for `idx search` and
-for code retrieval performed by `idx context`. It covers candidate generation,
+This specification defines the code-domain retrieval and ranking semantics of
+`idx search` and `idx context`. Unified search also merges document results;
+document behavior is specified in `knowledge-maintenance.md`. This contract covers candidate generation,
 ranking modes, score calibration, test/import handling, index maintenance, and
 the regression/evaluation evidence required before changing search behavior. It
 also defines snapshot isolation for vector retrieval, because search correctness
@@ -31,12 +32,10 @@ by another channel.
 ## Ranking modes
 
 - `--mode semantic` retrieves and ranks only semantic vector candidates.
-- `--mode lexical` retrieves and ranks only FTS lexical candidates. It does not
-  call the query embedding provider or vector search when the current code index
-  is already usable.
-- `--mode symbol` retrieves and ranks only symbol-index candidates. It does not
-  call the query embedding provider or vector search when the current code index
-  is already usable.
+- `--mode lexical` retrieves and ranks only FTS lexical code candidates.
+- `--mode symbol` retrieves and ranks only symbol-index code candidates.
+  These offline search modes use the completed snapshot without automatic
+  refresh, query embedding calls, or vector search; run `idx index` to refresh.
 - `--mode hybrid` unions semantic, lexical, symbol, and path candidates and then
   applies code-aware fusion/ranking.
 
@@ -113,8 +112,8 @@ The side index follows snapshot semantics:
   metadata operation;
 - pruning project snapshots removes orphan FTS rows;
 - after an upgrade, if a completed snapshot contains code chunks but its FTS row
-  count does not match, read commands request a one-time full reindex before
-  claiming lexical/hybrid search is current.
+  count does not match, automatic refresh requests a one-time full reindex.
+  Explicit offline modes skip this refresh and do not certify index freshness.
 
 This prevents an upgraded repository from silently degrading `hybrid` into
 semantic-only retrieval.

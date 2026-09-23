@@ -7,24 +7,36 @@ export type GeneratedSkill = {
 function buildRepoDiscoverySkillContent(): string {
 	return `---
 name: repo-discovery
-description: FIRST choice for indexed repo discovery and behavioral specs. Use when the code owner/file/symbol is unknown, including “how does this behavior work?” questions; for architecture or finding code by behavior; for any caller/dependency trace in an unfamiliar subsystem; for specs/contracts/requirements/freshness and the implementation/tests that enforce them; for behavioral-knowledge bootstrap; and for material behavior changes that may require creating/updating/verifying a primary spec or checking impact/relations. Use it even when a changed implementation path is already known if the question asks which specs/contracts/relations are affected. Prefer exact Read/rg/LSP only for pure known-path or identifier lookup.
-allowed-tools: Bash(idx context:*), Bash(idx wiki:*), Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*), Bash(rg:*), Bash(grep:*)
+description: FIRST choice for indexed repo discovery and behavioral specs. Use when the code owner/file/symbol is unknown, including “how does this behavior work?” questions; for architecture, finding code by behavior, or tracing dependencies in an unfamiliar subsystem; for specs/contracts and their implementation/tests; and for material behavior changes that may require updating a spec or checking impact. Use it even when a changed implementation path is already known if the question asks which specs are affected. Prefer exact Read/rg/LSP only for pure known-path or identifier lookup.
+allowed-tools: Bash(idx ask:*), Bash(idx context:*), Bash(idx audit:*), Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*), Bash(rg:*), Bash(grep:*)
 ---
 
 # Indexed repository guidance
 
-Pick the single cheapest indexed command that answers the question. Start compact,
-read the smallest returned ranges, and expand only for a named gap.
+Pick the single cheapest indexed command that answers the question. For
+coding-agent discovery, start with \`idx ask '<task>' --budget 2000\`. It iteratively
+calls read-only idx tools and generates a coherent answer with evidence citations.
+The budget limits model output tokens, not retrieved evidence pages. Verify cited
+sources before changing code; generated prose is not an authoritative contract.
+When the LLM is unavailable, ask prints a low-level tool guide instead of silently
+falling back to search. Use \`idx search '<query>' --mode lexical\` for discovery
+without an LLM. There is no ask-level offline mode or cursor continuation.
+Mandatory retrieval diagnostics remain visible independently of the answer;
+never treat warnings or TRUNC/NEXT hints as optional evidence.
+Setup, initialization, and explicit indexing remain explicit operations. When a specific
+low-level operation is needed, use the commands below. Start compact, read the
+smallest returned ranges, and expand only for a named gap.
 
 ## Route
 
-- Project behavior/contract question needing implementation/tests/freshness →
+- General coding task/discovery request → \`idx ask '<task>' --budget 2000\`.
+- Discovery without an LLM → \`idx search '<query>' --mode lexical\`.
+- Project behavior/contract question needing implementation/tests →
   \`idx context <query>\`.
-- Need only authoritative specs/contracts → \`idx wiki search <query>\`.
-- Before a material behavior change → find the current primary contract with
-  \`idx context <query>\` or \`idx wiki search <query>\`.
-- Material behavior change complete / contract-impact question →
-  \`idx wiki impact <task-paths...>\` using this task's changed paths.
+- Search project documents and code together → \`idx search <query>\` or \`idx ask <query>\`.
+- Before a material behavior change → find relevant documents with
+  \`idx context <query>\` or \`idx search <query>\`.
+- Material behavior change complete → \`idx audit <changed-paths...>\`.
 - Broad unfamiliar subsystem → \`idx architecture --path-prefix <area>\`.
 - Directory/module inventory →
   \`idx structure --path-prefix <area> --max-files 20 --max-depth 2\`.
@@ -59,90 +71,24 @@ read the smallest returned ranges, and expand only for a named gap.
 
 ## Knowledge rules
 
-- Primary project specs/contracts are authoritative. Catalogs, summaries,
-  embeddings, rankings, and relation candidates are routing evidence only.
-- For a material behavior-changing task, keep the authoritative primary spec
-  aligned in the **same task**. Update the existing primary spec when it governs
-  the behavior. If no suitable primary contract exists, create a focused primary
-  spec file before recording metadata. Do not create specs for mechanical
-  refactors, typo/formatting changes, exact renames, or other non-behavioral work.
-- \`idx wiki record\` classifies/indexes metadata; it is **not** semantic
-  verification. A newly created primary spec remains unverified until its
-  implementation/evidence has actually been reviewed. Run \`idx wiki verify\`
-  only after checking the primary source against relevant code/tests/evidence.
-  Use \`idx wiki prepare --path <spec> --output <receipt.json>\`, review and fill
-  the versioned receipt, then \`idx wiki verify --path <spec> --receipt <receipt.json>\`.
-  Preparation is not verification; record changed source metadata before accepting
-  a new receipt. Imported test claims are attestations, not machine execution.
-- Treat \`unverified\`, \`spec-changed\`, \`inputs-changed\`,
-  \`spec+inputs-changed\`, and \`missing-source\` as review obligations, not as
-  current truth. Do not present a non-fresh primary spec as unquestionably current
-  without reviewing the relevant implementation/tests.
-- Registered knowledge is trusted by default for retrieval, but default trust is
-  not verification. Search/context warnings identify non-fresh trusted results.
-  Use \`idx wiki trust --all\` (or repeat \`--path\`) to record explicit user trust
-  without claiming semantic verification; \`--clear\` returns entries to the
-  default-trust policy. Source changes invalidate explicit trust binding and fall
-  back to default trust with warnings.
-- Gitignored code relations remain dependency documentation but do not participate
-  in verified-input freshness tracking. Treat the relate warning as intentional;
-  context code hints include only paths present in the current code index.
-- \`idx wiki relate --remove-*\` deletes matching inferred or explicit relations
-  by source/target/kind identity. Treat a no-matching-relation warning and
-  \`changed: false\` result as a no-op, not a successful update. Re-recording a
-  source re-extracts explicit relations that remain declared in its text.
-- After material behavior-changing implementation, run task-scoped
-  \`idx wiki impact <changed paths...>\` even when the files are already known.
-  Review uncovered paths plus new/moved/changed documents and semantic/graph
-  candidates. Empty known impact does not prove no impact; uncovered paths still
-  require semantic review. Similarity never creates a durable relation by itself.
-- A reviewed no-impact outcome is valid. Never invent a relation merely to make
-  coverage non-empty.
-- Persist review with \`idx wiki review collect <task-paths...> --scope <task>\`.
-  Resolve obligations with reviewer/rationale/evidence; \`needs-human\` stays open.
-  Run \`idx wiki check <task-paths...> --scope <task>\` for the deterministic CI gate.
-  Changed fingerprints reopen accepted decisions, including no-impact.
-- Use \`idx wiki search <query> --mode lexical\` for offline indexed retrieval.
-  Degraded/old indexed text is not current source evidence; empty retrieval is not
-  absence of a contract. Optional JSON manifests carry declarations, never trusted
-  verification baselines. Unchanged selectors never override whole-file drift.
-- New/moved unclassified document candidates must be read and classified. For
-  low-signal docs that normal discovery may miss, use
-  \`idx wiki discover --all-unclassified\`; this mode intentionally excludes
-  already-recorded entries.
-- A changed candidate with \`knownClassification\` is already registered project
-  knowledge. Review its source plus existing classification/metadata instead of
-  describing it as unregistered. Re-run \`idx wiki record\` when confirming or
-  updating that metadata; primary knowledge still uses the separate verify
-  lifecycle after evidence review.
-- When \`idx wiki status\`, \`idx wiki audit\`, \`idx wiki search\`, or
-  \`idx context\` reports a candidate-review recommendation, explicitly tell the
-  user which unclassified and/or changed-classified review obligations remain,
-  run \`idx wiki discover\`, and read each source. Classify unclassified sources
-  with \`idx wiki record\`; review already-classified changed sources without
-  claiming that their existing knowledge registration disappeared.
-- When a primary spec moves, establish/classify the new path, preserve or repair
-  evidence-backed code/test/spec relations, verify the new path after semantic
-  review, and remove old metadata only after the new authority is established.
-- Changed code never automatically rewrites spec semantics. Decide whether the
-  contract changed by comparing intended behavior, primary source, code, and tests.
-
-## Material-change completion checkpoint
-
-For material project behavior changes, do not finish until all applicable steps
-below are complete:
-
-1. Locate and read the governing primary contract before or during implementation.
-2. Update that contract, or create a focused primary spec if none governs the
-   behavior. Edit the real source document; metadata alone is not a spec.
-3. Run \`idx wiki impact <task-changed-paths...>\`; prefer task-scoped paths over
-   the whole dirty worktree.
-4. Review uncovered implementation paths and all new/moved/changed document
-   candidates. Repair only relations supported by concrete evidence.
-5. Run \`idx wiki verify --path <primary-spec> --receipt <reviewed-receipt.json>\` only after reviewing the final
-   primary source plus relevant implementation/tests/evidence.
-6. Ensure affected current primary specs are fresh, or explicitly report any
-   remaining review obligation instead of silently treating it as current.
+- Read the primary source: summaries and rankings are navigation aids, not
+  authoritative statements or proof of completeness.
+- Specs describe behavior, scenarios, constraints, and interfaces—not an
+  inventory of implementation details. Update meaningful high-level specs when
+  behavior changes; skip documentation ceremony for non-behavioral edits.
+- Start a task with \`idx ask\`/context before implementation. After a material
+  behavior change, run task-scoped \`idx audit\` and compare the affected source
+  documents with implementation and tests. Fix actual semantic drift; the audit
+  does not prove a document is wrong or require edits when it remains accurate.
+- All Markdown documents are indexed subject to ignore/exclusion filters.
+  Explicit frontmatter kind/status wins; inferred purpose is advisory. Unknown
+  documents remain searchable and audit candidates. Never invent relations or
+  documentation ceremony for non-behavioral changes.
+- For new specs, use the non-overwriting template installed at
+  \`.indexer-cli/spec-template.md\`. Declare \`kind: spec\` and the intended
+  \`status\` in frontmatter. In \`Implementation\` and \`Tests\` sections, list
+  project-root-relative paths in backticks, optionally \`path::Symbol\`.
+  Existing useful documents need no mandatory reformatting.
 
 ## Stop conditions
 

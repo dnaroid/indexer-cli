@@ -17,6 +17,7 @@ import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { GENERATED_SKILL_DIRECTORIES, GENERATED_SKILLS } from "./skills.js";
 import { SKILLS_VERSION } from "../../core/skills-version.js";
+import { installSpecTemplate } from "../spec-template.js";
 import { addProject } from "../../core/registry.js";
 import { resolveInitProjectRoot } from "../project-root.js";
 
@@ -355,6 +356,7 @@ export async function performInit(
 			...gitignoreTargets.flatMap(skillIgnoreEntries),
 		]);
 		await ensurePostCommitHook(projectRoot);
+		const specTemplatePath = await installSpecTemplate(dataDir);
 
 		const displayRoot = path.relative(process.cwd(), projectRoot) || ".";
 		console.log(`Initialized indexer-cli in ${displayRoot}`);
@@ -369,6 +371,7 @@ export async function performInit(
 		}
 		console.log(`  SQLite: ${path.relative(projectRoot, dbPath)}`);
 		console.log(`  Config: ${path.relative(projectRoot, configPath)}`);
+		console.log(`  Spec template: ${path.relative(projectRoot, specTemplatePath)} (copy to any document directory)`);
 
 		if (!options?.skipIndexing) {
 			console.log(

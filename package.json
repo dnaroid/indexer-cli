@@ -30,6 +30,8 @@
 	"files": [
 		"bin",
 		"dist",
+		"scripts/create-ask-config.cjs",
+		"docs/templates/ask.env",
 		"README.md"
 	],
 	"engines": {
@@ -39,6 +41,7 @@
 		"access": "public"
 	},
 	"scripts": {
+		"postinstall": "node scripts/create-ask-config.cjs",
 		"build": "tsx scripts/generate-skills-version.ts && tsc",
 		"dev": "tsc --watch",
 		"start": "tsx bin/indexer-cli.js",

@@ -19,6 +19,7 @@ import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { sanitizePathPatterns } from "../../utils/path-patterns.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
+import { documentMembershipChanges, filterIndexedChanges } from "./snapshot-diff.js";
 
 function collectPathOption(value: string, previous: string[]): string[] {
 	return [...previous, value];
@@ -110,6 +111,24 @@ async function updateIndexPathConfig(
 
 function countChangedFiles(diff: GitDiff): number {
 	return diff.added.length + diff.modified.length + diff.deleted.length;
+}
+
+export function createIndexProgressReporter(write: (line: string) => void): {
+	onFileStart: (filePath: string, current: number, total: number) => void;
+	onProgress: (processed: number, total: number) => void;
+} {
+	let startedFile = false;
+	return {
+		onFileStart: (filePath, current, total) => {
+			startedFile = true;
+			write(`  [${current}/${total}] ${filePath}`);
+		},
+		onProgress: (processed, total) => {
+			// Only runs without file starts need a standalone progress line
+			// (e.g. copied-only incremental or an empty full reindex).
+			if (!startedFile) write(`  ${processed}/${total} files...`);
+		},
+	};
 }
 
 type TreeNode = {
@@ -359,14 +378,27 @@ export function registerIndexCommand(program: Command): void {
 							languagePlugins,
 						});
 
+						let codeSearchNeedsRefresh = false;
+						let documentMembership: GitDiff = { added: [], modified: [], deleted: [] };
 						if (!options?.full) {
 							const latestSnapshot =
 								await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
+							if (latestSnapshot) {
+								documentMembership = await documentMembershipChanges(
+									metadata, resolvedProjectPath, latestSnapshot.id,
+								);
+							}
 							const headCommit = await git.getHeadCommit(resolvedProjectPath);
 							const workspaceDirty = await git.isDirty(resolvedProjectPath);
 							const knowledgeNeedsRefresh = latestSnapshot
 								? await knowledgeSnapshotNeedsRefresh(
 										metadata,
+										DEFAULT_PROJECT_ID,
+										latestSnapshot.id,
+									)
+								: false;
+							codeSearchNeedsRefresh = latestSnapshot
+								? await metadata.codeSearchIndexNeedsRefresh(
 										DEFAULT_PROJECT_ID,
 										latestSnapshot.id,
 									)
@@ -378,6 +410,8 @@ export function registerIndexCommand(program: Command): void {
 								!workspaceDirty &&
 								!pathMaskConfigChanged &&
 								!knowledgeNeedsRefresh &&
+								!codeSearchNeedsRefresh &&
+								countChangedFiles(documentMembership) === 0 &&
 								!options?.dryRun
 							) {
 								console.log("Index is already up to date.");
@@ -398,15 +432,26 @@ export function registerIndexCommand(program: Command): void {
 										await git.getWorkingTreeChanges(resolvedProjectPath),
 									)
 								: undefined;
-						if (
-							!options?.full &&
-							latestSnapshot &&
-							(await knowledgeSnapshotNeedsRefresh(
+						if (changedFiles && latestSnapshot && !pathMaskConfigChanged && !codeSearchNeedsRefresh) {
+							changedFiles = await filterIndexedChanges(
 								metadata,
-								DEFAULT_PROJECT_ID,
+								resolvedProjectPath,
 								latestSnapshot.id,
-							))
-						) {
+								changedFiles,
+							);
+						}
+						if (changedFiles) {
+							changedFiles = mergeGitDiffs(changedFiles, documentMembership);
+						}
+						const knowledgeNeedsRefresh = Boolean(
+							!options?.full && latestSnapshot &&
+								(await knowledgeSnapshotNeedsRefresh(
+									metadata,
+									DEFAULT_PROJECT_ID,
+									latestSnapshot.id,
+								)),
+						);
+						if (knowledgeNeedsRefresh) {
 							const documents = await scanProjectDocuments(resolvedProjectPath);
 							changedFiles = mergeGitDiffs(
 								changedFiles ?? { added: [], modified: [], deleted: [] },
@@ -418,7 +463,18 @@ export function registerIndexCommand(program: Command): void {
 							pathMaskConfigChanged ||
 							!latestSnapshot ||
 							!changedFiles ||
+							codeSearchNeedsRefresh ||
 							countChangedFiles(changedFiles) > 20_000;
+						if (
+							!effectiveFullReindex &&
+							!knowledgeNeedsRefresh &&
+							changedFiles &&
+							countChangedFiles(changedFiles) === 0 &&
+							!options?.dryRun
+						) {
+							console.log("Index is already up to date.");
+							return;
+						}
 
 						if (options?.dryRun) {
 							if (effectiveFullReindex) {
@@ -460,20 +516,14 @@ export function registerIndexCommand(program: Command): void {
 							: "Running incremental index...";
 						console.log(mode);
 
+						const progress = createIndexProgressReporter((line) => console.log(line));
 						const result = await engine.indexProject({
 							projectId: DEFAULT_PROJECT_ID,
 							repoRoot: resolvedProjectPath,
 							gitRef: headCommit ?? "unknown",
 							isFullReindex: effectiveFullReindex,
 							changedFiles,
-							onFileStart: effectiveFullReindex
-								? (filePath, current, total) => {
-										console.log(`  [${current}/${total}] ${filePath}`);
-									}
-								: undefined,
-							onProgress: (processed, total) => {
-								console.log(`  ${processed}/${total} files...`);
-							},
+							...progress,
 						});
 
 						const snapshot = await metadata.getSnapshot(result.snapshotId);

@@ -1,25 +1,14 @@
-import type {
-	KnowledgeRelation,
-	KnowledgeStore,
-	MetadataStore,
-	ProjectId,
-	SnapshotId,
-} from "../core/types.js";
+import type { MetadataStore, ProjectId, SnapshotId } from "../core/types.js";
 import type { SearchResult } from "../engine/searcher.js";
 import { isTestFile } from "../engine/searcher.js";
 import { findNearestTests, type TestHint } from "../cli/test-hints.js";
 import { TokenEstimator } from "../utils/token-estimator.js";
 import { lexicalTerms } from "./lexical-index.js";
-import type {
-	KnowledgeSearchOptions,
-	KnowledgeSearchResult,
-} from "./search.js";
+import type { DocumentSearchDiagnostics, DocumentSearchOptions, DocumentSearchResult } from "./search.js";
 
 export interface KnowledgeContextSearch {
-	search(
-		query: string,
-		options?: KnowledgeSearchOptions,
-	): Promise<KnowledgeSearchResult[]>;
+	search(query: string, options?: DocumentSearchOptions): Promise<DocumentSearchResult[]>;
+	getDiagnostics?(): DocumentSearchDiagnostics | undefined;
 }
 
 export interface CodeContextSearch {
@@ -43,7 +32,6 @@ export interface KnowledgeContextOptions {
 	maxSpecs?: number;
 	maxCode?: number;
 	maxTests?: number;
-	includeSecondary?: boolean;
 	pathPrefix?: string;
 	maxWarnings?: number;
 	mode?: "hybrid" | "semantic" | "lexical";
@@ -51,9 +39,9 @@ export interface KnowledgeContextOptions {
 
 export interface KnowledgeContextPack {
 	query: string;
-	specs: KnowledgeSearchResult[];
-	/** Indexed document matches without a reviewed knowledge entry. Never authoritative. */
-	unreviewed?: KnowledgeSearchResult[];
+	specs: DocumentSearchResult[];
+	/** Other indexed documents remain useful but are not treated as specs. */
+	documents?: DocumentSearchResult[];
 	implementation: Array<{
 		path: string;
 		startLine?: number;
@@ -67,7 +55,6 @@ export interface KnowledgeContextPack {
 		reason: "explicit" | TestHint["reason"];
 		confidence: "high" | "medium" | "low";
 	}>;
-	relations: KnowledgeRelation[];
 	warnings: string[];
 	readNext: string[];
 }
@@ -83,23 +70,6 @@ function uniqueByPath<T extends { path: string }>(values: T[]): T[] {
 	return result;
 }
 
-function relationTargets(
-	relations: KnowledgeRelation[],
-	relationKind: "implements" | "tests",
-): string[] {
-	return [
-		...new Set(
-			relations
-				.filter(
-					(relation) =>
-						relation.targetKind === "code" &&
-						relation.relationKind === relationKind,
-				)
-				.map((relation) => relation.targetPath),
-		),
-	];
-}
-
 function matchesPrefix(filePath: string, prefix?: string): boolean {
 	if (!prefix) return true;
 	const normalized = prefix.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
@@ -111,7 +81,6 @@ export class KnowledgeContextEngine {
 		private readonly projectId: ProjectId,
 		private readonly snapshotId: SnapshotId,
 		private readonly metadata: MetadataStore,
-		private readonly knowledge: KnowledgeStore,
 		private readonly knowledgeSearch: KnowledgeContextSearch,
 		private readonly codeSearch: CodeContextSearch,
 	) {}
@@ -126,21 +95,13 @@ export class KnowledgeContextEngine {
 		const maxTests = Math.max(0, options.maxTests ?? 4);
 
 		const knowledgeResults = await this.knowledgeSearch.search(query, {
-			// Search gets one extra slot so a labeled fallback does not reduce maxSpecs.
-			limit: maxSpecs + 1,
-			includeSecondary: options.includeSecondary,
+			limit: maxSpecs * 2,
 			mode: options.mode,
+			pathPrefix: options.pathPrefix,
 		});
-		const specs = knowledgeResults
-			.filter((result) => result.authority !== "unreviewed-indexed")
-			.slice(0, maxSpecs);
-		const unreviewedCandidates = knowledgeResults.filter(
-			(result) => result.authority === "unreviewed-indexed",
-		);
-		const unreviewed = unreviewedCandidates.slice(0, specs.length === 0 ? maxSpecs : 1);
-		const specPaths = new Set(specs.map((spec) => spec.path));
-		const allRelations = await this.knowledge.listKnowledgeRelations(this.projectId);
-		const relations = allRelations.filter((relation) => specPaths.has(relation.sourcePath));
+		const isExplicitActiveSpec = (result: DocumentSearchResult): boolean => result.kind === "spec" && result.status === "active" && result.provenance.kind === "explicit" && result.provenance.status === "explicit";
+		const specs = knowledgeResults.filter(isExplicitActiveSpec).slice(0, maxSpecs);
+		const documents = knowledgeResults.filter((result) => !isExplicitActiveSpec(result)).slice(0, maxSpecs);
 		const [semanticCode, files, dependencies] = await Promise.all([
 			this.codeSearch.search(
 				this.projectId,
@@ -160,12 +121,14 @@ export class KnowledgeContextEngine {
 			this.metadata.listDependencies(this.projectId, this.snapshotId),
 		]);
 		const indexedPaths = new Set(files.map((file) => file.path));
-		const trackedImplementation = relationTargets(relations, "implements").filter(
+		const explicitImplementation = knowledgeResults.flatMap((document) => document.metadata?.references.filter((reference) => reference.role === "implementation").map((reference) => reference.path) ?? []);
+		const explicitDocumentTests = knowledgeResults.flatMap((document) => document.metadata?.references.filter((reference) => reference.role === "test").map((reference) => reference.path) ?? []);
+		const trackedImplementation = explicitImplementation.filter(
 			(filePath) =>
 				indexedPaths.has(filePath) && matchesPrefix(filePath, options.pathPrefix),
 		);
-		const explicitTests = relationTargets(relations, "tests").filter((filePath) =>
-			indexedPaths.has(filePath),
+		const explicitTests = explicitDocumentTests.filter((filePath) =>
+			indexedPaths.has(filePath) && matchesPrefix(filePath, options.pathPrefix),
 		);
 
 		const semanticByPath = new Map(semanticCode.map((result) => [result.filePath, result]));
@@ -203,6 +166,7 @@ export class KnowledgeContextEngine {
 			if (dependency.toPath && seedPaths.has(dependency.fromPath)) {
 				if (
 					!seedPaths.has(dependency.toPath) &&
+					indexedPaths.has(dependency.toPath) &&
 					!isTestFile(dependency.toPath) &&
 					matchesPrefix(dependency.toPath, options.pathPrefix)
 				) {
@@ -212,6 +176,7 @@ export class KnowledgeContextEngine {
 			if (dependency.toPath && seedPaths.has(dependency.toPath)) {
 				if (
 					!seedPaths.has(dependency.fromPath) &&
+					indexedPaths.has(dependency.fromPath) &&
 					!isTestFile(dependency.fromPath) &&
 					matchesPrefix(dependency.fromPath, options.pathPrefix)
 				) {
@@ -219,8 +184,7 @@ export class KnowledgeContextEngine {
 				}
 			}
 		}
-		// Relations are provenance, not unconditional priority.  A late path with a
-		// strong code/query match must outrank unrelated tracked paths.
+		// Declarations are hints, not unconditional priority over query-relevant code.
 		const queryTerms = lexicalTerms(query);
 		const pathScore = (filePath: string) => [...queryTerms].filter((term) => lexicalTerms(filePath).has(term)).length;
 		const implementation = uniqueByPath([
@@ -245,7 +209,7 @@ export class KnowledgeContextEngine {
 				reason: "explicit" as const,
 				confidence: "high" as const,
 			})),
-			...nearest.map((hint) => ({
+			...nearest.filter((hint) => matchesPrefix(hint.testPath, options.pathPrefix)).map((hint) => ({
 				path: hint.testPath,
 				targetPath: hint.targetPath,
 				reason: hint.reason,
@@ -260,22 +224,13 @@ export class KnowledgeContextEngine {
 		}).slice(0, maxTests);
 
 		const warnings: string[] = [];
-		for (const spec of specs) {
-			if (spec.status !== "fresh") {
-				warnings.push(
-					`${spec.path}: ${spec.status}; ${spec.trust === "explicit" ? "explicitly trusted" : "trusted by default"}, verification may be stale or absent`,
-				);
-			}
-		}
-		for (const document of unreviewed) {
-			warnings.push(`${document.path}: trusted by default but unreviewed indexed document; content may be stale or incorrect`);
-		}
+		const retrievalNote = this.knowledgeSearch.getDiagnostics?.()?.note;
+		if (retrievalNote) warnings.push(retrievalNote);
+		for (const document of [...specs, ...documents]) warnings.push(...(document.metadata?.warnings ?? []).map((warning) => `${document.path}: ${warning}`));
 		const warningLimit = Math.max(1, options.maxWarnings ?? 8);
-		if (warnings.length > warningLimit) warnings.splice(warningLimit, warnings.length - warningLimit, `… ${warnings.length - warningLimit} additional stale knowledge warnings`);
+		if (warnings.length > warningLimit) warnings.splice(warningLimit, warnings.length - warningLimit, `… ${warnings.length - warningLimit} additional warnings`);
 		if (specs.length === 0) {
-			warnings.push(unreviewed.length > 0
-				? `No registered primary knowledge matched the query; using ${unreviewed.length} default-trusted unreviewed indexed document${unreviewed.length === 1 ? "" : "s"} as knowledge evidence.`
-				: "No primary knowledge matched the query.");
+			warnings.push(documents.length > 0 ? `No explicit active spec matched; using ${documents.length} indexed document${documents.length === 1 ? "" : "s"} as context.` : "No indexed document matched the query.");
 		}
 
 		const readNext = uniqueByPath([
@@ -285,7 +240,7 @@ export class KnowledgeContextEngine {
 						path: range ? `${spec.path}:${range.startLine}-${range.endLine}` : spec.path,
 				};
 			}),
-			...unreviewed.map((document) => {
+			...documents.map((document) => {
 				const range = document.bestRanges[0];
 				return {
 					path: range ? `${document.path}:${range.startLine}-${range.endLine}` : document.path,
@@ -302,10 +257,9 @@ export class KnowledgeContextEngine {
 		return {
 			query,
 			specs,
-			unreviewed,
+			documents,
 			implementation,
 			tests,
-			relations,
 			warnings,
 			readNext,
 		};
@@ -324,7 +278,7 @@ export function formatKnowledgeContext(
 ): string {
 	const budget = Math.max(200, budgetTokens);
 	const estimator = new TokenEstimator();
-	const unreviewed = pack.unreviewed ?? [];
+	const documents = pack.documents ?? [];
 	const clip = (value: string, max = 40): string => {
 		const characters = Array.from(value);
 		return characters.length <= max ? value : `${characters.slice(0, Math.max(1, max - 1)).join("")}…`;
@@ -342,13 +296,13 @@ export function formatKnowledgeContext(
 	});
 	const specs = uniqueRows(pack.specs, (spec) => {
 		const range = spec.bestRanges[0];
-		const suffix = `${range ? `:${range.startLine}-${range.endLine}` : ""} status=${spec.status} trust=${spec.trust}`;
+		const suffix = `${range ? `:${range.startLine}-${range.endLine}` : ""}${verbose ? ` kind=${spec.kind} status=${spec.status}` : ""}`;
 		return row(`S ${spec.path}${suffix}${spec.summary ? ` — ${clip(spec.summary, 160)}` : ""}`, `S ${clip(spec.path)}${suffix}`);
 	});
-	const indexed = uniqueRows(unreviewed, (document) => {
+	const indexed = uniqueRows(documents, (document) => {
 		const range = document.bestRanges[0];
-		const suffix = `${range ? `:${range.startLine}-${range.endLine}` : ""} status=${document.status} trust=${document.trust}`;
-		return row(`U ${document.path}${suffix}${document.summary ? ` — ${clip(document.summary, 160)}` : ""}`, `U ${clip(document.path)}${suffix}`);
+		const suffix = `${range ? `:${range.startLine}-${range.endLine}` : ""}${verbose ? ` kind=${document.kind} status=${document.status}` : ""}`;
+		return row(`D ${document.path}${suffix}${document.summary ? ` — ${clip(document.summary, 160)}` : ""}`, `D ${clip(document.path)}${suffix}`);
 	});
 	const implementation = uniqueRows(pack.implementation, (item) =>
 		row(`C ${item.path}${formatRange(item.startLine, item.endLine)} reason=${item.reason}`, `C ${clip(item.path)}${formatRange(item.startLine, item.endLine)}`),
@@ -356,26 +310,21 @@ export function formatKnowledgeContext(
 	const tests = uniqueRows(pack.tests, (test) =>
 		row(`T ${test.path} reason=${test.reason} confidence=${test.confidence}`, `T ${clip(test.path)} reason=${test.reason}`),
 	);
-	const relatedKnowledge = pack.relations.filter((relation) => relation.targetKind === "knowledge");
 	const knownEvidencePaths = new Set(emittedPaths);
-	for (const item of [...pack.specs, ...unreviewed]) {
+	for (const item of [...pack.specs, ...documents]) {
 		const range = item.bestRanges[0];
 		if (range) knownEvidencePaths.add(`${item.path}:${range.startLine}-${range.endLine}`);
 	}
 	for (const item of pack.implementation) {
 		knownEvidencePaths.add(`${item.path}${formatRange(item.startLine, item.endLine)}`);
 	}
-	for (const relation of relatedKnowledge) knownEvidencePaths.add(relation.targetPath);
 	const readNext = [...new Set(pack.readNext)].filter((item) => !knownEvidencePaths.has(item));
 	const categories: Category[] = [
 		{ heading: "Warnings", rows: pack.warnings.map((warning) => row(`! ${warning}`, `! ${clip(warning, 56)}`)) },
-		{ heading: "Primary knowledge", rows: specs },
-		{ heading: "Indexed knowledge (unreviewed)", rows: indexed },
+		{ heading: "Specifications", rows: specs },
+		{ heading: "Documents", rows: indexed },
 		{ heading: "Implementation", rows: implementation },
 		{ heading: "Tests", rows: tests },
-		{ heading: "Knowledge relations", rows: relatedKnowledge.map((relation) =>
-			row(`R ${relation.sourcePath} --${relation.relationKind}/${relation.provenance}--> ${relation.targetPath}`, `R ${clip(relation.sourcePath)} --${relation.relationKind}--> ${clip(relation.targetPath)}`),
-		) },
 		{ heading: "Read next", rows: readNext.map((item) => row(`> ${item}`, `> ${clip(item)}`)) },
 	].filter((category) => category.rows.length > 0);
 	const selected = categories.map(() => new Set<number>());
@@ -433,7 +382,7 @@ export function formatKnowledgeContext(
 	if (!verbose) return `${output.text}\n`;
 	const details = [
 		...pack.specs.map((spec) => `detail S ${clip(spec.title, 72)} — ${clip(spec.summary, 120)} why=${spec.reasonCodes.join(",") || "none"}`),
-		...unreviewed.map((document) => `detail U ${clip(document.title, 72)} — ${clip(document.summary, 120)} why=${document.reasonCodes.join(",") || "none"}`),
+		...documents.map((document) => `detail D ${clip(document.title, 72)} — ${clip(document.summary, 120)} provenance=${document.provenance.kind}/${document.provenance.status} why=${document.reasonCodes.join(",") || "none"}`),
 	];
 	const verboseLines = output.text.split("\n");
 	for (const detail of details) {

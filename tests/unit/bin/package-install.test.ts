@@ -17,6 +17,7 @@ function createTempDir(prefix: string): string {
 function run(command: string, args: string[], cwd = CLI_ROOT): string {
 	return execFileSync(command, args, {
 		cwd,
+		env: { ...process.env, XDG_CONFIG_HOME: createTempDir("idx-install-config-") },
 		encoding: "utf8",
 		stdio: ["pipe", "pipe", "pipe"],
 	});
@@ -35,6 +36,12 @@ afterEach(() => {
 });
 
 describe("published package install metadata", () => {
+	it("ships the dependency-free global configuration bootstrap and template", () => {
+		const pkg = JSON.parse(readFileSync(path.join(CLI_ROOT, "package.json"), "utf8"));
+		expect(pkg.scripts.postinstall).toBe("node scripts/create-ask-config.cjs");
+		expect(pkg.files).toContain("scripts/create-ask-config.cjs");
+		expect(pkg.files).toContain("docs/templates/ask.env");
+	});
 	it("publishes the supported Node runtime range", () => {
 		const pkg = JSON.parse(readFileSync(path.join(CLI_ROOT, "package.json"), "utf8")) as {
 			engines?: { node?: string };

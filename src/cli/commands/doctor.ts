@@ -1,5 +1,5 @@
 import { constants as fsConstants } from "node:fs";
-import { access, readdir } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -9,6 +9,7 @@ import { SKILLS_VERSION } from "../../core/skills-version.js";
 import { performInit } from "./init.js";
 import { performUninstall } from "./uninstall.js";
 import { performSetup } from "./setup.js";
+import { installSpecTemplate } from "../spec-template.js";
 import {
 	addProject,
 	getRegisteredProjects,
@@ -50,6 +51,33 @@ async function scanDirectoryForProjects(dir: string): Promise<string[]> {
 	}
 
 	return projectPaths;
+}
+
+async function readExistingTemplate(dataDir: string): Promise<Buffer | undefined> {
+	try {
+		return await readFile(path.join(dataDir, "spec-template.md"));
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+		throw error;
+	}
+}
+
+async function reinitializePreservingTemplate(projectPath: string): Promise<void> {
+	const dataDir = path.join(projectPath, ".indexer-cli");
+	const original = await readExistingTemplate(dataDir);
+	try {
+		await performUninstall(projectPath);
+		await performInit(projectPath, { skipIndexing: false });
+	} finally {
+		if (original !== undefined) {
+			// Uninstall removes the data directory, including user edits to the template.
+			// Restore even if initialization failed after the removal.
+			await mkdir(dataDir, { recursive: true });
+			const target = path.join(dataDir, "spec-template.md");
+			await rm(target, { force: true });
+			await writeFile(target, original, { flag: "wx" });
+		}
+	}
 }
 
 export function registerDoctorCommand(program: Command): void {
@@ -99,6 +127,18 @@ export function registerDoctorCommand(program: Command): void {
 				}
 
 				if (options.checkSkillsOnly) {
+					// A current skills version does not imply the template is present.
+					for (const entry of getRegisteredProjects()) {
+						const projectPath = path.resolve(entry.projectPath);
+						if (!(await pathExists(path.join(projectPath, ".indexer-cli", "config.json")))) continue;
+						try {
+							await installSpecTemplate(path.join(projectPath, ".indexer-cli"));
+						} catch (error) {
+							const message = error instanceof Error ? error.message : String(error);
+							console.error(`Failed to repair spec template in ${projectPath}: ${message}`);
+							process.exitCode = 1;
+						}
+					}
 					return;
 				}
 
@@ -194,12 +234,11 @@ export function registerDoctorCommand(program: Command): void {
 
 					try {
 						if (options.skillsOnly) {
+							await installSpecTemplate(path.join(projectPath, ".indexer-cli"));
 							await forceRefreshProjectSkills(projectPath);
 						} else {
-							await performUninstall(projectPath);
-							await performInit(projectPath, {
-								skipIndexing: false,
-							});
+							await reinitializePreservingTemplate(projectPath);
+							await installSpecTemplate(path.join(projectPath, ".indexer-cli"));
 							addProject({
 								projectPath,
 								cliVersion: PACKAGE_VERSION,

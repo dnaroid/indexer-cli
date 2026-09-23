@@ -1,4 +1,6 @@
 import { config } from "../core/config.js";
+import { realpath } from "node:fs/promises";
+import path from "node:path";
 import { scanProjectFiles } from "../engine/scanner.js";
 import { matchesPathPatterns } from "../utils/path-patterns.js";
 
@@ -22,9 +24,21 @@ export async function scanProjectDocuments(
 	});
 
 	const result: string[] = [];
+	const root = await realpath(rootPath);
 	for (const filePath of paths) {
 		const explicitlyIncluded = matchesPathPatterns(filePath, includePaths);
 		if (!explicitlyIncluded && matchesPathPatterns(filePath, excludePaths)) {
+			continue;
+		}
+		try {
+			const target = await realpath(path.join(rootPath, filePath));
+			const relative = path.relative(root, target);
+			if (path.isAbsolute(relative) || relative === ".." || relative.startsWith(`..${path.sep}`)) {
+				options.onWarning?.({ path: filePath, code: "OUTSIDE_PROJECT", message: "Document target is outside the project root." });
+				continue;
+			}
+		} catch {
+			options.onWarning?.({ path: filePath, code: "UNREADABLE_DOCUMENT", message: "Document target is unavailable." });
 			continue;
 		}
 		result.push(filePath);
@@ -32,4 +46,3 @@ export async function scanProjectDocuments(
 
 	return result.sort((left, right) => left.localeCompare(right));
 }
-

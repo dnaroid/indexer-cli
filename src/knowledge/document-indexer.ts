@@ -12,6 +12,7 @@ import type {
 } from "../core/types.js";
 import { computeHash } from "../utils/hash.js";
 import { chunkDocument } from "./document-chunker.js";
+import { getDocumentMetadata } from "./document-metadata.js";
 import { scanProjectDocuments } from "./document-scanner.js";
 import {
 	knowledgeDocumentEmbeddingText,
@@ -212,6 +213,7 @@ export class DocumentIndexer {
 			maxTokens,
 			fullFileMaxTokens: Math.min(400, maxTokens),
 		});
+		const documentMetadata = await getDocumentMetadata(this.repoRoot, filePath, content, { classify: true });
 
 		await this.knowledgeStore.replaceKnowledgeChunks(
 			projectId,
@@ -219,7 +221,7 @@ export class DocumentIndexer {
 			filePath,
 			chunks.map(({ content, ...chunk }) => ({
 				...chunk,
-				metadata: { ...chunk.metadata, searchText: content },
+				metadata: { ...chunk.metadata, searchText: content, document: documentMetadata },
 			})),
 		);
 

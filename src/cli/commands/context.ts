@@ -9,10 +9,7 @@ import {
 	KnowledgeContextEngine,
 	formatKnowledgeContext,
 } from "../../knowledge/context.js";
-import { KnowledgeSearchEngine } from "../../knowledge/search.js";
-import {
-	KnowledgeService,
-} from "../../knowledge/service.js";
+import { DocumentSearchEngine } from "../../knowledge/search.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { formatAutoIndexResult } from "../format/compact.js";
@@ -32,13 +29,12 @@ function parsePositiveInteger(value: string | undefined, fallback: number): numb
 export function registerContextCommand(program: Command): void {
 	program
 		.command("context <query>")
-		.description("Build a compact knowledge + implementation context pack")
+		.description("Build a compact documents + implementation context pack")
 		.option("--budget <tokens>", "approximate output token budget", "1400")
-		.option("--max-specs <number>", "maximum knowledge entries", "4")
+		.option("--max-specs <number>", "maximum entries per document group", "4")
 		.option("--max-code <number>", "maximum implementation files/ranges", "6")
 		.option("--max-tests <number>", "maximum test hints", "4")
-		.option("--path-prefix <path>", "limit implementation discovery to a code area")
-		.option("--include-secondary", "allow design-only knowledge in retrieval")
+		.option("--path-prefix <path>", "limit document and code discovery to a project area")
 		.option("--mode <mode>", "retrieval mode: hybrid, semantic, or lexical", "hybrid")
 		.option("--verbose", "include titles and retrieval reason-code details")
 		.action(
@@ -50,7 +46,6 @@ export function registerContextCommand(program: Command): void {
 					maxCode?: string;
 					maxTests?: string;
 					pathPrefix?: string;
-					includeSecondary?: boolean;
 					mode?: "hybrid" | "semantic" | "lexical";
 					verbose?: boolean;
 				},
@@ -112,34 +107,29 @@ export function registerContextCommand(program: Command): void {
 							}
 						} catch (error) {
 							embeddingsAvailable = false;
-							console.error(`Embedding provider unavailable; context uses bounded lexical knowledge retrieval only: ${error instanceof Error ? error.message : String(error)}`);
+							if (options.mode === "semantic") throw new Error("Semantic context requires the embedding provider.");
+							console.error("Embedding provider unavailable; context uses lexical retrieval.");
 						}
 
-						const service = new KnowledgeService(
-							DEFAULT_PROJECT_ID,
-							repoRoot,
-							metadata,
-							metadata,
-						);
-						const knowledgeSearch = new KnowledgeSearchEngine(
+						const knowledgeSearch = new DocumentSearchEngine(
 							DEFAULT_PROJECT_ID,
 							snapshot.id,
 							metadata,
-							metadata,
-							vectors,
+							embeddingsAvailable ? vectors : null,
 							embeddingsAvailable ? knowledgeEmbedder : null,
-							service,
+							metadata,
 						);
 						const rawCodeSearch = new SearchEngine(metadata, vectors, embedder, repoRoot);
 						const codeSearch = {
 							search: async (...args: Parameters<SearchEngine["search"]>) => {
+								if (!embeddingsAvailable && args[3]?.mode === "hybrid") args[3] = { ...args[3], mode: "lexical" };
 								try {
 									return await rawCodeSearch.search(...args);
 								} catch (error) {
 									// A provider can fail after initialization. Hybrid context must
 									// remain useful, but do not relabel lexical results as semantic.
 									if (args[3]?.mode !== "hybrid") throw error;
-									console.error(`Code semantic retrieval degraded to lexical: ${error instanceof Error ? error.message : String(error)}`);
+									console.error("Code semantic retrieval degraded to lexical.");
 									return rawCodeSearch.search(args[0], args[1], args[2], { ...args[3], mode: "lexical" });
 								}
 							},
@@ -148,7 +138,6 @@ export function registerContextCommand(program: Command): void {
 							DEFAULT_PROJECT_ID,
 							snapshot.id,
 							metadata,
-							metadata,
 							knowledgeSearch,
 							codeSearch,
 						);
@@ -156,7 +145,6 @@ export function registerContextCommand(program: Command): void {
 							maxSpecs: parsePositiveInteger(options.maxSpecs, 4),
 							maxCode: parsePositiveInteger(options.maxCode, 6),
 							maxTests: parsePositiveInteger(options.maxTests, 4),
-							includeSecondary: options.includeSecondary,
 							pathPrefix: options.pathPrefix?.replace(/\\/g, "/").replace(/^\.\//, ""),
 							mode: options.mode,
 						});

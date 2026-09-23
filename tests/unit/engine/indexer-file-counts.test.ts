@@ -170,6 +170,16 @@ describe("IndexerEngine file counts across code and documents", () => {
 		await expectCompleted(metadata, result.snapshotId, 2, observed);
 	});
 
+	it("reports zero progress without file starts for an empty full run", async () => {
+		const { engine, metadata } = await createProject({});
+		const observed = callbacks();
+		const result = await engine.indexProject({ isFullReindex: true, ...observed });
+		expect(result.filesIndexed).toBe(0);
+		expect(observed.onFileStart).not.toHaveBeenCalled();
+		expect(observed.onProgress.mock.calls).toEqual([[0, 0]]);
+		await expectCompleted(metadata, result.snapshotId, 0, observed);
+	});
+
 	it("counts only changed code and documents while progress includes carried files", async () => {
 		const { engine, metadata, write } = await createProject({
 			"src/main.ts": "export const value = 1;",
@@ -194,6 +204,7 @@ describe("IndexerEngine file counts across code and documents", () => {
 			"docs/changed.md",
 			"src/main.ts",
 		]);
+		expect(observed.onProgress.mock.calls).toEqual([[3, 4], [4, 4]]);
 		expect(
 			observed.onFileStart.mock.calls.map(([, current, total]) => [current, total]),
 		).toEqual([
@@ -312,6 +323,9 @@ describe("IndexerEngine file counts across code and documents", () => {
 			});
 			expect(result.filesIndexed).toBe(0);
 			expect(observed.onFileStart).not.toHaveBeenCalled();
+			expect(observed.onProgress.mock.calls).toEqual([
+				[kind === "deletion" ? 1 : 2, kind === "deletion" ? 1 : 2],
+			]);
 			await expectCompleted(
 				metadata,
 				result.snapshotId,

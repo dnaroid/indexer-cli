@@ -7,14 +7,14 @@ export const KNOWLEDGE_INDEX_CONFIG_ARTIFACT = "knowledge_index_config";
 export function knowledgeIndexConfigFingerprint(): string {
 	return computeHash(
 		JSON.stringify({
-			format: "knowledge-lexical-v1",
+			format: "document-metadata-v2",
 			model: config.get("knowledgeEmbeddingModel"),
-				queryPrefix: config.get("knowledgeEmbeddingQueryPrefix"),
-				documentPrefix: config.get("knowledgeEmbeddingDocumentPrefix"),
-				vectorSize: config.get("vectorSize"),
-				embeddingContextSize: config.get("embeddingContextSize"),
-				ollamaNumCtx: config.get("ollamaNumCtx"),
-				documentExtensions: config.get("documentExtensions"),
+			queryPrefix: config.get("knowledgeEmbeddingQueryPrefix"),
+			documentPrefix: config.get("knowledgeEmbeddingDocumentPrefix"),
+			vectorSize: config.get("vectorSize"),
+			embeddingContextSize: config.get("embeddingContextSize"),
+			ollamaNumCtx: config.get("ollamaNumCtx"),
+			documentExtensions: config.get("documentExtensions"),
 			documentIncludePaths: config.get("documentIncludePaths"),
 			documentExcludePaths: config.get("documentExcludePaths"),
 			documentMaxBytes: config.get("documentMaxBytes"),

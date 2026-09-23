@@ -67,5 +67,18 @@ describe("scanProjectDocuments", () => {
 		});
 		expect(result).toEqual(["docs/large.md"]);
 	});
-});
 
+	it("never sends explicitly included outside-root symlink documents to indexing", async () => {
+		const root = tempDir();
+		const external = tempDir();
+		await writeFile(path.join(external, "outside.md"), "private content");
+		await symlink(external, path.join(root, "linked-docs"));
+		const warnings: string[] = [];
+		const result = await scanProjectDocuments(root, {
+			extensions: [".md"], includePaths: ["linked-docs/**"],
+			onWarning: warning => warnings.push(warning.code),
+		});
+		expect(result).toEqual([]);
+		expect(warnings).toEqual(["OUTSIDE_PROJECT"]);
+	});
+});

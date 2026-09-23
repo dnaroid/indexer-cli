@@ -5,12 +5,14 @@ import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { initLogger } from "../../core/logger.js";
 import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
 import { SearchEngine } from "../../engine/searcher.js";
+import { UnifiedSearchEngine, type UnifiedSearchDomain } from "../../engine/unified-search.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { ensureIndexed } from "./ensure-indexed.js";
 import { formatAutoIndexResult } from "../format/compact.js";
 import { normalizePathPrefix } from "./path-prefix.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
+import { withSnapshotReadLease } from "../../core/snapshot-retention.js";
 
 function parseMinScore(
 	input?: string,
@@ -93,7 +95,7 @@ function formatNoResultsWarning(minScore: number | undefined): string {
 export function registerSearchCommand(program: Command): void {
 	program
 		.command("search <query>")
-		.description("Search indexed code semantically")
+		.description("Search indexed code and documents")
 		.option("--max-files <number>", "number of results to return", "3")
 		.option(
 			"--path-prefix <string>",
@@ -115,12 +117,13 @@ export function registerSearchCommand(program: Command): void {
 		)
 		.option(
 			"--include-content",
-			"include matched code content in output (omitted by default to save tokens)",
+			"include matched content in output (omitted by default to save tokens)",
 		)
 		.option("--dedupe-file", "return at most one result per file")
 		.option("--dedupe-symbol", "return at most one result per file/symbol pair")
 		.option("--cluster", "group nearby similar chunks and show one representative")
 		.option("--exclude-tests", "exclude test files from results")
+		.option("--domain <domain>", "search domain: all, code, or document", "all")
 		.option("--include-tests", "include test files without the default test penalty")
 		.action(
 			async (
@@ -138,6 +141,7 @@ export function registerSearchCommand(program: Command): void {
 					cluster?: boolean;
 					excludeTests?: boolean;
 					includeTests?: boolean;
+					domain?: string;
 				},
 			) => {
 				let resolvedProjectPath: string;
@@ -160,6 +164,8 @@ export function registerSearchCommand(program: Command): void {
 				initLogger(dataDir);
 				config.load(dataDir);
 				const mode = parseSearchMode(options?.mode);
+				const domain = options?.domain ?? "all";
+				if (!["all", "code", "document"].includes(domain)) throw new Error("--domain must be all, code, or document.");
 
 				const metadata = new SqliteMetadataStore(dbPath);
 				const vectors = new SqliteVecVectorStore({
@@ -179,21 +185,28 @@ export function registerSearchCommand(program: Command): void {
 					embedder,
 					resolvedProjectPath,
 				);
+				const documentEmbedder = new OllamaEmbeddingProvider(
+					config.get("ollamaBaseUrl"), config.get("knowledgeEmbeddingModel"),
+					config.get("indexBatchSize"), config.get("indexConcurrency"), config.get("ollamaNumCtx"),
+				);
 
 				try {
 					await metadata.initialize();
-					const indexResult = await ensureIndexed(metadata, resolvedProjectPath, {
+					const indexResult = mode === "lexical" || mode === "symbol" ? undefined : await ensureIndexed(metadata, resolvedProjectPath, {
 						silent: !process.stderr.isTTY,
 					});
-					console.log(formatAutoIndexResult(indexResult));
-					if (indexResult.status === "failed") {
-						process.exitCode = 1;
-						return;
-					}
+					if (indexResult) console.log(formatAutoIndexResult(indexResult));
+					let effectiveMode = mode;
 					if (mode === "semantic" || mode === "hybrid") {
-						await Promise.all([vectors.initialize(), embedder.initialize()]);
+						try { await vectors.initialize(); }
+						catch (error) {
+							if (mode === "semantic") throw error;
+							console.log("WARN vector storage unavailable; using lexical results.");
+							effectiveMode = "lexical";
+						}
 					}
 
+					await withSnapshotReadLease(resolvedProjectPath, async () => {
 					const snapshot =
 						await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) {
@@ -201,6 +214,7 @@ export function registerSearchCommand(program: Command): void {
 							"Auto-indexing did not produce a completed snapshot.",
 						);
 					}
+					if (indexResult?.status === "failed") console.log("WARN auto-index failed; using the existing completed snapshot (it may be stale).");
 
 					const maxFiles = Number.parseInt(options?.maxFiles ?? "3", 10);
 					const minScore = parseMinScore(
@@ -216,7 +230,9 @@ export function registerSearchCommand(program: Command): void {
 							snapshot.id,
 							{ pathPrefix: effectivePathPrefix },
 						);
-						if (prefixFiles.length === 0) {
+						const documentChunks = domain === "code" ? [] : await metadata.listKnowledgeChunks(DEFAULT_PROJECT_ID, snapshot.id);
+						const hasDocuments = documentChunks.some(chunk => chunk.filePath === effectivePathPrefix || chunk.filePath.startsWith(`${effectivePathPrefix}/`));
+						if (prefixFiles.length === 0 && !hasDocuments) {
 							console.log(
 								`WARN path-prefix-missing prefix=${effectivePathPrefix} fallback=project`,
 							);
@@ -224,13 +240,15 @@ export function registerSearchCommand(program: Command): void {
 						}
 					}
 
-					const results = await searchEngine.search(
+					const unified = new UnifiedSearchEngine(searchEngine, DEFAULT_PROJECT_ID, snapshot.id, metadata, vectors, documentEmbedder, metadata);
+					const results = await unified.search(
 						DEFAULT_PROJECT_ID,
 						snapshot.id,
 						query,
 						{
 							topK: Number.isFinite(maxFiles) && maxFiles > 0 ? maxFiles : 3,
-							mode,
+							mode: effectiveMode,
+							domain: domain as UnifiedSearchDomain,
 							pathPrefix: effectivePathPrefix,
 							chunkTypes,
 							includeContent: options?.includeContent ?? false,
@@ -244,6 +262,7 @@ export function registerSearchCommand(program: Command): void {
 							includeTests: options?.includeTests,
 						},
 					);
+					for (const warning of unified.getWarnings()) console.log(`WARN ${warning}`);
 
 					if (results.length === 0) {
 						console.log(formatNoResultsWarning(minScore));
@@ -262,23 +281,32 @@ export function registerSearchCommand(program: Command): void {
 
 					for (let i = 0; i < results.length; i++) {
 						const result = results[i];
-						const symbolPart = result.primarySymbol
+						const document = result.domain === "document";
+						const resultPath = document ? result.path : result.filePath;
+						const range = document ? result.bestRanges[0] ?? { startLine: 1, endLine: 1 } : result;
+						const symbolPart = !document && result.primarySymbol
 							? `, function: ${result.primarySymbol}`
 							: "";
-						const reasonPart = `, why=${result.reasonCode ?? mode}`;
+						const reasonPart = `, why=${document ? result.reasonCodes.join("+") || mode : result.reasonCode ?? mode}`;
 						console.log(
-							`${result.filePath}:${result.startLine}-${result.endLine} (score: ${result.score.toFixed(2)}, rank=${mode}${symbolPart}${reasonPart})`,
+							`${resultPath}:${range.startLine}-${range.endLine} (score: ${result.score.toFixed(2)}, rank=${mode}, domain=${result.domain}${symbolPart}${reasonPart})`,
 						);
+						if (document) console.log(`  kind=${result.kind} status=${result.status} provenance=${result.provenance.kind}/${result.provenance.status}`);
+						// Count the physical lines printed next so consumers can distinguish
+						// formatter headers from header-shaped text inside raw content.
+						const content = result.content || (document ? result.summary : "(content unavailable)");
+						console.log(`Content: ${options?.includeContent ? content.split("\n").length : 0} lines`);
 						if (options?.includeContent) {
-							console.log(result.content || "(content unavailable)");
+							console.log(content);
 						}
 					}
 					const nextReads = results
 						.slice(0, 3)
-						.map((result) => `${result.filePath}:${result.startLine}-${result.endLine}`);
+						.map((result) => result.domain === "document" ? `${result.path}:${result.bestRanges[0]?.startLine ?? 1}-${result.bestRanges[0]?.endLine ?? 1}` : `${result.filePath}:${result.startLine}-${result.endLine}`);
 					if (nextReads.length > 0) {
 						console.log(`Read next: ${nextReads.join(", ")}`);
 					}
+					});
 				} catch (error) {
 					const message =
 						error instanceof Error ? error.message : String(error);
@@ -289,6 +317,7 @@ export function registerSearchCommand(program: Command): void {
 						metadata.close(),
 						vectors.close(),
 						embedder.close(),
+						documentEmbedder.close(),
 					]);
 				}
 			},

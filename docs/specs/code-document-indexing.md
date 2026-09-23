@@ -1,10 +1,20 @@
+---
+kind: spec
+status: active
+---
+
 # Code and document indexing
 
-Implementation: `src/engine/indexer.ts`,
-`src/knowledge/document-indexer.ts`, `src/knowledge/embedding.ts`,
-`src/cli/commands/index.ts`, `src/cli/commands/ensure-indexed.ts`.
+## Implementation
 
-Regression evidence: `tests/unit/engine/indexer-file-counts.test.ts`,
+`src/engine/indexer.ts`,
+`src/knowledge/document-indexer.ts`, `src/knowledge/embedding.ts`,
+`src/cli/commands/index.ts`, `src/cli/commands/snapshot-diff.ts`,
+`src/cli/commands/ensure-indexed.ts`.
+
+## Tests
+
+`tests/unit/engine/indexer-file-counts.test.ts`,
 `tests/unit/cli/index-file-counts.test.ts`,
 `tests/unit/cli/ensure-indexed.test.ts`,
 `tests/unit/knowledge/document-indexer.test.ts`.
@@ -12,10 +22,28 @@ Regression evidence: `tests/unit/engine/indexer-file-counts.test.ts`,
 ## Shared indexing lifecycle
 
 Normal CLI indexing and automatic refresh process code and documents in the
-same snapshot. Document indexing stores document file records, text chunks,
-and embeddings independently of knowledge classification. Full indexing also
-works for projects containing only documents. Incremental indexing copies
+same snapshot. All project Markdown is eligible regardless of directory or
+purpose, subject to project ignore rules and configured document exclusions.
+Document indexing stores file records, text chunks, and embeddings independently
+of optional advisory purpose classification. Full indexing also works for
+projects containing only documents. Incremental indexing copies
 unchanged records and processes added or changed files in both domains.
+Explicit incremental `idx index` compares merged committed and workspace Git
+candidates with the latest completed snapshot's code and document hashes. A
+persistently dirty file whose bytes were already indexed is copied rather than
+reprocessed; a later content change or a newly added path is still indexed even
+when other dirty paths are unchanged. Deletions already absent from the snapshot
+are omitted. Before either no-op shortcut, the current document scanner set is
+compared with the snapshot: explicitly included Git-ignored documents added or
+removed without Git status changes still trigger an incremental index (and
+appear in incremental dry-run counts). A root `.gitignore` change remains
+actionable when the current scanner file set differs from the snapshot. When all
+candidates are unchanged,
+normal indexing reports up to date without creating another snapshot; a dry run
+reports an incremental zero-change plan. Forced full indexing, changed path
+masks, and an incomplete code lexical side index bypass this shortcut.
+Knowledge fingerprint refresh still processes the selected documents even if
+their bytes match the snapshot.
 
 ## File counts and progress
 
@@ -32,6 +60,15 @@ Incremental progress includes copied records in its initial processed offset,
 then advances for the files processed in that run. File-start and progress
 callbacks use the same total through both stages. A successful final progress
 value equals the snapshot total, including for document-only or empty projects.
+During `idx index`, full and incremental runs print one `[current/total] path`
+line per file-start callback, using the repository-relative code or document
+path. `current` uses the snapshot total, so incremental paths start after the
+copied-record offset; copied and deleted records do not get path lines. Batch
+progress callbacks do not print duplicate count-only lines after file starts.
+If there are no files to process, the final callback prints count-only progress
+(for example, `2/2 files...` when only records were copied, or `0/0 files...`
+for an empty full index). The final `Files indexed` value still counts only
+files handled in this invocation, not carried records.
 Full `idx index --dry-run` includes the scanned documents in `Files to index`.
 The `Files` count and optional file tree in `idx index --status` include stored
 code and document records from the selected snapshot.
@@ -53,5 +90,5 @@ is rechecked against the latest completed snapshot after the index lock is
 acquired.
 
 Cross-session refresh coordination, timeout diagnostics, and snapshot retention
-for concurrent wiki/context readers are specified in
+for concurrent search/audit/context readers are specified in
 [`concurrent-index-access.md`](concurrent-index-access.md).
