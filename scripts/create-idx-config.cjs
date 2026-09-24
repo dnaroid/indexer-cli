@@ -4,7 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
 
-function askConfigPath(env = process.env, home = os.homedir()) {
+function globalConfigPath(env = process.env, home = os.homedir()) {
 	const xdg = env.XDG_CONFIG_HOME;
 	const root = xdg && path.isAbsolute(xdg) ? xdg : path.join(home, ".config");
 	return path.join(root, "idx", ".env");
@@ -21,8 +21,8 @@ function existingConfig(target) {
 	}
 }
 
-function ensureAskConfig(env = process.env, home = os.homedir()) {
-	const target = askConfigPath(env, home);
+function ensureGlobalConfig(env = process.env, home = os.homedir()) {
+	const target = globalConfigPath(env, home);
 	const directory = path.dirname(target);
 	try {
 		fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -32,7 +32,7 @@ function ensureAskConfig(env = process.env, home = os.homedir()) {
 		}
 		if (existingConfig(target)) return target;
 		// Read the packaged template before reserving the destination, never user configuration.
-		const template = fs.readFileSync(path.join(__dirname, "..", "docs", "templates", "ask.env"));
+		const template = fs.readFileSync(path.join(__dirname, "..", "docs", "templates", "idx.env"));
 		const temporary = path.join(directory, `.env-${randomUUID()}.tmp`);
 		const fd = fs.openSync(temporary, "wx", 0o600);
 		try {
@@ -56,15 +56,15 @@ function ensureAskConfig(env = process.env, home = os.homedir()) {
 	}
 }
 
-function reportAskConfig(env = process.env, home = os.homedir()) {
+function reportGlobalConfig(env = process.env, home = os.homedir()) {
 	try {
-		const target = ensureAskConfig(env, home);
+		const target = ensureGlobalConfig(env, home);
 		console.log(`Global idx configuration: ${target} (existing files preserved; uncomment settings to enable)`);
 	} catch {
-		console.warn(`Warning: could not create optional idx configuration at ${askConfigPath(env, home)}. Check permissions and ensure the directory and file are regular, not symlinks; then run idx doctor.`);
+		console.warn(`Warning: could not create optional idx configuration at ${globalConfigPath(env, home)}. Check permissions and ensure the directory and file are regular, not symlinks; then run idx doctor.`);
 	}
 }
 
-module.exports = { askConfigPath, ensureAskConfig, reportAskConfig };
+module.exports = { globalConfigPath, ensureGlobalConfig, reportGlobalConfig };
 
-if (require.main === module) reportAskConfig();
+if (require.main === module) reportGlobalConfig();

@@ -355,15 +355,6 @@ export async function ensureIndexed(
 	},
 ): Promise<AutoIndexResult> {
 	const ensureStartedAt = Date.now();
-	if (process.env.IDX_ASK_CHILD === "1") {
-		return {
-			status: "stale",
-			reason: "ask-read-only",
-			message: "Ask uses the existing snapshot without automatic indexing; it may be stale.",
-			action: "Run idx index explicitly to refresh.",
-			ms: 0,
-		};
-	}
 	const silent = options?.silent ?? !process.stderr.isTTY;
 	const git = new SimpleGitOperations();
 	const snapshot =

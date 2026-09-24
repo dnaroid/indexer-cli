@@ -69,7 +69,7 @@ selection cannot silently route `idx` to a stale package installed under another
 Node tree.
 
 The npm package postinstall and source global install must ensure the commented
-global ask configuration template exists; the source installer also invokes the
+global idx configuration template exists; the source installer also invokes the
 shared bootstrap explicitly so the resolved path is visible when npm suppresses
 lifecycle output or scripts. With npm lifecycle scripts disabled, users must run
 `idx doctor` to create the template. Doctor also

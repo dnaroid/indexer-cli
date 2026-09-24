@@ -26,12 +26,13 @@ Then, inside any Git repository:
 ```bash
 idx init
 idx index
-idx ask "how authentication refresh works" --budget 2000
+idx context "how authentication refresh works"
 ```
 
 > **Local by default:** source code and embeddings stay in your project. Embeddings are generated through your local
 > [Ollama](https://ollama.com/) instance and stored under `.indexer-cli/`.
-> **Exception:** `idx ask` sends your question and bounded retrieved excerpts to the configured model provider. For discovery without an LLM, use `idx search '<query>' --mode lexical` or the other low-level commands directly.
+> Optional Jev document classification sends only bounded document-classification input to OpenRouter when configured;
+> retrieval commands themselves do not call a generative model.
 
 ## Overview
 
@@ -142,41 +143,30 @@ idx init --codex
 # 4. Index code and document-domain knowledge
 idx index
 
-# 5. Start coding-agent discovery with one natural-language request
-idx ask "how authentication refresh works" --budget 2000
+# 5. Start coding-agent discovery with a focused context request
+idx context "how authentication refresh works"
 ```
 
-`idx ask '<task>' --budget 2000` is the primary discovery entry point for coding
-agents: the model calls read-only idx tools, follows up on gaps, and writes a
-coherent answer with references to retrieved evidence. For example,
-`idx ask 'What is this project about?'` investigates the repository and explains
-its purpose from README first rather than just printing search excerpts. Focused
-questions use narrow retrieval and stop once evidence suffices; architecture
-is not an automatic prerequisite. Existing commands such
-as `idx context`, `idx search`, and `idx structure` remain available directly.
-Set `OPENAI_API_KEY` to enable the default `gpt-6-luna` model. Optional
-`IDX_ASK_MODEL` and `OPENAI_BASE_URL` override the model and Responses API base.
-The loop is bounded to eight model turns, twelve retrieval calls, and two minutes.
-`--budget` limits model output tokens (200–20000, default 2000), not evidence pages.
-If the model is unavailable or its response is invalid, ask explains the failure
-and suggests targeted low-level discovery; insufficient evidence is not
-treated as a credentials problem. It does not silently substitute
-lexical search. There is no `--no-llm` mode or ask-level `--cursor`.
-Setup, initialization, and indexing remain explicit commands;
-underlying discovery commands can still refresh their local index as usual.
+`idx context '<query>'` is the primary behavior/task discovery entry point for
+coding agents. It returns relevant explicit specs and other documents together
+with implementation candidates, dependency-expanded neighbors, nearby tests,
+warnings, and read-next hints. The host coding agent performs reasoning and
+synthesis directly from that evidence. Use `idx search` for narrower behavioral
+or implementation discovery, and `structure`/`ast`/`explain`/`deps` for specific
+low-level follow-up. Setup, initialization, and indexing remain explicit commands;
+read commands can refresh their local index through the normal freshness path.
 
-### Global model and classifier configuration
+### Global classifier configuration
 
 Installing the npm package creates a commented template at `~/.config/idx/.env`
 when absent; `idx doctor` also ensures it exists and prints its path. The same
 applies to `$XDG_CONFIG_HOME/idx/.env` when `XDG_CONFIG_HOME` is absolute.
-Creation is optional and never overwrites an existing file. All `idx ask` instances for your user read `~/.config/idx/.env`, regardless of
-the current repository. If `XDG_CONFIG_HOME` is an absolute path, the file is
+Creation is optional and never overwrites an existing file. The file is
+user-global rather than project-local. If `XDG_CONFIG_HOME` is an absolute path, the file is
 `$XDG_CONFIG_HOME/idx/.env` instead. Exported environment variables override the
 file, including explicitly empty values. Project-local `.env` files are **not**
-loaded, and these settings do not change the embedding provider. The same global
-file also configures optional Jev document classification during indexing; that
-classifier is independent of the `idx ask` model/provider.
+loaded, and these settings do not change the embedding provider. The global file
+configures optional Jev document classification during indexing.
 
 The source installer prints the resolved path. npm may hide postinstall output;
 use `npm install -g indexer-cli --foreground-scripts` to see it. If npm lifecycle
@@ -194,101 +184,11 @@ OPENROUTER_API_KEY=your-openrouter-key
 # IDX_JEV_TIMEOUT_MS=5000
 # IDX_JEV_KIND_MIN_CONFIDENCE=0.90
 # IDX_JEV_STATUS_MIN_CONFIDENCE=0.65
-
-# ~/.config/idx/.env — direct OpenAI-compatible Responses API (default)
-IDX_ASK_BACKEND=openai
-OPENAI_API_KEY=your-api-key
-IDX_ASK_MODEL=gpt-6-luna
-# OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
-To use your installed Pi and its saved authentication instead:
-
-```dotenv
-IDX_ASK_BACKEND=pi
-IDX_PI_PROVIDER=openai-codex
-IDX_PI_MODEL=your-model-id
-# PI_CODING_AGENT_DIR=/absolute/path/to/custom/pi-agent-directory
-```
-
-Install a Pi version exposing `ModelRuntime` (tested against 0.87.1), make `pi`
-available on `PATH`, and authenticate in Pi with `/login` if necessary. Set the
-provider and exact model ID to an available model shown by Pi's `/model` picker.
-Both `IDX_PI_PROVIDER` and `IDX_PI_MODEL` are required; Pi mode does not use
-`IDX_ASK_MODEL`. Pi resolves
-its own saved OAuth/API credentials; do not copy subscription tokens into this
-file. Model access depends on your provider/account.
-
-Pi mode makes ordinary model requests through its SDK, not Pi agent sessions.
-Only idx's allowlisted retrieval tools and the current ask conversation are
-provided; Pi's own tools, extensions, skills, project instructions, and saved
-history are not loaded. Calls run in bounded child processes. idx validates and
-executes tool calls itself; no model-authored shell commands are accepted.
-Backend configuration or inference failures show the low-level tool guide.
 The file uses Node dotenv syntax (quotes/comments supported); values are literal,
-without shell execution or variable interpolation. Model inference never writes
-this file; installation/doctor only create a missing template.
-
-### Retries and an optional fallback
-
-```dotenv
-# Extra attempts for transient inference failures (0–5; default 2)
-# IDX_ASK_RETRIES=2
-
-# Fallback is disabled until a fallback model is configured.
-# Backend defaults to IDX_ASK_BACKEND; set it explicitly to change backends.
-# IDX_ASK_FALLBACK_BACKEND=pi
-# IDX_ASK_FALLBACK_PROVIDER=openai-codex
-# IDX_ASK_FALLBACK_MODEL=your-fallback-model-id
-
-# Optional overrides for an OpenAI-compatible fallback endpoint
-# IDX_ASK_FALLBACK_API_KEY=your-fallback-api-key
-# IDX_ASK_FALLBACK_BASE_URL=https://api.openai.com/v1
-```
-
-Retries repeat only the failed model request, not completed retrieval tools.
-Configuration/invalid-response errors are not transient retries. When the primary
-model fails, an explicitly configured fallback is tried and remains selected for
-that invocation. Retries and switching are disclosed; the total ask deadline
-still applies. Switching models restarts the model conversation from the question
-and collected observations, without carrying native provider signatures across
-models. If both models fail, ask prints the low-level tool guide.
-
-### Individual model token limits
-
-Pi supplies context/output limits from its model catalog. For OpenAI-compatible
-APIs without that metadata, set the limits for your actual models; defaults are
-16000 context tokens and 2000 output tokens. Primary and fallback limits are separate:
-
-```dotenv
-# IDX_ASK_CONTEXT_TOKENS=16000
-# IDX_ASK_MAX_OUTPUT_TOKENS=2000
-# IDX_ASK_FALLBACK_CONTEXT_TOKENS=16000
-# IDX_ASK_FALLBACK_MAX_OUTPUT_TOKENS=2000
-```
-
-Overrides cap known Pi limits. `--budget` requests output tokens per turn, capped
-by the selected model; it is not a total spending limit. Context accounting
-includes instructions, tool schemas, history, evidence, and output reserve.
-Overlarge histories are compacted with a visible notice; fallback recomputes the
-limits. Without a tokenizer, input accounting uses a conservative byte estimate,
-not exact token usage or billing.
-
-### Answers and evidence
-
-```bash
-idx ask "trace authentication, its contract and tests" --budget 2000
-```
-
-Each question starts a fresh, in-memory investigation. Answers cite the evidence
-collected in that run; citations aid inspection but are not proof that every
-generated claim is correct. Retrieval diagnostics, audit notices, and truncation
-warnings remain visible independently of the generated answer. Failed or bounded
-retrieval is reported as incomplete, not silently presented as exhaustive.
-There is no answer pagination or conversation cache. Use individual tools' own
-limits and cursors when you need to inspect more results manually.
-Ask uses the existing index without automatic reindexing; refresh explicitly with
-`idx index` when needed.
+without shell execution or variable interpolation. Classification never writes
+this file; installation and doctor only create a missing template.
 
 After `idx init`, you can run project commands from subdirectories too: `indexer-cli` will detect the initialized
 project root automatically. If a project has not been initialized yet, commands such as `idx search` and `idx index`
@@ -299,7 +199,7 @@ When enabled, the generated skill is written to the selected agent's canonical p
 - Claude Code: `.claude/skills/repo-discovery/SKILL.md`
 - OpenAI Codex: `.agents/skills/repo-discovery/SKILL.md`
 
-Both variants use the same generated guidance and route agents toward `idx context`, `idx search`, `idx search`,
+Both variants use the same generated guidance and route agents toward `idx context`, `idx search`,
 `idx structure`, `idx ast`, `idx architecture`, `idx explain`, and `idx deps` before they start burning tokens on broad
 filesystem scans.
 
@@ -361,13 +261,11 @@ source documents remain accurate or the change is non-behavioral.
 
 All discovery commands return human-readable text output, optimized for coding agents.
 
-For a coding task, start with `idx ask '<task>' --budget 2000`. It is the primary
-natural-language discovery entry point; commands documented below remain
-available when you need a specific low-level operation. `ask` investigates through
-discovery tools and generates a cited answer—it does not set up, initialize,
-acknowledge review, or verify knowledge. Those actions remain explicit. Retrieval
-may refresh the local index and reconcile the derived spec registry; ask does not
-persist its conversation or an answer cache.
+For a coding task, start with `idx context '<query>'` when you need project
+behavior, contracts, implementation, and tests together. Use `idx search` for
+unknown implementation by behavior, then switch to `structure`, `ast`, `explain`,
+or `deps` only for a specific follow-up. The host coding agent owns reasoning and
+synthesis; indexer-cli stays focused on retrieval and structural evidence.
 
 This is especially useful in Claude Code and OpenAI Codex setups, where project-local skills can guide the agent away
 from blind `rg`/`grep`/`find` usage and toward indexed discovery, which usually means less wasted context and lower token

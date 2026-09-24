@@ -240,7 +240,7 @@ export async function classifyDocumentWithJev(content: string, config: ReturnTyp
 
 export async function getDocumentMetadata(root: string, filePath: string, content: string, options: { classify?: boolean; onClassifierDiagnostic?: (diagnostic: DocumentClassifierDiagnostic) => void } = {}): Promise<DocumentMetadata> {
 	const parsed = parseDocumentMetadata(content, filePath);
-	if ((parsed.kindSource === "explicit" && parsed.statusSource === "explicit") || process.env.IDX_ASK_CHILD === "1") return parsed;
+	if (parsed.kindSource === "explicit" && parsed.statusSource === "explicit") return parsed;
 	let config: ReturnType<typeof loadDocumentClassifierConfig>;
 	try {
 		config = loadDocumentClassifierConfig();

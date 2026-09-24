@@ -6,7 +6,6 @@
   { "path": "docs/reports/semantic-search-issues.md", "kind": "archive", "status": "historical" },
   { "path": "docs/reports/tool-effectiveness-audit.md", "kind": "archive", "status": "historical" },
   { "path": "docs/specs/agent-skill-gitignore.md", "kind": "spec", "status": "active" },
-  { "path": "docs/specs/ask.md", "kind": "spec", "status": "active" },
   { "path": "docs/specs/call-graph-deps.md", "kind": "spec", "status": "active" },
   { "path": "docs/specs/code-document-indexing.md", "kind": "spec", "status": "active" },
   { "path": "docs/specs/code-search-ranking.md", "kind": "spec", "status": "active" },

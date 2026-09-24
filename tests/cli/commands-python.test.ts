@@ -34,7 +34,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, rank=[^,)]+)?(?:, function: (.+?))?, why=[^)]+\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, (?!function:|why=)[^,)]+)*(?:, function: (.+?))?, why=[^)]+\)$/m,
 				);
 			if (!match) return null;
 			return {

@@ -29,7 +29,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, rank=[^,)]+)?(?:, function: (.+?))?, why=[^)]+\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, (?!function:|why=)[^,)]+)*(?:, function: (.+?))?, why=[^)]+\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -281,7 +281,7 @@ describe.sequential("CLI e2e GDScript", () => {
 			const withoutContentResultLines = withoutContent.stdout
 				.split("\n")
 				.filter((line) =>
-					/^.+?:\d+-\d+ \(score: [\d.]+(?:, rank=[^,)]+)?(?:, function: .+?)?, why=[^)]+\)$/.test(
+					/^.+?:\d+-\d+ \(score: [\d.]+(?:, (?!function:|why=)[^,)]+)*(?:, function: .+?)?, why=[^)]+\)$/.test(
 						line.trim(),
 					),
 				);

@@ -12,7 +12,6 @@ import { registerDepsCommand } from "./commands/deps.js";
 import { registerUpdateCommand } from "./commands/update.js";
 import { registerAstCommand } from "./commands/ast.js";
 import { registerContextCommand } from "./commands/context.js";
-import { registerAskCommand } from "./commands/ask.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerSkillsCommand } from "./commands/skill-management.js";
 import { PACKAGE_VERSION } from "../core/version.js";
@@ -31,7 +30,7 @@ const SKIP_MIGRATION_COMMANDS = new Set([
 	"update",
 ]);
 
-const SKIP_POST_AUTO_UPDATE_COMMANDS = new Set(["update", "ask"]);
+const SKIP_POST_AUTO_UPDATE_COMMANDS = new Set(["update"]);
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.helpDisplayed",
@@ -48,7 +47,7 @@ async function runPreActionChecks(
 	commandName: string,
 	options: { skipSkillRefresh?: boolean } = {},
 ): Promise<void> {
-	if (SKIP_MIGRATION_COMMANDS.has(commandName) || commandName === "ask" || process.env.IDX_ASK_CHILD === "1") {
+	if (SKIP_MIGRATION_COMMANDS.has(commandName)) {
 		return;
 	}
 
@@ -144,7 +143,6 @@ registerExplainCommand(program);
 registerDepsCommand(program);
 registerAstCommand(program);
 registerContextCommand(program);
-registerAskCommand(program);
 registerAuditCommand(program);
 registerSkillsCommand(program);
 registerUpdateCommand(program);

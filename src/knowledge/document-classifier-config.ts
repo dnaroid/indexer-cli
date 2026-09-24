@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import { parseEnv as utilParseEnv } from "node:util";
-import { askConfigPath } from "../ask/setup-config.js";
+import { globalConfigPath } from "../core/global-config.js";
 
 export interface DocumentClassifierConfig {
 	apiKey?: string;
@@ -27,7 +27,7 @@ function confidence(value: string | undefined, name: string, fallback: number): 
 }
 
 export function loadDocumentClassifierConfig(env: NodeJS.ProcessEnv = process.env, home = os.homedir()): DocumentClassifierConfig {
-	const filePath = askConfigPath(env, home);
+	const filePath = globalConfigPath(env, home);
 	let fileValues: NodeJS.ProcessEnv = {};
 	try {
 		const stat = fs.statSync(filePath);

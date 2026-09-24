@@ -70,16 +70,6 @@ describe("document metadata inference", () => {
 		const result = await getDocumentMetadata(await tempRoot(), "doc.md", "No metadata");
 		expect(result.kind).toBe("unknown"); expect(fetchMock).not.toHaveBeenCalled();
 	});
-	it("never classifies in an ask retrieval child", async () => {
-		vi.stubGlobal("fetch", fetchMock);
-		vi.stubEnv("IDX_ASK_CHILD", "1");
-		try {
-			const result = await getDocumentMetadata(await tempRoot(), "doc.md", "No metadata", { classify: true });
-			expect(result.kind).toBe("unknown");
-			expect(fetchMock).not.toHaveBeenCalled();
-		} finally { vi.unstubAllEnvs(); }
-	});
-
 	it("validates inference and caches valid results while preserving explicit fields", async () => {
 		const root = await tempRoot();
 		fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ answers: { kind: { choice: "guide", confidence: 0.99, probabilities: { guide: 0.99, spec: 0.01 } }, status: { choice: "active", confidence: 0.99, probabilities: { active: 0.99, proposed: 0.01 } } } }), { status: 200 }));

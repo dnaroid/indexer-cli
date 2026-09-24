@@ -30,8 +30,8 @@
 	"files": [
 		"bin",
 		"dist",
-		"scripts/create-ask-config.cjs",
-		"docs/templates/ask.env",
+		"scripts/create-idx-config.cjs",
+		"docs/templates/idx.env",
 		"README.md"
 	],
 	"engines": {
@@ -41,8 +41,8 @@
 		"access": "public"
 	},
 	"scripts": {
-		"postinstall": "node scripts/create-ask-config.cjs",
-		"build": "tsx scripts/generate-skills-version.ts && tsc",
+		"postinstall": "node scripts/create-idx-config.cjs",
+		"build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsx scripts/generate-skills-version.ts && tsc",
 		"dev": "tsc --watch",
 		"start": "tsx bin/indexer-cli.js",
 		"indexer-cli": "tsx bin/indexer-cli.js",

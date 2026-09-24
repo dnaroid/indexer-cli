@@ -38,9 +38,9 @@ afterEach(() => {
 describe("published package install metadata", () => {
 	it("ships the dependency-free global configuration bootstrap and template", () => {
 		const pkg = JSON.parse(readFileSync(path.join(CLI_ROOT, "package.json"), "utf8"));
-		expect(pkg.scripts.postinstall).toBe("node scripts/create-ask-config.cjs");
-		expect(pkg.files).toContain("scripts/create-ask-config.cjs");
-		expect(pkg.files).toContain("docs/templates/ask.env");
+		expect(pkg.scripts.postinstall).toBe("node scripts/create-idx-config.cjs");
+		expect(pkg.files).toContain("scripts/create-idx-config.cjs");
+		expect(pkg.files).toContain("docs/templates/idx.env");
 	});
 	it("publishes the supported Node runtime range", () => {
 		const pkg = JSON.parse(readFileSync(path.join(CLI_ROOT, "package.json"), "utf8")) as {
@@ -86,6 +86,15 @@ describe("published package install metadata", () => {
 
 		expect(idxVersion).toContain(pkg.version);
 		expect(legacyVersion).toContain(pkg.version);
+	});
+
+	it("does not expose the removed ask command", () => {
+		expect(existsSync(path.join(CLI_ROOT, "dist", "ask"))).toBe(false);
+		expect(existsSync(path.join(CLI_ROOT, "dist", "cli", "commands", "ask.js"))).toBe(false);
+		const prefixDir = createTempDir("indexer-cli-npm-prefix-");
+		installIntoPrefix(prefixDir);
+		const idxPath = path.join(prefixDir, "bin", "idx");
+		expect(() => run(idxPath, ["ask", "test"])).toThrow();
 	});
 
 	it("does not let idx update exit silently when auto-update is blocked", () => {

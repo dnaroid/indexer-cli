@@ -15,9 +15,9 @@ the index and optional machine classifications are disposable derived data.
 
 All project `.md` documents are eligible regardless of directory or purpose,
 subject to project ignore rules and configured document exclusions. There is no
-spec-only directory, registration step, or separate wiki collection. Search,
-context, and ask retrieve documents and code through the shared hybrid retrieval
-workflow. A documents-only search filter is available. Plans, notes, and archives
+spec-only directory, registration step, or separate wiki collection. Search and
+context retrieve documents and code through the shared hybrid retrieval workflow.
+A documents-only search filter is available. Plans, notes, and archives
 remain searchable: classification must never be an admission filter.
 
 Lexical search/context uses the existing completed snapshot without contacting
@@ -174,7 +174,7 @@ correctness, or require acknowledgments.
 The wiki command family, registry administration, receipts, trust states,
 manifests, review baselines, and durable review obligations are removed. There is
 no legacy compatibility workflow. Normal usage is
-`index → ask/search/context → change code/docs → audit task paths → fix drift`.
+`index → context/search → change code/docs → audit task paths → fix drift`.
 Database migration removes obsolete registry/receipt tables while retaining
 code, document chunks, and snapshots.
 

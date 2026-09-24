@@ -75,7 +75,7 @@
     "id": "ext-13",
     "kind": "spec",
     "status": "active",
-    "content": "# Indexed repository discovery\n\nThe server exposes indexed discovery tools and a read-only repository-knowledge wrapper. These operations call the local index in the selected workspace and must not initialize a project, write behavioral documents, or mutate classification metadata on behalf of a caller.\n\n## Discovery tools\nArchitecture, structure, syntax-tree, search, symbol explanation, and dependency queries accept bounded validated arguments. String values are shell-quoted before being forwarded to the local command.\n\n## Wrapper contract\nThe stable wrapper exposes only read-only ask, context, search, and task-scoped audit actions. Unsupported actions fail before the local index command is invoked."
+    "content": "# Indexed repository discovery\n\nThe server exposes indexed discovery tools and a read-only repository-knowledge wrapper. These operations call the local index in the selected workspace and must not initialize a project, write behavioral documents, or mutate classification metadata on behalf of a caller.\n\n## Discovery tools\nArchitecture, structure, syntax-tree, search, symbol explanation, and dependency queries accept bounded validated arguments. String values are shell-quoted before being forwarded to the local command.\n\n## Wrapper contract\nThe stable wrapper exposes only read-only context, search, and task-scoped audit actions. Unsupported actions fail before the local index command is invoked."
   },
   {
     "id": "ext-14",

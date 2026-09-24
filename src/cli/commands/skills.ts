@@ -8,32 +8,30 @@ function buildRepoDiscoverySkillContent(): string {
 	return `---
 name: repo-discovery
 description: FIRST choice for indexed repo discovery and behavioral specs. Use when the code owner/file/symbol is unknown, including “how does this behavior work?” questions; for architecture, finding code by behavior, or tracing dependencies in an unfamiliar subsystem; for specs/contracts and their implementation/tests; and for material behavior changes that may require updating a spec or checking impact. Use it even when a changed implementation path is already known if the question asks which specs are affected. Prefer exact Read/rg/LSP only for pure known-path or identifier lookup.
-allowed-tools: Bash(idx ask:*), Bash(idx context:*), Bash(idx audit:*), Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*), Bash(rg:*), Bash(grep:*)
+allowed-tools: Bash(idx context:*), Bash(idx audit:*), Bash(idx architecture:*), Bash(idx structure:*), Bash(idx ast:*), Bash(idx search:*), Bash(idx explain:*), Bash(idx deps:*), Bash(rg:*), Bash(grep:*)
 ---
 
 # Indexed repository guidance
 
 Pick the single cheapest indexed command that answers the question. For
-coding-agent discovery, start with \`idx ask '<task>' --budget 2000\`. It iteratively
-calls read-only idx tools and generates a coherent answer with evidence citations.
-The budget limits model output tokens, not retrieved evidence pages. Verify cited
-sources before changing code; generated prose is not an authoritative contract.
-When the LLM is unavailable, ask prints a low-level tool guide instead of silently
-falling back to search. Use \`idx search '<query>' --mode lexical\` for discovery
-without an LLM. There is no ask-level offline mode or cursor continuation.
-Mandatory retrieval diagnostics remain visible independently of the answer;
-never treat warnings or TRUNC/NEXT hints as optional evidence.
+project behavior, contracts, implementation, and tests, start with
+\`idx context '<query>'\`. For unknown implementation by behavior, use
+\`idx search '<query>' --max-files 3\`. The coding agent performs reasoning and
+synthesis itself from returned evidence rather than delegating to a second model.
+Use \`idx search '<query>' --mode lexical\` when semantic retrieval is unavailable
+or an exact text-oriented pass is preferred. Mandatory retrieval diagnostics
+remain visible; never treat warnings or TRUNC/NEXT hints as optional evidence.
 Setup, initialization, and explicit indexing remain explicit operations. When a specific
 low-level operation is needed, use the commands below. Start compact, read the
 smallest returned ranges, and expand only for a named gap.
 
 ## Route
 
-- General coding task/discovery request → \`idx ask '<task>' --budget 2000\`.
+- General behavior/task discovery request → \`idx context '<query>'\`.
 - Discovery without an LLM → \`idx search '<query>' --mode lexical\`.
 - Project behavior/contract question needing implementation/tests →
   \`idx context <query>\`.
-- Search project documents and code together → \`idx search <query>\` or \`idx ask <query>\`.
+- Search project documents and code together → \`idx search <query>\`.
 - Before a material behavior change → find relevant documents with
   \`idx context <query>\` or \`idx search <query>\`.
 - Material behavior change complete → \`idx audit <changed-paths...>\`.
@@ -76,7 +74,7 @@ smallest returned ranges, and expand only for a named gap.
 - Specs describe behavior, scenarios, constraints, and interfaces—not an
   inventory of implementation details. Update meaningful high-level specs when
   behavior changes; skip documentation ceremony for non-behavioral edits.
-- Start a task with \`idx ask\`/context before implementation. After a material
+- Start a task with \`idx context\` or a focused indexed command before implementation. After a material
   behavior change, run task-scoped \`idx audit\` and compare the affected source
   documents with implementation and tests. Fix actual semantic drift; the audit
   does not prove a document is wrong or require edits when it remains accurate.

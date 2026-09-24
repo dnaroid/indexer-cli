@@ -27,7 +27,7 @@ function parseSearchResults(
 			const match = block
 				.trim()
 				.match(
-					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, rank=[^,)]+)?(?:, function: (.+?))?, why=[^)]+\)$/m,
+					/^(.+?):(\d+)-(\d+) \(score: ([\d.]+)(?:, (?!function:|why=)[^,)]+)*(?:, function: (.+?))?, why=[^)]+\)$/m,
 				);
 			if (!match) return null;
 			return {
@@ -1645,9 +1645,11 @@ describe.sequential("CLI e2e", () => {
 	});
 
 	describe.sequential("document search and task audit", () => {
-		it("removes wiki commands from the public interface", () => {
-			const result = runCLI(["wiki"], { cwd: TEMP_DIR });
-			expect(result.exitCode).not.toBe(0);
+		it("removes retired commands from the public interface", () => {
+			for (const command of ["wiki", "ask"]) {
+				const result = runCLI([command], { cwd: TEMP_DIR });
+				expect(result.exitCode).not.toBe(0);
+			}
 		});
 		it("indexes Markdown anywhere and audits explicitly linked task changes", () => {
 			const root = mkdtempSync(path.join(os.tmpdir(), "indexer-cli-e2e-documents-"));

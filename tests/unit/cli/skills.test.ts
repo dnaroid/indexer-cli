@@ -35,10 +35,9 @@ describe("generated skills", () => {
 			"Pick the single cheapest indexed command that answers the question.",
 		);
 		expect(skill?.content).toContain("idx context <query>");
-		expect(skill?.content).toContain("idx ask '<task>' --budget 2000");
-		expect(skill?.content).toContain("generates a coherent answer with evidence citations");
 		expect(skill?.content).toContain("idx search '<query>' --mode lexical");
-		expect(skill?.content).not.toContain("idx ask --no-llm");
+		expect(skill?.content).not.toContain("idx ask");
+		expect(skill?.content).toContain("coding agent performs reasoning and");
 		expect(skill?.content).toContain("idx audit <changed-paths...>");
 		expect(skill?.content).toContain("All Markdown documents are indexed");
 		expect(skill?.content).not.toContain("idx wiki");
@@ -96,7 +95,7 @@ describe("generated skills", () => {
 			expect(skill.content).toContain("Bash(idx explain:*)");
 			expect(skill.content).toContain("Bash(idx deps:*)");
 			expect(skill.content).toContain("Bash(idx context:*)");
-			expect(skill.content).toContain("Bash(idx ask:*)");
+			expect(skill.content).not.toContain("Bash(idx ask:*)");
 			expect(skill.content).toContain("Bash(idx audit:*)");
 		}
 	});
