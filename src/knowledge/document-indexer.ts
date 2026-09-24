@@ -235,12 +235,15 @@ export class DocumentIndexer {
 			return;
 		}
 
+		const providerContextLimit = config.get("embeddingProvider") === "ollama"
+			? Math.max(64, config.get("ollamaNumCtx") - 32)
+			: config.get("embeddingContextSize");
 		const maxTokens = Math.max(
 			64,
 			Math.min(
 				700,
 				config.get("embeddingContextSize"),
-				Math.max(64, config.get("ollamaNumCtx") - 32),
+				providerContextLimit,
 			),
 		);
 		const chunks = chunkDocument(filePath, content, {

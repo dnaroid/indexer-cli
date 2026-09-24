@@ -193,6 +193,25 @@ describe("doctor spec template repair", () => {
 		expect(process.exitCode).toBe(1);
 	});
 
+	it("preserves the OpenRouter embedding mode across full reinitialization", async () => {
+		const workspace = path.join(root, "workspace");
+		const selected = await project("workspace/openrouter");
+		await writeFile(
+			path.join(selected, ".indexer-cli", "config.json"),
+			JSON.stringify({
+				skillsVersion: SKILLS_VERSION,
+				embeddingProvider: "openrouter",
+			}),
+		);
+
+		await doctor(workspace, "--force");
+
+		expect(performInit).toHaveBeenCalledWith(selected, {
+			skipIndexing: false,
+			embedding: "openrouter",
+		});
+	});
+
 	it("leaves an existing template untouched when full reinitialization is cancelled", async () => {
 		const selected = await project("selected", true);
 		await writeFile(template(selected), "keep me");

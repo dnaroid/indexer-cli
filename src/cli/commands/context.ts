@@ -3,7 +3,7 @@ import type { Command } from "commander";
 import { config } from "../../core/config.js";
 import { DEFAULT_PROJECT_ID } from "../../core/types.js";
 import { initLogger } from "../../core/logger.js";
-import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
+import { createEmbeddingProvider } from "../../embedding/factory.js";
 import { SearchEngine } from "../../engine/searcher.js";
 import {
 	KnowledgeContextEngine,
@@ -74,20 +74,8 @@ export function registerContextCommand(program: Command): void {
 					dbPath,
 					vectorSize: config.get("vectorSize"),
 				});
-				const embedder = new OllamaEmbeddingProvider(
-					config.get("ollamaBaseUrl"),
-					config.get("embeddingModel"),
-					config.get("indexBatchSize"),
-					config.get("indexConcurrency"),
-					config.get("ollamaNumCtx"),
-				);
-				const knowledgeEmbedder = new OllamaEmbeddingProvider(
-					config.get("ollamaBaseUrl"),
-					config.get("knowledgeEmbeddingModel"),
-					config.get("indexBatchSize"),
-					config.get("indexConcurrency"),
-					config.get("ollamaNumCtx"),
-				);
+				const embedder = createEmbeddingProvider("code");
+				const knowledgeEmbedder = createEmbeddingProvider("knowledge");
 
 				try {
 					await metadata.initialize();

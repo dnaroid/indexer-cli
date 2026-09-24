@@ -20,6 +20,10 @@ import {
 	refreshRegisteredProjectSkillsIfNeeded,
 } from "../../core/version-check.js";
 import { CLASSIFICATION_STATUS_FILE } from "../../knowledge/document-indexer.js";
+import {
+	embeddingModeForProvider,
+	type EmbeddingMode,
+} from "../../embedding/presets.js";
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
@@ -80,12 +84,30 @@ async function readExistingTemplate(dataDir: string): Promise<Buffer | undefined
 	}
 }
 
+async function readExistingEmbeddingMode(
+	dataDir: string,
+): Promise<EmbeddingMode | undefined> {
+	try {
+		const value = JSON.parse(
+			await readFile(path.join(dataDir, "config.json"), "utf8"),
+		) as { embeddingProvider?: unknown };
+		return typeof value.embeddingProvider === "string"
+			? embeddingModeForProvider(value.embeddingProvider) ?? undefined
+			: undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 async function reinitializePreservingTemplate(projectPath: string): Promise<void> {
 	const dataDir = path.join(projectPath, ".indexer-cli");
-	const original = await readExistingTemplate(dataDir);
+	const [original, embedding] = await Promise.all([
+		readExistingTemplate(dataDir),
+		readExistingEmbeddingMode(dataDir),
+	]);
 	try {
 		await performUninstall(projectPath);
-		await performInit(projectPath, { skipIndexing: false });
+		await performInit(projectPath, { skipIndexing: false, embedding });
 	} finally {
 		if (original !== undefined) {
 			// Uninstall removes the data directory, including user edits to the template.

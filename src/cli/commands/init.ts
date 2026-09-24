@@ -20,6 +20,14 @@ import { SKILLS_VERSION } from "../../core/skills-version.js";
 import { installSpecTemplate } from "../spec-template.js";
 import { addProject } from "../../core/registry.js";
 import { resolveInitProjectRoot } from "../project-root.js";
+import {
+	embeddingIdentity,
+	embeddingModeForProvider,
+	getEmbeddingPreset,
+	parseEmbeddingMode,
+	type EmbeddingMode,
+} from "../../embedding/presets.js";
+import { loadOpenRouterApiKey } from "../../embedding/factory.js";
 
 const HOOK_MARKER_START = "# >>> indexer-cli >>>";
 const HOOK_MARKER_END = "# <<< indexer-cli <<<";
@@ -295,6 +303,7 @@ export async function performInit(
 		refreshSkills?: boolean;
 		skipIndexing?: boolean;
 		skillTargets?: SkillTarget[];
+		embedding?: EmbeddingMode;
 	},
 ): Promise<void> {
 	const dataDir = path.join(projectRoot, ".indexer-cli");
@@ -303,12 +312,35 @@ export async function performInit(
 
 	initLogger(dataDir);
 	config.load(dataDir);
+	const previousEmbeddingIdentity = embeddingIdentity(config.getAll());
+	if (options?.embedding) {
+		config.apply(getEmbeddingPreset(options.embedding));
+	}
+	const nextEmbeddingIdentity = embeddingIdentity(config.getAll());
+	const embeddingChanged = previousEmbeddingIdentity !== nextEmbeddingIdentity;
+	if (
+		options?.embedding === "openrouter" &&
+		!options.skipIndexing &&
+		!loadOpenRouterApiKey()
+	) {
+		throw new Error(
+			"OpenRouter embedding mode requires OPENROUTER_API_KEY in the environment or ~/.config/idx/.env.",
+		);
+	}
 
 	let metadata: SqliteMetadataStore | null = null;
 	let vectors: SqliteVecVectorStore | null = null;
 
 	try {
 		await mkdir(dataDir, { recursive: true });
+		if (embeddingChanged && (await pathExists(dbPath))) {
+			await Promise.all([
+				rm(dbPath, { force: true }),
+				rm(`${dbPath}-wal`, { force: true }),
+				rm(`${dbPath}-shm`, { force: true }),
+			]);
+			console.log("  Embedding mode changed; rebuilding derived index storage.");
+		}
 
 		metadata = new SqliteMetadataStore(dbPath);
 		await metadata.initialize();
@@ -371,12 +403,21 @@ export async function performInit(
 		}
 		console.log(`  SQLite: ${path.relative(projectRoot, dbPath)}`);
 		console.log(`  Config: ${path.relative(projectRoot, configPath)}`);
+		console.log(
+			`  Embedding: ${embeddingModeForProvider(config.get("embeddingProvider")) ?? config.get("embeddingProvider")} (${config.get("embeddingModel")}, ${config.get("vectorSize")} dims)`,
+		);
 		console.log(`  Spec template: ${path.relative(projectRoot, specTemplatePath)} (copy to any document directory)`);
 
 		if (!options?.skipIndexing) {
-			console.log(
-				"Starting initial index. This may start Ollama and download/create the jina-8k embedding model on first run.",
-			);
+			if (config.get("embeddingProvider") === "openrouter") {
+				console.log(
+					"Starting initial index with OpenRouter embeddings. OPENROUTER_API_KEY must be set in the environment or ~/.config/idx/.env.",
+				);
+			} else {
+				console.log(
+					"Starting initial index. This may start Ollama and download/create the jina-8k embedding model on first run.",
+				);
+			}
 			console.log(
 				"Tip: run `idx --no-auto-update doctor <projectPath>` if you need to verify dependencies separately.",
 			);
@@ -402,10 +443,14 @@ export function registerInitCommand(program: Command): void {
 		.option("--claude", "install/enable the repo-discovery skill for Claude Code")
 		.option("--codex", "install/enable the repo-discovery skill for OpenAI Codex")
 		.option(
+			"--embedding <mode>",
+			"embedding mode: local (Ollama) or openrouter (Perplexity pplx-embed-v1-0.6b)",
+		)
+		.option(
 			"--refresh-skills",
 			"refresh already enabled skills (plus any --claude/--codex targets supplied now)",
 		)
-		.action(async (options?: { refreshSkills?: boolean; claude?: boolean; codex?: boolean }) => {
+		.action(async (options?: { refreshSkills?: boolean; claude?: boolean; codex?: boolean; embedding?: string }) => {
 			try {
 				const { projectRoot, notice } = resolveInitProjectRoot();
 				if (notice) {
@@ -414,6 +459,7 @@ export function registerInitCommand(program: Command): void {
 
 				await performInit(projectRoot, {
 					refreshSkills: options?.refreshSkills,
+					embedding: parseEmbeddingMode(options?.embedding),
 					skillTargets: [
 						...(options?.claude ? ["claude" as const] : []),
 						...(options?.codex ? ["codex" as const] : []),
@@ -428,7 +474,7 @@ export function registerInitCommand(program: Command): void {
 				const message = error instanceof Error ? error.message : String(error);
 				console.error(`Failed to initialize project: ${message}`);
 				console.error(
-					"Initialization may need Ollama, the jina-8k model, or a longer first-run setup. Try `idx --no-auto-update doctor .` for a guided dependency check.",
+					"Initialization may need the selected embedding provider (Ollama locally or OPENROUTER_API_KEY for OpenRouter). Try `idx --no-auto-update doctor .` for a guided dependency check.",
 				);
 				process.exitCode = 1;
 			}

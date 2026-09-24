@@ -222,6 +222,21 @@ void (async () => {
 		}
 	});
 
+	it("rejects an existing vector table with a different configured dimension", async () => {
+		const original = new SqliteVecVectorStore({ dbPath, vectorSize: 3 });
+		await original.initialize();
+		await original.close();
+
+		const mismatched = new SqliteVecVectorStore({ dbPath, vectorSize: 4 });
+		try {
+			await expect(mismatched.initialize()).rejects.toThrow(
+				"Vector storage dimension mismatch: database uses 3, config expects 4",
+			);
+		} finally {
+			await mismatched.close();
+		}
+	});
+
 	it("migrates an existing vector_meta table and keeps old rows in code", async () => {
 		const legacyDb = new Database(dbPath);
 		sqliteVec.load(legacyDb);

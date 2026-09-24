@@ -3,10 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { config } from "../../src/core/config.js";
 import type { GitDiff, GitOperations } from "../../src/core/types.js";
 import { DEFAULT_PROJECT_ID } from "../../src/core/types.js";
-import { OllamaEmbeddingProvider } from "../../src/embedding/ollama.js";
 import {
 	IndexerEngine,
 	createDefaultLanguagePlugins,
@@ -14,6 +12,7 @@ import {
 import { SearchEngine } from "../../src/engine/searcher.js";
 import { SqliteMetadataStore } from "../../src/storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../src/storage/vectors.js";
+import { createEvalEmbeddingProvider } from "./embedding-provider.js";
 
 type SearchMode = "hybrid" | "semantic" | "lexical" | "symbol";
 
@@ -57,6 +56,7 @@ runEval("real embedding code-search retrieval eval", () => {
 	it(
 		"meets hybrid, lexical, symbol, path, Unicode, and distractor targets",
 		async () => {
+			const evalEmbedding = createEvalEmbeddingProvider("code");
 			const repoRoot = process.cwd();
 			const fixtureRoot = path.join(repoRoot, "fixtures/projects/e2e-app");
 			const evals = JSON.parse(
@@ -73,15 +73,9 @@ runEval("real embedding code-search retrieval eval", () => {
 			const metadata = new SqliteMetadataStore(dbPath);
 			const vectors = new SqliteVecVectorStore({
 				dbPath,
-				vectorSize: config.get("vectorSize"),
+				vectorSize: evalEmbedding.vectorSize,
 			});
-			const embedder = new OllamaEmbeddingProvider(
-				config.get("ollamaBaseUrl"),
-				config.get("embeddingModel"),
-				config.get("indexBatchSize"),
-				config.get("indexConcurrency"),
-				config.get("ollamaNumCtx"),
-			);
+			const embedder = evalEmbedding.embedder;
 			const indexer = new IndexerEngine({
 				projectId: DEFAULT_PROJECT_ID,
 				repoRoot: root,
@@ -173,7 +167,7 @@ runEval("real embedding code-search retrieval eval", () => {
 				const total = evals.length;
 				const mrr = reciprocalRank / total;
 				console.log(
-					`CODE_SEARCH_RETRIEVAL_EVAL total=${total} top1=${top1} top3=${top3} recall5=${recall5} mrr=${mrr.toFixed(3)} hybrid_cases=${hybridComparable} semantic_top1=${semanticTop1}`,
+					`CODE_SEARCH_RETRIEVAL_EVAL embedding=${evalEmbedding.mode} total=${total} top1=${top1} top3=${top3} recall5=${recall5} mrr=${mrr.toFixed(3)} hybrid_cases=${hybridComparable} semantic_top1=${semanticTop1}`,
 				);
 				if (failures.length > 0) console.log(JSON.stringify({ failures }, null, 2));
 

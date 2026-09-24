@@ -1,9 +1,9 @@
 import type { Command } from "commander";
 import path from "node:path";
 import { config } from "../../core/config.js";
-import { DEFAULT_PROJECT_ID } from "../../core/types.js";
+import { DEFAULT_PROJECT_ID, type EmbeddingProvider } from "../../core/types.js";
 import { initLogger } from "../../core/logger.js";
-import { OllamaEmbeddingProvider } from "../../embedding/ollama.js";
+import { createEmbeddingProvider } from "../../embedding/factory.js";
 import { DocumentSearchEngine } from "../../knowledge/search.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
@@ -19,7 +19,7 @@ export function registerAuditCommand(program: Command): void {
 		.action(async (changedPaths: string[], options: { json?: boolean; semantic?: boolean }) => {
 			let metadata: SqliteMetadataStore | undefined;
 			let vectors: SqliteVecVectorStore | undefined;
-			let embedder: OllamaEmbeddingProvider | undefined;
+			let embedder: EmbeddingProvider | undefined;
 			try {
 				const { projectRoot, notice } = resolveInitializedProjectRoot();
 				if (notice && !options.json) console.log(notice);
@@ -31,7 +31,7 @@ export function registerAuditCommand(program: Command): void {
 				vectors = new SqliteVecVectorStore({ dbPath, vectorSize: config.get("vectorSize") });
 				await metadata.initialize();
 				const offline = options.semantic === false;
-				if (!offline) embedder = new OllamaEmbeddingProvider(config.get("ollamaBaseUrl"), config.get("knowledgeEmbeddingModel"), config.get("indexBatchSize"), config.get("indexConcurrency"), config.get("ollamaNumCtx"));
+				if (!offline) embedder = createEmbeddingProvider("knowledge");
 				const report = await withSnapshotReadLease(projectRoot, async () => {
 					const snapshot = await metadata!.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) {

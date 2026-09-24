@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import ts from "typescript";
 import { readFileSync } from "node:fs";
+import Database from "better-sqlite3";
+import { performInit } from "../../../src/cli/commands/init.js";
 
 const tempDirs: string[] = [];
 
@@ -234,7 +236,49 @@ describe("init command hook", () => {
 		);
 		expect(source).toContain("Starting initial index.");
 		expect(source).toContain("download/create the jina-8k embedding model");
+		expect(source).toContain("Starting initial index with OpenRouter embeddings.");
 		expect(source).toContain("idx --no-auto-update doctor .");
-		expect(source).toContain("Initialization may need Ollama");
+		expect(source).toContain("selected embedding provider");
+	});
+
+	it("persists the OpenRouter embedding preset and rebuilds 768-dim storage as 1024-dim", async () => {
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-openrouter-"));
+		tempDirs.push(projectRoot);
+
+		await performInit(projectRoot, { skipIndexing: true });
+		const dbPath = path.join(projectRoot, ".indexer-cli", "db.sqlite");
+		const firstDb = new Database(dbPath);
+		firstDb.exec("CREATE TABLE embedding_switch_sentinel (value TEXT)");
+		firstDb.close();
+
+		await performInit(projectRoot, {
+			skipIndexing: true,
+			embedding: "openrouter",
+		});
+
+		const stored = JSON.parse(
+			readFileSync(path.join(projectRoot, ".indexer-cli", "config.json"), "utf8"),
+		) as Record<string, unknown>;
+		expect(stored.embeddingProvider).toBe("openrouter");
+		expect(stored.embeddingModel).toBe("perplexity/pplx-embed-v1-0.6b");
+		expect(stored.knowledgeEmbeddingModel).toBe("perplexity/pplx-embed-v1-0.6b");
+		expect(stored.knowledgeEmbeddingQueryPrefix).toBe("");
+		expect(stored.knowledgeEmbeddingDocumentPrefix).toBe("");
+		expect(stored.embeddingContextSize).toBe(32768);
+		expect(stored.vectorSize).toBe(1024);
+
+		const secondDb = new Database(dbPath, { readonly: true });
+		try {
+			const sentinel = secondDb
+				.prepare("SELECT name FROM sqlite_master WHERE name = 'embedding_switch_sentinel'")
+				.get();
+			const vec = secondDb
+				.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'")
+				.get() as { sql?: string } | undefined;
+			expect(sentinel).toBeUndefined();
+			expect(vec?.sql).toMatch(/embedding\s+float\[1024\]/i);
+		} finally {
+			secondDb.close();
+		}
 	});
 });

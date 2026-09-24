@@ -53,6 +53,19 @@ export const DEFAULT_CONFIG: IndexerConfig = {
 	searchMinScore: 0.55,
 };
 
+function freshDefaultConfig(): IndexerConfig {
+	return {
+		...DEFAULT_CONFIG,
+		skillTargets: [...DEFAULT_CONFIG.skillTargets],
+		indexIncludePaths: [...DEFAULT_CONFIG.indexIncludePaths],
+		indexExcludePaths: [...DEFAULT_CONFIG.indexExcludePaths],
+		visibilityExcludePaths: [...DEFAULT_CONFIG.visibilityExcludePaths],
+		documentExtensions: [...DEFAULT_CONFIG.documentExtensions],
+		documentIncludePaths: [...DEFAULT_CONFIG.documentIncludePaths],
+		documentExcludePaths: [...DEFAULT_CONFIG.documentExcludePaths],
+	};
+}
+
 type RawConfig = Partial<IndexerConfig>;
 
 function loadPathPatterns(value: unknown): string[] | null {
@@ -82,10 +95,11 @@ export class ConfigManager {
 	private config: IndexerConfig;
 
 	constructor() {
-		this.config = { ...DEFAULT_CONFIG };
+		this.config = freshDefaultConfig();
 	}
 
 	load(dataDir: string): void {
+		this.config = freshDefaultConfig();
 		const configPath = path.join(dataDir, "config.json");
 		if (!fs.existsSync(configPath)) return;
 
@@ -185,6 +199,10 @@ export class ConfigManager {
 
 	public getAll(): Readonly<IndexerConfig> {
 		return { ...this.config };
+	}
+
+	public apply(values: Partial<IndexerConfig>): void {
+		this.config = { ...this.config, ...values };
 	}
 }
 

@@ -7,17 +7,22 @@ status: active
 
 ## Implementation
 
-`src/engine/indexer.ts`,
+`src/engine/indexer.ts`, `src/embedding/factory.ts`,
+`src/embedding/openrouter.ts`, `src/embedding/presets.ts`,
 `src/knowledge/document-indexer.ts`, `src/knowledge/embedding.ts`,
-`src/cli/commands/index.ts`, `src/cli/commands/snapshot-diff.ts`,
-`src/cli/commands/ensure-indexed.ts`.
+`src/cli/commands/init.ts`, `src/cli/commands/index.ts`,
+`src/cli/commands/snapshot-diff.ts`, `src/cli/commands/ensure-indexed.ts`.
 
 ## Tests
 
 `tests/unit/engine/indexer-file-counts.test.ts`,
 `tests/unit/cli/index-file-counts.test.ts`,
 `tests/unit/cli/ensure-indexed.test.ts`,
-`tests/unit/knowledge/document-indexer.test.ts`.
+`tests/unit/cli/init.test.ts`, `tests/unit/embedding/openrouter.test.ts`,
+`tests/unit/storage/vectors-init.test.ts`,
+`tests/unit/knowledge/document-indexer.test.ts`,
+`tests/evals/code-search-retrieval.eval.test.ts`,
+`tests/evals/knowledge-retrieval.eval.test.ts`.
 
 ## Shared indexing lifecycle
 
@@ -44,6 +49,41 @@ reports an incremental zero-change plan. Forced full indexing, changed path
 masks, and an incomplete code lexical side index bypass this shortcut.
 Knowledge fingerprint refresh still processes the selected documents even if
 their bytes match the snapshot.
+
+## Embedding provider modes
+
+Project initialization owns the embedding preset. Plain `idx init` uses the
+local preset: Ollama `jina-8k` for code, `nomic-embed-text-v2-moe` for documents,
+Nomic query/document prefixes, and 768-dimensional vectors. Explicit
+`idx init --embedding openrouter` uses
+`perplexity/pplx-embed-v1-0.6b` for both domains, empty query/document prefixes,
+and 1024-dimensional vectors. OpenRouter credentials come from
+`OPENROUTER_API_KEY` in the process environment or the shared
+`~/.config/idx/.env` file; the process environment takes precedence.
+
+All semantic CLI paths construct providers through the shared embedding factory,
+so indexing, automatic refresh, search, context, and audit use the same persisted
+project mode. The OpenRouter provider batches requests, preserves input order,
+validates the configured vector dimension, and retries transient network/HTTP
+failures. Provider initialization validates credentials without making a paid
+probe request.
+
+Changing the embedding preset is a destructive operation only for derived index
+state: `idx init --embedding ...` removes and rebuilds the project SQLite index
+before reindexing, while source files and project documents are left untouched.
+The vector store independently rejects an existing `vec_chunks` table whose
+declared dimension differs from `vectorSize`, preventing mixed embedding spaces
+from being queried accidentally.
+
+Document chunking retains the normal 700-token upper bound. The additional
+`ollamaNumCtx` limit applies only to the Ollama provider; remote providers use
+their configured embedding context size instead.
+
+The real retrieval evals share the same provider selector. `npm run
+eval:retrieval` exercises the local preset; `npm run eval:retrieval:openrouter`
+runs the identical code and knowledge cases through the OpenRouter preset. This
+keeps provider quality comparisons on the same chunks, queries, and ranking
+logic instead of maintaining a separate benchmark implementation.
 
 ## File counts and progress
 

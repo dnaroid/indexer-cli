@@ -69,6 +69,12 @@ export class SqliteVecVectorStore implements VectorStore {
 		}
 
 		const db = this.getDb();
+		const storedVectorSize = this.getStoredVectorSize(db);
+		if (storedVectorSize !== null && storedVectorSize !== this.vectorSize) {
+			throw new Error(
+				`Vector storage dimension mismatch: database uses ${storedVectorSize}, config expects ${this.vectorSize}. Run \`idx init --embedding <local|openrouter>\` with the intended mode to rebuild the derived index.`,
+			);
+		}
 		// Semantic queries commonly run while another process is incrementally
 		// indexing. A current vector schema needs no mutation, so avoid the
 		// IMMEDIATE transaction (and its database-wide writer contention) on the
@@ -100,6 +106,14 @@ export class SqliteVecVectorStore implements VectorStore {
 		initSchema.immediate();
 
 		this.initialized = true;
+	}
+
+	private getStoredVectorSize(db: Database.Database): number | null {
+		const row = db
+			.prepare("SELECT sql FROM sqlite_master WHERE name = 'vec_chunks'")
+			.get() as { sql?: string | null } | undefined;
+		const match = row?.sql?.match(/\bembedding\s+float\[(\d+)\]/i);
+		return match ? Number.parseInt(match[1], 10) : null;
 	}
 
 	private vectorSchemaIsCurrent(db: Database.Database): boolean {
