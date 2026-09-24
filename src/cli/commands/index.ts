@@ -546,6 +546,17 @@ export function registerIndexCommand(program: Command): void {
 						console.log(`  Embeddings: ${embeddingCount}`);
 						console.log(`  Time elapsed: ${(elapsedMs / 1000).toFixed(2)}s`);
 						console.log(`  Errors: ${result.errors.length}`);
+						if (result.classification?.degraded) {
+							const reasons = Object.entries(result.classification.reasons)
+								.filter((entry): entry is [string, number] => typeof entry[1] === "number")
+								.map(([reason, count]) => `${reason}=${count}`)
+								.join(", ");
+							console.error(`Classification degraded: ${result.classification.degraded}/${result.classification.attempted} document(s) (${reasons}).`);
+							console.error("Knowledge indexing completed safely; unclassified fields remain unknown and retrieval is unaffected.");
+							if (result.classification.humanActionRequired) {
+								console.error("Human action required: restore OpenRouter credentials/credits or service availability, then run `idx index` again.");
+							}
+						}
 
 						if (result.errors.length > 0) {
 							for (const error of result.errors) {

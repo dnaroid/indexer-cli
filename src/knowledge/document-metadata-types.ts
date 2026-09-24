@@ -1,6 +1,6 @@
 export type DocumentKind = "spec" | "guide" | "plan" | "archive" | "other" | "unknown";
 export type DocumentStatus = "active" | "proposed" | "historical" | "superseded" | "unknown";
-export type DocumentMetadataSource = "explicit" | "llm" | "unknown";
+export type DocumentMetadataSource = "explicit" | "classifier" | "unknown";
 
 export interface DocumentReference {
 	path: string;

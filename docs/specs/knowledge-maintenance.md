@@ -36,14 +36,77 @@ An explicit Markdown frontmatter `kind` (`spec`, `guide`, `plan`, `archive`, or
 precedence over inference. Missing information remains unknown unless inferred.
 Invalid metadata must not silently acquire authoritative spec status.
 
-When ask's LLM is configured, indexing may use that provider to infer document
-purpose. Classification is bounded, cached by source content and classifier
-configuration/version, and advisory. Document text is untrusted data, not model
-instructions; the classifier has no tools and cannot execute actions. Explicit
-metadata needs no LLM classification. Missing credentials, provider failures, or
-invalid responses do not prevent indexing or retrieval. Unknown documents remain
-eligible audit candidates, including when no LLM is configured. No credentials
-are stored in classification caches or printed in diagnostics.
+When `OPENROUTER_API_KEY` is configured, indexing may use Jev through OpenRouter's
+Decisions API to infer document purpose. Kind and status are separate `choice`
+questions over a structure-aware representation capped at 20,000 characters.
+Short documents are sent unchanged. Longer documents preserve bounded frontmatter,
+the Markdown heading outline, the beginning, lifecycle/purpose/implementation/test
+sections, and the ending, so a late supersession or lifecycle note is not lost to
+simple prefix truncation. The project-relative path is supplied as supporting
+classification evidence, not as an authoritative label. Classification is cached
+by source content and classifier configuration/version and remains advisory.
+Document text is untrusted data, not classifier instructions; the classifier has
+no tools and cannot execute actions. Explicit metadata needs no classifier call.
+Missing credentials, provider failures, timeouts, or invalid responses do not
+prevent indexing or retrieval. Unknown documents remain eligible audit candidates
+when classification is unavailable or uncertain. No credentials are stored in
+classification caches or printed in diagnostics. The global `~/.config/idx/.env`
+holds `OPENROUTER_API_KEY` plus optional `IDX_JEV_MODEL`, `IDX_JEV_URL`, and
+`IDX_JEV_TIMEOUT_MS`; exported environment variables override file values.
+Choice answers are accepted only above configurable confidence floors. The
+defaults are `IDX_JEV_KIND_MIN_CONFIDENCE=0.90` and
+`IDX_JEV_STATUS_MIN_CONFIDENCE=0.65`; a field below its floor becomes
+`unknown` independently of the other field. This intentionally favors
+classification precision over coverage because unknown documents remain fully
+searchable and inferred metadata is advisory.
+
+Classifier availability is also advisory rather than an indexing dependency.
+Missing credentials, authentication failure, exhausted credits, rate limits,
+provider failure, timeout, or invalid provider output never fail document
+indexing and never promote unknown metadata to an authoritative value. The
+affected fields remain `unknown`; document chunks and embeddings are still
+written and remain searchable. Each indexing run records a non-authoritative
+`.indexer-cli/document-classification-status.json` diagnostic summary with
+attempt/degradation counts and sanitized reason codes. `idx index` reports the
+degradation after a successful index; `idx doctor` reports the last persisted
+degraded state. Missing credentials, authentication failure, and exhausted
+credits require immediate human action. Rate limits, provider failures,
+timeouts, and invalid responses are initially safe transient degradation; they
+escalate to human action when at least three classification attempts in one run
+all degrade. Recovery requires fixing the external condition and rerunning
+`idx index`; no knowledge database repair, deletion, or migration is required.
+
+The opt-in classifier eval uses `evals/knowledge/document-classification.json`
+and `tests/evals/document-classification.eval.test.ts`. It classifies curated
+project documents through the real configured Jev endpoint, removes explicit
+`kind`/`status` frontmatter fields before inference to prevent answer leakage,
+checks the 20,000-character input bound, reports per-field accuracy/failures, and
+requires at least 80% accuracy for both kind and the subset with status labels.
+
+### Local classifier experiment: Laya MLX
+
+On 2026-09-24, `aac6fef/laya-multilingual-mlx` was evaluated as a possible
+local classifier/fallback on Apple Silicon. The checkpoint has about 322M
+parameters; its FP16 `model.safetensors` was 643,835,426 bytes. On the 16 GB
+arm64 macOS test machine, a warm process used roughly 1.1-1.15 GB RSS. Short
+warm decisions took about 14-16 ms; document-sized two-question decisions in
+the experiment took roughly 160-584 ms.
+
+The quality result was not sufficient for production use with the current
+multiclass taxonomy. Using a fixed 19-document holdout from four other projects,
+without changing labels or criteria after observing predictions, strict `kind`
+accuracy was 9/19 (47.4%) and strict `status` accuracy was 7/17 (41.2%). The
+main failure mode was lifecycle classification: current documents were often
+predicted as `proposed` or `superseded`. Confidence gating could recover high
+precision only by abstaining on most examples, so it did not provide useful
+coverage.
+
+Therefore Laya MLX is not an approved primary classifier or automatic fallback
+for this contract. The experiment left no runtime dependency in `indexer-cli`.
+A future evaluation may revisit a different formulation, especially decomposing
+`kind` and `status` into binary typed decisions and deterministically combining
+them, or evaluating a task-specific fine-tuned checkpoint. Any such attempt must
+use a fresh holdout rather than tuning against the 2026-09-24 evaluation set.
 
 ## Recommended spec format
 
@@ -101,6 +164,7 @@ code, document chunks, and snapshots.
 
 - `src/knowledge/document-indexer.ts`
 - `src/knowledge/document-scanner.ts`
+- `src/knowledge/document-classifier-config.ts`
 - `src/knowledge/document-metadata.ts`
 - `src/knowledge/document-metadata-types.ts`
 - `src/knowledge/search.ts`
@@ -121,7 +185,10 @@ code, document chunks, and snapshots.
 
 - `tests/unit/knowledge/document-indexer.test.ts`
 - `tests/unit/knowledge/document-scanner.test.ts`
+- `tests/unit/knowledge/document-classifier-config.test.ts`
 - `tests/unit/knowledge/document-metadata.test.ts`
+- `tests/evals/document-classification.eval.test.ts`
+- `evals/knowledge/document-classification.json`
 - `tests/unit/knowledge/search.test.ts`
 - `tests/unit/knowledge/context.test.ts`
 - `tests/unit/knowledge/audit.test.ts`

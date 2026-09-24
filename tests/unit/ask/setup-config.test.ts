@@ -52,7 +52,7 @@ describe("ensureAskConfig", () => {
 			write(file, "partial");
 			throw new Error("simulated write failure");
 		});
-		expect(() => ensureAskConfig({}, home)).toThrow("Unable to create optional idx ask configuration");
+		expect(() => ensureAskConfig({}, home)).toThrow("Unable to create optional idx configuration");
 		failure.mockRestore();
 		const directory = path.join(home, ".config", "idx");
 		expect(fs.readdirSync(directory)).toEqual([]);
@@ -77,7 +77,7 @@ describe("ensureAskConfig", () => {
 		const target = path.join(directory, ".env");
 		if (kind === "directory") fs.mkdirSync(target);
 		else fs.symlinkSync(kind === "dangling-symlink" ? path.join(xdg, "missing") : xdg, target);
-		expect(() => ensureAskConfig({ XDG_CONFIG_HOME: xdg }, temp())).toThrow("Unable to create optional idx ask configuration");
+		expect(() => ensureAskConfig({ XDG_CONFIG_HOME: xdg }, temp())).toThrow("Unable to create optional idx configuration");
 		expect(fs.lstatSync(target).isSymbolicLink()).toBe(kind !== "directory");
 	});
 	it("does not follow an idx directory symlink", () => {

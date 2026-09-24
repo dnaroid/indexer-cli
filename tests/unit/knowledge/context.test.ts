@@ -36,7 +36,7 @@ describe("KnowledgeContextEngine", () => {
 		expect((await context.build("auth")).warnings).toContain("Document retrieval unavailable; using lexical results.");
 	});
 	it("selects only explicitly active specs; other indexed documents remain documents", async () => {
-		const inferred = document("docs/inferred.md", "spec", "active", { kind: "llm", status: "llm" });
+		const inferred = document("docs/inferred.md", "spec", "active", { kind: "classifier", status: "classifier" });
 		const unknown = document("docs/guide.md", "guide", "proposed", { kind: "explicit", status: "explicit" });
 		const pack = await engine([spec, inferred, unknown]).context.build("auth");
 		expect(pack.specs).toEqual([spec]);

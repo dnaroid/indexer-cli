@@ -46,6 +46,7 @@ import {
 	DocumentIndexer,
 	type DocumentIncrementalPlan,
 	type DocumentIndexProgress,
+	type DocumentIndexResult,
 } from "../knowledge/document-indexer.js";
 
 const logger = new SystemLogger("indexer-engine");
@@ -194,6 +195,7 @@ export interface IndexResult {
 	/** Files handled in this run; copied/deleted files and failed documents are excluded. */
 	filesIndexed: number;
 	errors: string[];
+	classification?: DocumentIndexResult["classification"];
 }
 
 interface IndexFileOptions {
@@ -1167,6 +1169,7 @@ export class IndexerEngine {
 				knownFiles.size + (documentPlan?.unchanged.length ?? 0) + documentWork;
 			const copiedFiles = totalFiles - filesToIndex.length - documentWork;
 			let documentsIndexed = 0;
+			let classification: DocumentIndexResult["classification"] | undefined;
 			await this.metadata.updateSnapshotProgress(
 				snapshotId,
 				copiedFiles,
@@ -1192,6 +1195,7 @@ export class IndexerEngine {
 					),
 				);
 				documentsIndexed = documentResult.indexed;
+				classification = documentResult.classification;
 				errors.push(...documentResult.errors.map((error) => `document: ${error}`));
 			}
 			if (filesToIndex.length === 0) {
@@ -1209,7 +1213,7 @@ export class IndexerEngine {
 				if (documentWork === 0) options.onProgress?.(totalFiles, totalFiles);
 				await this.metadata.updateSnapshotStatus(snapshotId, "completed");
 				await this.pruneHistoricalSnapshots(projectId, snapshotId);
-				return { snapshotId, filesIndexed: documentsIndexed, errors: [] };
+				return { snapshotId, filesIndexed: documentsIndexed, errors: [], classification };
 			}
 
 			await this.indexPreparedFiles({
@@ -1244,6 +1248,7 @@ export class IndexerEngine {
 				snapshotId,
 				filesIndexed: filesToIndex.length + documentsIndexed,
 				errors,
+				classification,
 			};
 		} catch (error) {
 			await this.metadata.updateSnapshotStatus(
@@ -1963,6 +1968,7 @@ export class IndexerEngine {
 			const documentPaths = (await this.documentIndexer?.scan()) ?? [];
 			const totalFiles = filesToIndex.length + documentPaths.length;
 			let documentsIndexed = 0;
+			let classification: DocumentIndexResult["classification"] | undefined;
 
 			await this.indexPreparedFiles({
 				projectId,
@@ -1995,6 +2001,7 @@ export class IndexerEngine {
 					},
 				);
 				documentsIndexed = documentResult.indexed;
+				classification = documentResult.classification;
 				errors.push(...documentResult.errors.map((error) => `document: ${error}`));
 			}
 			const filesIndexed = filesToIndex.length + documentsIndexed;
@@ -2021,7 +2028,7 @@ export class IndexerEngine {
 				totalFiles,
 			);
 			await this.pruneHistoricalSnapshots(projectId, snapshotId);
-			return { snapshotId, filesIndexed, errors };
+			return { snapshotId, filesIndexed, errors, classification };
 		} catch (error) {
 			await this.metadata.updateSnapshotStatus(
 				snapshotId,

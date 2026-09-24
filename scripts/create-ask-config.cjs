@@ -52,16 +52,16 @@ function ensureAskConfig(env = process.env, home = os.homedir()) {
 		}
 		return target;
 	} catch {
-		throw new Error("Unable to create optional idx ask configuration");
+		throw new Error("Unable to create optional idx configuration");
 	}
 }
 
 function reportAskConfig(env = process.env, home = os.homedir()) {
 	try {
 		const target = ensureAskConfig(env, home);
-		console.log(`Global idx ask configuration: ${target} (existing files preserved; uncomment settings to enable)`);
+		console.log(`Global idx configuration: ${target} (existing files preserved; uncomment settings to enable)`);
 	} catch {
-		console.warn(`Warning: could not create optional idx ask configuration at ${askConfigPath(env, home)}. Check permissions and ensure the directory and file are regular, not symlinks; then run idx doctor.`);
+		console.warn(`Warning: could not create optional idx configuration at ${askConfigPath(env, home)}. Check permissions and ensure the directory and file are regular, not symlinks; then run idx doctor.`);
 	}
 }
 

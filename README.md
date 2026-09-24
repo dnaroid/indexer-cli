@@ -165,7 +165,7 @@ lexical search. There is no `--no-llm` mode or ask-level `--cursor`.
 Setup, initialization, and indexing remain explicit commands;
 underlying discovery commands can still refresh their local index as usual.
 
-### Global LLM configuration
+### Global model and classifier configuration
 
 Installing the npm package creates a commented template at `~/.config/idx/.env`
 when absent; `idx doctor` also ensures it exists and prints its path. The same
@@ -174,7 +174,9 @@ Creation is optional and never overwrites an existing file. All `idx ask` instan
 the current repository. If `XDG_CONFIG_HOME` is an absolute path, the file is
 `$XDG_CONFIG_HOME/idx/.env` instead. Exported environment variables override the
 file, including explicitly empty values. Project-local `.env` files are **not**
-loaded, and these settings do not change the embedding provider.
+loaded, and these settings do not change the embedding provider. The same global
+file also configures optional Jev document classification during indexing; that
+classifier is independent of the `idx ask` model/provider.
 
 The source installer prints the resolved path. npm may hide postinstall output;
 use `npm install -g indexer-cli --foreground-scripts` to see it. If npm lifecycle
@@ -185,6 +187,14 @@ put real credentials in shared/source-controlled files. The file is created
 with private permissions (0600):
 
 ```dotenv
+# Optional advisory document classification via OpenRouter Jev
+OPENROUTER_API_KEY=your-openrouter-key
+# IDX_JEV_MODEL=~typesafe/jev-latest
+# IDX_JEV_URL=https://openrouter.ai/api/alpha/decisions
+# IDX_JEV_TIMEOUT_MS=5000
+# IDX_JEV_KIND_MIN_CONFIDENCE=0.90
+# IDX_JEV_STATUS_MIN_CONFIDENCE=0.65
+
 # ~/.config/idx/.env — direct OpenAI-compatible Responses API (default)
 IDX_ASK_BACKEND=openai
 OPENAI_API_KEY=your-api-key
@@ -444,9 +454,23 @@ Document-domain indexing is configured separately with:
 - `knowledgeEmbeddingQueryPrefix` / `knowledgeEmbeddingDocumentPrefix` — retrieval prefixes used by the knowledge
   embedding model.
 
-Document indexing stores file hashes, chunks, and vectors. When ask's LLM is configured,
-it may also infer advisory document purpose. Explicit frontmatter takes precedence;
-inference never makes a document authoritative or excludes it from retrieval.
+Document indexing stores file hashes, chunks, and vectors. When `OPENROUTER_API_KEY`
+is configured, it may also use Jev through OpenRouter's Decisions API to infer
+advisory document purpose. `IDX_JEV_MODEL`, `IDX_JEV_URL`, and
+`IDX_JEV_TIMEOUT_MS` customize that classifier. Explicit frontmatter takes
+precedence; inference never makes a document authoritative or excludes it from
+retrieval. Jev receives at most 20,000 characters: short documents are sent as-is;
+longer documents are represented by bounded frontmatter, heading outline,
+beginning, lifecycle/purpose/implementation/test sections, and ending rather than
+by a simple leading substring.
+
+Classifier outages do not fail indexing. Missing/failed classifications remain
+`unknown`, documents stay searchable, and `idx index` reports a sanitized
+degradation summary. Credential/authentication/credit failures require human
+action; repeated complete transient degradation is escalated as well. The last
+run's advisory classifier health is stored under `.indexer-cli/` and surfaced by
+`idx doctor`. Restoring OpenRouter and rerunning `idx index` is sufficient; no
+knowledge-base repair is needed.
 
 If you run `idx index` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.

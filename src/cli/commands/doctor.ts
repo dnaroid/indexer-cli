@@ -19,6 +19,7 @@ import {
 	forceRefreshProjectSkills,
 	refreshRegisteredProjectSkillsIfNeeded,
 } from "../../core/version-check.js";
+import { CLASSIFICATION_STATUS_FILE } from "../../knowledge/document-indexer.js";
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
@@ -27,6 +28,23 @@ async function pathExists(targetPath: string): Promise<boolean> {
 	} catch {
 		return false;
 	}
+}
+
+async function reportClassificationStatus(projectPath: string): Promise<void> {
+	const target = path.join(projectPath, ".indexer-cli", CLASSIFICATION_STATUS_FILE);
+	try {
+		const value = JSON.parse(await readFile(target, "utf8")) as {
+			status?: string;
+			attempted?: number;
+			degraded?: number;
+			reasons?: Record<string, number>;
+			humanActionRequired?: boolean;
+		};
+		if (value.status !== "degraded" || !value.degraded) return;
+		const reasons = Object.entries(value.reasons ?? {}).map(([reason, count]) => `${reason}=${count}`).join(", ");
+		console.warn(`Classification degraded in ${projectPath}: ${value.degraded}/${value.attempted ?? 0} (${reasons}). Knowledge retrieval remains safe.`);
+		if (value.humanActionRequired) console.warn("  Human action required: restore OpenRouter credentials/credits or service availability, then run `idx index`.");
+	} catch { /* Missing/invalid derived classifier status is not a project health failure. */ }
 }
 
 async function scanDirectoryForProjects(dir: string): Promise<string[]> {
@@ -156,7 +174,7 @@ export function registerDoctorCommand(program: Command): void {
 						path.resolve(entry.projectPath),
 					);
 
-					if (projectPaths.length === 0) {
+				if (projectPaths.length === 0) {
 						console.log("No registered projects found.");
 						return;
 					}
@@ -200,6 +218,7 @@ export function registerDoctorCommand(program: Command): void {
 						});
 					}
 				}
+				for (const projectPath of projectPaths) await reportClassificationStatus(projectPath);
 
 				if (!options.force) {
 					const action = options.skillsOnly

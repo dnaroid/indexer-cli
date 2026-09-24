@@ -1,4 +1,5 @@
-import { readFile, stat } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { config } from "../core/config.js";
 import type {
@@ -13,6 +14,7 @@ import type {
 import { computeHash } from "../utils/hash.js";
 import { chunkDocument } from "./document-chunker.js";
 import { getDocumentMetadata } from "./document-metadata.js";
+import type { DocumentClassifierFailureReason } from "./document-metadata.js";
 import { scanProjectDocuments } from "./document-scanner.js";
 import {
 	knowledgeDocumentEmbeddingText,
@@ -31,11 +33,38 @@ export interface DocumentIndexResult {
 	indexed: number;
 	paths: string[];
 	errors: string[];
+	classification: {
+		attempted: number;
+		degraded: number;
+		reasons: Partial<Record<DocumentClassifierFailureReason, number>>;
+		humanActionRequired: boolean;
+	};
 }
 
 export interface DocumentIndexProgress {
 	onFileStart?: (filePath: string, current: number, total: number) => void;
 	onProgress?: (processed: number, total: number) => void | Promise<void>;
+}
+
+export const CLASSIFICATION_STATUS_FILE = "document-classification-status.json";
+
+async function writeClassificationStatus(root: string, classification: DocumentIndexResult["classification"]): Promise<void> {
+	const directory = path.join(root, ".indexer-cli");
+	const target = path.join(directory, CLASSIFICATION_STATUS_FILE);
+	const temporary = `${target}.${randomUUID()}.tmp`;
+	const payload = {
+		version: 1,
+		status: classification.degraded > 0 ? "degraded" : "ok",
+		...classification,
+		updatedAt: new Date().toISOString(),
+	};
+	try {
+		await mkdir(directory, { recursive: true, mode: 0o700 });
+		await writeFile(temporary, JSON.stringify(payload, null, 2), { mode: 0o600, flag: "wx" });
+		await rename(temporary, target);
+	} finally {
+		await rm(temporary, { force: true }).catch(() => undefined);
+	}
 }
 
 function uniqueSorted(values: Iterable<string>): string[] {
@@ -127,6 +156,7 @@ export class DocumentIndexer {
 			options,
 		);
 		await writeKnowledgeIndexConfigArtifact(this.metadata, projectId, snapshotId);
+		await writeClassificationStatus(this.repoRoot, result.classification).catch(() => undefined);
 		return result;
 	}
 
@@ -143,6 +173,7 @@ export class DocumentIndexer {
 			progress,
 		);
 		await writeKnowledgeIndexConfigArtifact(this.metadata, projectId, snapshotId);
+		await writeClassificationStatus(this.repoRoot, result.classification).catch(() => undefined);
 		return result;
 	}
 
@@ -153,13 +184,14 @@ export class DocumentIndexer {
 		progress: DocumentIndexProgress,
 	): Promise<DocumentIndexResult> {
 		const errors: string[] = [];
+		const classification: DocumentIndexResult["classification"] = { attempted: 0, degraded: 0, reasons: {}, humanActionRequired: false };
 		let indexed = 0;
 		const orderedPaths = uniqueSorted(paths);
 
 		for (const [index, filePath] of orderedPaths.entries()) {
 			progress.onFileStart?.(filePath, index + 1, orderedPaths.length);
 			try {
-				await this.indexOne(projectId, snapshotId, filePath);
+				await this.indexOne(projectId, snapshotId, filePath, classification);
 				indexed += 1;
 			} catch (error) {
 				errors.push(
@@ -169,13 +201,15 @@ export class DocumentIndexer {
 			await progress.onProgress?.(index + 1, orderedPaths.length);
 		}
 
-		return { indexed, paths: orderedPaths, errors };
+		if (classification.attempted >= 3 && classification.degraded === classification.attempted) classification.humanActionRequired = true;
+		return { indexed, paths: orderedPaths, errors, classification };
 	}
 
 	private async indexOne(
 		projectId: ProjectId,
 		snapshotId: SnapshotId,
 		filePath: string,
+		classification: DocumentIndexResult["classification"],
 	): Promise<void> {
 		const fullPath = path.join(this.repoRoot, filePath);
 		const [content, fileStat] = await Promise.all([
@@ -213,7 +247,17 @@ export class DocumentIndexer {
 			maxTokens,
 			fullFileMaxTokens: Math.min(400, maxTokens),
 		});
-		const documentMetadata = await getDocumentMetadata(this.repoRoot, filePath, content, { classify: true });
+		const parsedBeforeClassification = await getDocumentMetadata(this.repoRoot, filePath, content);
+		const needsClassification = parsedBeforeClassification.kindSource !== "explicit" || parsedBeforeClassification.statusSource !== "explicit";
+		if (needsClassification) classification.attempted += 1;
+		const documentMetadata = await getDocumentMetadata(this.repoRoot, filePath, content, {
+			classify: true,
+			onClassifierDiagnostic: (diagnostic) => {
+				classification.degraded += 1;
+				classification.reasons[diagnostic.reason] = (classification.reasons[diagnostic.reason] ?? 0) + 1;
+				if (diagnostic.humanActionRequired) classification.humanActionRequired = true;
+			},
+		});
 
 		await this.knowledgeStore.replaceKnowledgeChunks(
 			projectId,

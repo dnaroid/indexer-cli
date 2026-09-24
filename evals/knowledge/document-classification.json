@@ -1,0 +1,19 @@
+[
+  { "path": "README.md", "kind": "guide", "status": "active" },
+  { "path": "docs/fixtures-and-e2e-tests.md", "kind": "spec", "status": "active" },
+  { "path": "docs/knowledge-layer-plan.md", "kind": "guide", "status": "superseded" },
+  { "path": "docs/reports/cli-tools-quality-check.md", "kind": "archive", "status": "historical" },
+  { "path": "docs/reports/semantic-search-issues.md", "kind": "archive", "status": "historical" },
+  { "path": "docs/reports/tool-effectiveness-audit.md", "kind": "archive", "status": "historical" },
+  { "path": "docs/specs/agent-skill-gitignore.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/ask.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/call-graph-deps.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/code-document-indexing.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/code-search-ranking.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/concurrent-index-access.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/knowledge-maintenance.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/knowledge-quality-evaluation.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/runtime-support.md", "kind": "spec", "status": "active" },
+  { "path": "docs/specs/svelte-support.md", "kind": "spec" },
+  { "path": "docs/specs/symbol-signatures.md", "kind": "spec", "status": "active" }
+]
