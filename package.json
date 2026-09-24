@@ -54,6 +54,7 @@
 		"test:full": "npm run build && INDEXER_CLI_TEST_USE_DIST=1 vitest run tests/unit/ tests/cli/ --testTimeout=180000",
 		"test:watch": "vitest",
 		"eval:document-classifier": "RUN_DOCUMENT_CLASSIFIER_EVAL=1 vitest run tests/evals/document-classification.eval.test.ts --testTimeout=120000",
+		"eval:document-classifier-holdout": "RUN_DOCUMENT_CLASSIFIER_HOLDOUT_EVAL=1 vitest run tests/evals/document-classification-holdout.eval.test.ts --testTimeout=180000",
 		"test:cli": "npm run build && INDEXER_CLI_TEST_USE_DIST=1 vitest run tests/cli/ --testTimeout=180000 --no-file-parallelism",
 		"test:cli:python": "npm run build && INDEXER_CLI_TEST_USE_DIST=1 vitest run tests/cli/commands-python.test.ts --testTimeout=180000 --no-file-parallelism",
 		"test:cli:gdscript": "npm run build && INDEXER_CLI_TEST_USE_DIST=1 vitest run tests/cli/commands-gdscript.test.ts --testTimeout=180000 --no-file-parallelism",

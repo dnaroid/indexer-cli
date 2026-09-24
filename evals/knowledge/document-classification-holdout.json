@@ -1,0 +1,114 @@
+[
+  {
+    "id": "ext-01",
+    "kind": "guide",
+    "status": "active",
+    "content": "# Configuration and accounts\n\nThe application keeps user-level and project-level configuration profiles. This document explains where each profile is stored, how project overrides take precedence, and how to configure model routing, authentication, and fallback settings.\n\n## User configuration\nCreate the user profile in the standard configuration directory. Values here apply to every workspace unless a project override is present.\n\n## Project configuration\nA workspace may provide a local profile for settings that should differ from the user defaults. Examples show the supported keys and expected values."
+  },
+  {
+    "id": "ext-02",
+    "kind": "guide",
+    "status": "active",
+    "content": "# Development\n\nUse this document when working on the application source. End users normally install a packaged release instead.\n\n## Requirements\nInstall a supported Node.js version, npm, Git, and the native build prerequisites required by the desktop target.\n\n## Clone and install\nClone the repository, install dependencies, and verify the selected runtime versions. Separate packages have their own dependency trees.\n\n## Local development\nCommands are provided for terminal development, desktop development, checks, tests, and production builds."
+  },
+  {
+    "id": "ext-03",
+    "kind": "spec",
+    "status": "historical",
+    "content": "# Desktop MVP baseline\n\nThis document records the first desktop vertical slice. It is retained because the process-host and transport contracts are still useful context, but newer feature documents now define the current desktop behavior.\n\n## Goal\nThe first slice had to let a user select a workspace, open or create a session, submit a prompt, observe streaming updates, cancel work, and answer extension requests.\n\n## Required behavior\nThe desktop host starts an isolated child process, the client initializes the protocol before creating a session, and submitted prompts appear immediately while streamed updates are applied incrementally. Later behavior is governed by newer documents."
+  },
+  {
+    "id": "ext-04",
+    "kind": "spec",
+    "status": "active",
+    "content": "# First-prompt model routing\n\nThe application may expose an automatic model choice for a new draft. The first real user prompt is classified into a semantic tier before the actual session is created. Routing is stateless and must not become part of conversation history.\n\n## Configuration contract\nRouting is disabled by default. Enabling it makes the automatic choice available without replacing the configured default automatically. Tier identifiers are stable semantic names and map to configured model and reasoning settings.\n\n## Routing contract\nRouting applies only to a new session draft. Existing sessions, shell commands, resume flows, and renderer commands must not trigger it. If routing fails, a deterministic configured tier is used instead of failing the first prompt."
+  },
+  {
+    "id": "ext-05",
+    "kind": "guide",
+    "status": "active",
+    "content": "# Behavioral documents index\n\nThis page is a catalog of the application's current behavioral documents. It explains how the collection is organized, which areas have dedicated contracts, and where to look for related behavior.\n\nThe index groups documents by subsystem and gives a short topic description for each entry. It is navigation material rather than the source of the individual requirements. Readers should open the linked document before relying on a behavioral claim.\n\nA maintenance note records the date of the last broad review of the catalog."
+  },
+  {
+    "id": "ext-06",
+    "kind": "guide",
+    "status": "active",
+    "content": "# Getting started\n\nThis document explains how to install the command-line application, run a first project, and understand the generated workspace layout.\n\n## Requirements\nInstall a supported Node.js runtime and configure a generation endpoint when model-backed commands are needed. Optional local services are described separately.\n\n## Install and build\nInstall dependencies, build the project, and expose the local executable on PATH.\n\n## First project\nCreate an empty workspace, initialize it, ingest source material, and inspect the generated output."
+  },
+  {
+    "id": "ext-07",
+    "kind": "plan",
+    "status": "proposed",
+    "content": "# Internal gateway adaptation\n\nThis document tracks the work required to adapt the application to a private-service perimeter. The target environment uses a shared public gateway, identity-aware browser access, private routing to application services, restricted firewalls, and no direct public application surface.\n\n## Target deployment\nApplication processes will run in containers while persistent state and secrets remain host-owned. Releases will be addressable by source revision and activation must support rollback when health verification fails.\n\n## Work remaining\nDeployment assets, privileged helpers, health checks, network binding, and rollback behavior still need to be implemented and verified before the target architecture is considered complete."
+  },
+  {
+    "id": "ext-08",
+    "kind": "archive",
+    "status": "historical",
+    "content": "# Prompt-injection security review\n\nDate: 2026-08-25. Scope: model prompts, ingest flow, retrieval chat, and external protocol boundaries. Method: parallel review tracks followed by manual verification of critical findings. No code changes were made as part of this review.\n\n## Findings\nThe review identified risks involving unsafe file access, missing authentication on mutation endpoints, weak separation between untrusted retrieved text and model instructions, and insufficient validation of cited evidence.\n\n## Recommended remediation\nThe report records containment checks, authorization boundaries, safer defaults, and validation work recommended at the time of the review. It is a point-in-time security assessment, not the current behavioral contract."
+  },
+  {
+    "id": "ext-09",
+    "kind": "spec",
+    "status": "active",
+    "content": "# CLI protocol\n\nThis document defines the bounded subprocess protocol between the web application and command-line owned capabilities. Portable schemas must not import implementation-specific modules.\n\n## Invocation model\nShort-lived JSON commands write exactly one versioned envelope to standard output. Long-lived streaming commands write ordered records and terminate with exactly one terminal record. Diagnostics go to bounded standard error.\n\n## Error contract\nMachine error codes are stable identifiers. Display messages must not contain stack traces, provider secrets, raw source text, or unrestricted filesystem details. Unknown schema versions fail closed."
+  },
+  {
+    "id": "ext-10",
+    "kind": "spec",
+    "status": "active",
+    "content": "# Quality-preserving ingest acceleration\n\nThis document defines current behavior for bounded parallel work, exact-input reuse, and observability in the ingest pipeline. The acceleration controls must not weaken grounding, conflict review, or validation.\n\n## Configuration\nIndependent concurrency limits control extraction, discovery, and taxonomy assignment. Explicit configuration remains authoritative and sequential execution is still available.\n\n## Execution guarantees\nIndependent work may overlap up to the configured limit, but repair loops within one unit remain ordered. A failed required unit must fail the operation only after already-started work is drained. Results are reduced in deterministic input order."
+  },
+  {
+    "id": "ext-11",
+    "kind": "guide",
+    "status": "active",
+    "content": "# Private tunnel setup\n\nThis document describes the recommended setup for exposing a local development service through a stable public endpoint while keeping the service itself on the local machine.\n\n## Request path\nTraffic reaches a public worker, crosses a private service binding and named tunnel, and finally reaches the loopback service. The tunnel itself has no public DNS route.\n\n## Setup and verification\nCreate the tunnel, configure the private service binding, deploy the worker, keep connector credentials outside the repository, and verify the endpoint with a real protocol initialization request. Troubleshooting steps cover common routing and credential mistakes."
+  },
+  {
+    "id": "ext-12",
+    "kind": "guide",
+    "status": "active",
+    "content": "# Prompt evaluations\n\nThis document explains deterministic end-to-end grading of the shared sub-agent prompt system against a real model. It describes the runner, case layout, fixtures, reports, and tool restrictions used during evaluation.\n\n## Quick start\nCommands are provided for running the default suite, listing cases, selecting one role, changing the model, controlling concurrency, and including work-in-progress cases.\n\n## What is covered\nThe suite checks base prompt behavior, role-specific behavior, tool selection, read-only enforcement, shell access, and honest reporting when prerequisites are unavailable."
+  },
+  {
+    "id": "ext-13",
+    "kind": "spec",
+    "status": "active",
+    "content": "# Indexed repository discovery\n\nThe server exposes indexed discovery tools and a read-only repository-knowledge wrapper. These operations call the local index in the selected workspace and must not initialize a project, write behavioral documents, or mutate classification metadata on behalf of a caller.\n\n## Discovery tools\nArchitecture, structure, syntax-tree, search, symbol explanation, and dependency queries accept bounded validated arguments. String values are shell-quoted before being forwarded to the local command.\n\n## Wrapper contract\nThe stable wrapper exposes only read-only ask, context, search, and task-scoped audit actions. Unsupported actions fail before the local index command is invoked."
+  },
+  {
+    "id": "ext-14",
+    "kind": "spec",
+    "status": "active",
+    "content": "# Shell sandbox contract\n\nThis document defines the execution modes of the server's shell tool. Ordinary commands use the platform sandbox when that sandbox is supported; if the required sandbox is unavailable on that platform, the command fails closed.\n\n## Modes\nAn explicit daemon option may disable the ordinary sandbox. That option does not enable skills or bypass independent approval gates. Read-only mode omits the shell tool entirely. Desktop approval modes are configured outside individual tool calls.\n\n## Result metadata\nEvery executed command reports whether it was sandboxed and which sandbox implementation was used. Persisted daemon state records the configured execution mode."
+  },
+  {
+    "id": "ext-15",
+    "kind": "plan",
+    "status": "proposed",
+    "content": "# MVP implementation\n\nThe MVP should prove that one expedition into a dangerous location is already interesting and forces meaningful decisions. It does not need the complete world or every long-term system.\n\n## MVP scope\nThe player should be able to enter one generated region, reach a point of interest, avoid or confront threats, collect limited loot, suffer consequences, return to safety, and observe a small world-state change.\n\n## Implementation sequence\nBuild movement and interaction first, then inventory and threats, then survival pressure and regional generation. Larger faction and simulation systems are deferred until the core loop has been validated."
+  },
+  {
+    "id": "ext-16",
+    "kind": "spec",
+    "status": "proposed",
+    "content": "# Terrain generator design\n\nThis document defines the required generator for a future regional world system. Given one seed, it should create believable large-scale terrain, water flow, biomes, settlements, roads, and a later catastrophe layer.\n\n## Requirements\nThe result must look as if terrain formed first, water and vegetation followed, and human infrastructure was then placed according to geography. Rivers must follow terrain and roads must avoid obviously impossible routes.\n\n## Target architecture\nMacro generation runs once on a coarse grid. Fine detail is generated lazily per chunk. Expensive full-resolution physical simulation is outside the intended implementation budget."
+  },
+  {
+    "id": "ext-17",
+    "kind": "spec",
+    "status": "active",
+    "content": "# Project architecture rules\n\n## Data-driven first\nContent belongs in data files. Code contains rules, interpretation, execution, and validation. Items, locations, events, factions, and generation parameters must not be hard-coded into unrelated systems.\n\n## Separation\nGameplay systems, data, and scene composition live in separate areas. Global singleton state is limited to a small approved set of cross-cutting services.\n\n## Delivery rules\nPrefer small reusable scenes, validate every new data format, and prove the basic vertical slice before adding large simulation systems. These rules apply to ongoing development."
+  },
+  {
+    "id": "ext-18",
+    "kind": "plan",
+    "content": "# World asset checklist\n\nLegend: missing, raw source available, ready.\n\n## Trees\nThe checklist lists required tree prefabs, expected mesh format, approximate polygon budgets, texture channels, collision behavior, and level-of-detail expectations. Most entries are still missing.\n\n## Rocks and vegetation\nRequired rock, bush, and grass variants are listed with target source categories and implementation constraints. The document is used to track remaining content work and readiness across asset families."
+  },
+  {
+    "id": "ext-19",
+    "kind": "other",
+    "content": "# Task template\n\n## Task\nBriefly state what needs to change.\n\n## Context\nList the related code, the current behavior, and the expected result.\n\n## Constraints\nRecord files that must not change, behavior that must not break, and approaches that are prohibited.\n\n## Definition of done\nList completion conditions, manual verification, and edge cases.\n\n## Response format\nReport changed files, what was done, what should be checked, and known risks."
+  }
+]

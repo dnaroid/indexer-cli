@@ -83,6 +83,24 @@ project documents through the real configured Jev endpoint, removes explicit
 checks the 20,000-character input bound, reports per-field accuracy/failures, and
 requires at least 80% accuracy for both kind and the subset with status labels.
 
+An additional external regression fixture lives in
+`evals/knowledge/document-classification-holdout.json`. It contains 19
+standalone anonymized Markdown cases derived from the cross-project holdout used
+during classifier evaluation. Real project names, repository paths, URLs,
+infrastructure identifiers, and product-specific names are not retained. The
+fixture is intentionally a privacy-preserving derivative rather than a verbatim
+copy of private project documents, so it is suitable for regression testing but
+must not be presented as an unchanged copy of the original holdout corpus.
+`tests/evals/document-classification-holdout.eval.test.ts` runs semantic,
+strict-blind, and hard-blind modes against this fixture and checks the
+precision-first invariant after confidence gating. Because anonymization and
+paraphrasing can shift model behavior, this derivative fixture uses regression
+floors of 90% accepted-decision precision and 50% coverage rather than requiring
+perfect agreement. Its first recorded run produced about 93% accepted precision
+for both kind and status in semantic/strict-blind modes, with one intentionally
+retained ambiguous desktop-baseline case accounting for the accepted errors.
+Run it explicitly with `npm run eval:document-classifier-holdout`.
+
 ### Local classifier experiment: Laya MLX
 
 On 2026-09-24, `aac6fef/laya-multilingual-mlx` was evaluated as a possible
@@ -189,6 +207,8 @@ code, document chunks, and snapshots.
 - `tests/unit/knowledge/document-metadata.test.ts`
 - `tests/evals/document-classification.eval.test.ts`
 - `evals/knowledge/document-classification.json`
+- `tests/evals/document-classification-holdout.eval.test.ts`
+- `evals/knowledge/document-classification-holdout.json`
 - `tests/unit/knowledge/search.test.ts`
 - `tests/unit/knowledge/context.test.ts`
 - `tests/unit/knowledge/audit.test.ts`
