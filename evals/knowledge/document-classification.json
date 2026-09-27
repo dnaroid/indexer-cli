@@ -11,7 +11,6 @@
   { "path": "docs/specs/code-search-ranking.md", "kind": "spec", "status": "active" },
   { "path": "docs/specs/concurrent-index-access.md", "kind": "spec", "status": "active" },
   { "path": "docs/specs/knowledge-maintenance.md", "kind": "spec", "status": "active" },
-  { "path": "docs/specs/knowledge-quality-evaluation.md", "kind": "spec", "status": "active" },
   { "path": "docs/specs/runtime-support.md", "kind": "spec", "status": "active" },
   { "path": "docs/specs/svelte-support.md", "kind": "spec" },
   { "path": "docs/specs/symbol-signatures.md", "kind": "spec", "status": "active" }
