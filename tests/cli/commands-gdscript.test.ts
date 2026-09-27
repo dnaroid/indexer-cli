@@ -85,7 +85,7 @@ describe.sequential("CLI e2e GDScript", () => {
 	});
 
 	describe("init", () => {
-		it("creates indexer data, skills, and hook", () => {
+		it("creates indexer data and skills without touching Git hooks", () => {
 			const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
@@ -105,7 +105,7 @@ describe.sequential("CLI e2e GDScript", () => {
 			expect(fileExists(dataDir)).toBe(true);
 			expect(fileExists(configPath)).toBe(true);
 			expect(fileExists(skillPath)).toBe(true);
-			expect(fileExists(hookPath)).toBe(true);
+			expect(fileExists(hookPath)).toBe(false);
 			expect(readTextFile(configPath)).toContain("jina-8k");
 			expect(readTextFile(configPath)).toContain("skillsVersion");
 			expect(
@@ -703,7 +703,7 @@ describe.sequential("CLI e2e GDScript", () => {
 	});
 
 	describe("uninstall", () => {
-		it("removes indexer data, skills, gitignore entries, and git hook", () => {
+		it("removes indexer data, skills, gitignore entries, and any legacy git hook block", () => {
 			const result = runCLI(["uninstall", "--force"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);

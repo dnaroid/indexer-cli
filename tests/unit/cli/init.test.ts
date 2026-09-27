@@ -219,14 +219,13 @@ describe("init command helpers", () => {
 	});
 });
 
-describe("init command hook", () => {
-	it("uses idx command in post-commit hook", () => {
+describe("init command source", () => {
+	it("does not install or modify Git hooks", () => {
 		const source = readFileSync(
 			path.resolve(import.meta.dirname, "../../../src/cli/commands/init.ts"),
 			"utf8",
 		);
-		expect(source).toContain("idx index --skip-if-locked");
-		expect(source).not.toContain("npx -y indexer-cli index");
+		expect(source).not.toMatch(/hooks|post-commit/);
 	});
 
 	it("documents first-run indexing progress and troubleshooting in the command output", () => {

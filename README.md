@@ -45,8 +45,8 @@ Under the hood, `indexer-cli` indexes source code plus document-domain knowledge
 local Ollama instance, and stores everything in a per-project `.indexer-cli/` directory. Code and documents remain
 separate search domains by default. That gives both humans and agents fast natural-language code search, project
 contract/spec retrieval, repo structure snapshots, and low-friction incremental reindexing without any daemon or
-background service. A Git post-commit hook keeps deterministic index state up to date automatically; semantic
-document-purpose inference is optional and advisory.
+background service. Discovery commands refresh changed files automatically before reading, without installing Git
+hooks; semantic document-purpose inference is optional and advisory.
 
 ## Features
 
@@ -296,7 +296,8 @@ After running `setup`, restart your shell to ensure `idx` is on `PATH`.
 ### `idx init`
 
 Create the `.indexer-cli/` directory, initialize the SQLite database and sqlite-vec vector store, add `.indexer-cli/`
-to `.gitignore`, and install a Git post-commit hook that automatically re-indexes changed files. Agent skills are
+to `.gitignore`. It never installs or modifies Git hooks: discovery commands refresh changed files automatically
+before reading, and `idx index` refreshes explicitly. Agent skills are
 opt-in: `--claude` writes under `.claude/skills/`, `--codex` writes under `.agents/skills/`, and only idx-generated
 `repo-discovery` skill directories are added to `.gitignore`. Plain `idx init` never adds agent/context paths such as
 `.claude/`, `.agents/`, `CLAUDE.md`, or `AGENTS.md`. Plain `idx init` also keeps the default local embedding mode,
@@ -603,7 +604,8 @@ Use `path::symbol` with `--mode calls` to focus on one callable symbol, for exam
 ### `idx uninstall`
 
 Remove the `.indexer-cli/` directory from the initialized project root. Also removes this CLI's generated
-`repo-discovery` directories from `.claude/skills/` and `.agents/skills/` when present, cleans this CLI's Git hook block,
+`repo-discovery` directories from `.claude/skills/` and `.agents/skills/` when present, cleans the post-commit hook
+block that older versions of this CLI installed,
 and removes its `.gitignore` entries when present. User-owned agent context/config entries are preserved for projects
 that did not enable idx skills. Prompts for confirmation unless `-f` is given.
 

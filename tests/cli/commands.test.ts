@@ -70,7 +70,7 @@ describe.sequential("CLI e2e", () => {
 	});
 
 	describe.sequential("init", () => {
-		it("creates indexer data and git hook without installing agent skills by default", () => {
+		it("creates indexer data without Git hooks or agent skills by default", () => {
 			const result = runCLI(["init"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
@@ -85,7 +85,7 @@ describe.sequential("CLI e2e", () => {
 			expect(fileExists(configPath)).toBe(true);
 			expect(fileExists(path.join(TEMP_DIR, ".claude"))).toBe(false);
 			expect(fileExists(path.join(TEMP_DIR, ".agents"))).toBe(false);
-			expect(fileExists(hookPath)).toBe(true);
+			expect(fileExists(hookPath)).toBe(false);
 
 			const config = JSON.parse(readTextFile(configPath)) as {
 				embeddingModel: string;
@@ -117,9 +117,6 @@ describe.sequential("CLI e2e", () => {
 			expect(gitignoreLines).not.toContain(".agents/skills/repo-discovery/");
 			expect(gitignoreLines).not.toContain("CLAUDE.md");
 			expect(gitignoreLines).not.toContain("AGENTS.md");
-
-			const hook = readTextFile(hookPath);
-			expect(hook).toContain("idx index");
 		});
 
 		it("installs Claude and Codex skills only when explicitly requested", () => {
@@ -1689,7 +1686,7 @@ describe.sequential("CLI e2e", () => {
 	});
 
 	describe.sequential("uninstall", () => {
-		it("removes indexer data, skills, gitignore entries, and git hook", () => {
+		it("removes indexer data, skills, gitignore entries, and any legacy git hook block", () => {
 			const result = runCLI(["uninstall", "--force"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);

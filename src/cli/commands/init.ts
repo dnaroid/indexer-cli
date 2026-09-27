@@ -1,7 +1,6 @@
 import { constants as fsConstants } from "node:fs";
 import {
 	access,
-	chmod,
 	mkdir,
 	readFile,
 	rm,
@@ -29,9 +28,6 @@ import {
 } from "../../embedding/presets.js";
 import { loadOpenRouterApiKey } from "../../embedding/factory.js";
 
-const HOOK_MARKER_START = "# >>> indexer-cli >>>";
-const HOOK_MARKER_END = "# <<< indexer-cli <<<";
-const HOOK_BLOCK = `\n${HOOK_MARKER_START}\nnohup sh -c 'idx index --skip-if-locked > /dev/null 2>&1' &\n${HOOK_MARKER_END}\n`;
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
@@ -275,28 +271,6 @@ export async function refreshEnabledSkillTargets(
 	return enabled;
 }
 
-async function ensurePostCommitHook(projectRoot: string): Promise<void> {
-	const gitDir = path.join(projectRoot, ".git");
-	if (!(await pathExists(gitDir))) return;
-
-	const hookPath = path.join(gitDir, "hooks", "post-commit");
-	await mkdir(path.dirname(hookPath), { recursive: true });
-
-	if (await pathExists(hookPath)) {
-		const current = await readFile(hookPath, "utf8");
-		if (current.includes(HOOK_MARKER_START)) return;
-		const nextContent = current.endsWith("\n")
-			? `${current}${HOOK_BLOCK}`
-			: `${current}\n${HOOK_BLOCK}`;
-		await writeFile(hookPath, nextContent, "utf8");
-	} else {
-		await writeFile(hookPath, `#!/bin/sh${HOOK_BLOCK}`, "utf8");
-		await chmod(hookPath, 0o755);
-	}
-
-	console.log(`  Hook: ${path.relative(projectRoot, hookPath)}`);
-}
-
 export async function performInit(
 	projectRoot: string,
 	options?: {
@@ -387,7 +361,6 @@ export async function performInit(
 			".indexer-cli/",
 			...gitignoreTargets.flatMap(skillIgnoreEntries),
 		]);
-		await ensurePostCommitHook(projectRoot);
 		const specTemplatePath = await installSpecTemplate(dataDir);
 
 		const displayRoot = path.relative(process.cwd(), projectRoot) || ".";

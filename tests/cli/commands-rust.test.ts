@@ -61,7 +61,7 @@ describe.sequential("CLI e2e Rust", () => {
 		removeTempProject(TEMP_DIR);
 	});
 
-	it("initializes indexer data, config, skills, and git hook", () => {
+	it("initializes indexer data, config, and skills without touching Git hooks", () => {
 		const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
 
 		expect(result.exitCode).toBe(0);
@@ -71,10 +71,7 @@ describe.sequential("CLI e2e Rust", () => {
 		);
 		expect(
 			fileExists(path.join(TEMP_DIR, ".git", "hooks", "post-commit")),
-		).toBe(true);
-		expect(
-			readTextFile(path.join(TEMP_DIR, ".git", "hooks", "post-commit")),
-		).toContain("idx index");
+		).toBe(false);
 	});
 
 	it("indexes Rust source files and reports Rust status", () => {

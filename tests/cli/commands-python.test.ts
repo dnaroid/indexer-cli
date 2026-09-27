@@ -79,7 +79,7 @@ describe.sequential("CLI e2e Python", () => {
 	});
 
 	describe("init", () => {
-		it("creates indexer data, config, skills, and git hook", () => {
+		it("creates indexer data, config, and skills without touching Git hooks", () => {
 			const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
@@ -101,7 +101,7 @@ describe.sequential("CLI e2e Python", () => {
 			expect(fileExists(dbPath)).toBe(true);
 			expect(fileExists(configPath)).toBe(true);
 			expect(fileExists(skillPath)).toBe(true);
-			expect(fileExists(hookPath)).toBe(true);
+			expect(fileExists(hookPath)).toBe(false);
 
 			const config = JSON.parse(readTextFile(configPath)) as {
 				embeddingModel: string;
@@ -120,9 +120,6 @@ describe.sequential("CLI e2e Python", () => {
 			expect(gitignore.split(/\r?\n/)).toContain(
 				".claude/skills/repo-discovery/",
 			);
-
-			const hook = readTextFile(hookPath);
-			expect(hook).toContain("idx index");
 		});
 
 		it("is idempotent", () => {
@@ -854,7 +851,7 @@ describe.sequential("CLI e2e Python", () => {
 	});
 
 	describe("uninstall", () => {
-		it("removes indexer data, skills, gitignore entries, and git hook", () => {
+		it("removes indexer data, skills, gitignore entries, and any legacy git hook block", () => {
 			const result = runCLI(["uninstall", "--force"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
