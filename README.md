@@ -621,7 +621,13 @@ subdirectories for `.indexer-cli/`, auto-registers found projects, and operates 
 | Option              | Description                                      |
 |---------------------|--------------------------------------------------|
 | `--skills-only`     | Refresh only the skill targets already enabled for each project |
+| `--embedding <mode>` | Force `local` or `openrouter` embeddings during full reinitialization |
 | `-f, --force`       | Skip confirmation prompt                         |
+
+When `--embedding openrouter` is selected, doctor skips Ollama model setup,
+requires `OPENROUTER_API_KEY`, and reinitializes each selected project with the
+same OpenRouter preset used by `idx init --embedding openrouter`. Without an
+explicit override, doctor preserves each project's existing embedding mode.
 
 The global registry is maintained automatically: `idx init` registers a project, `idx uninstall` unregisters it.
 `idx doctor <dir>` also registers discovered projects.

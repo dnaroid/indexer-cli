@@ -22,8 +22,10 @@ import {
 import { CLASSIFICATION_STATUS_FILE } from "../../knowledge/document-indexer.js";
 import {
 	embeddingModeForProvider,
+	parseEmbeddingMode,
 	type EmbeddingMode,
 } from "../../embedding/presets.js";
+import { loadOpenRouterApiKey } from "../../embedding/factory.js";
 
 async function pathExists(targetPath: string): Promise<boolean> {
 	try {
@@ -103,12 +105,16 @@ async function readExistingEmbeddingMode(
 	}
 }
 
-async function reinitializePreservingTemplate(projectPath: string): Promise<void> {
+async function reinitializePreservingTemplate(
+	projectPath: string,
+	embeddingOverride?: EmbeddingMode,
+): Promise<void> {
 	const dataDir = path.join(projectPath, ".indexer-cli");
-	const [original, embedding] = await Promise.all([
+	const [original, existingEmbedding] = await Promise.all([
 		readExistingTemplate(dataDir),
 		readExistingEmbeddingMode(dataDir),
 	]);
+	const embedding = embeddingOverride ?? existingEmbedding;
 	try {
 		await performUninstall(projectPath);
 		await performInit(projectPath, { skipIndexing: false, embedding });
@@ -134,6 +140,10 @@ export function registerDoctorCommand(program: Command): void {
 			"only refresh registered project skills when their stored skills version is stale",
 		)
 		.option("--skills-only", "only refresh skills without full reinstall")
+		.option(
+			"--embedding <mode>",
+			"embedding mode to use when reinitializing: local or openrouter",
+		)
 		.option("-f, --force", "skip confirmation prompt")
 		.action(
 			async (
@@ -141,9 +151,18 @@ export function registerDoctorCommand(program: Command): void {
 				options: {
 					checkSkillsOnly?: boolean;
 					skillsOnly?: boolean;
+					embedding?: string;
 					force?: boolean;
 				},
 			) => {
+				const embedding = parseEmbeddingMode(options.embedding);
+				if (embedding === "openrouter" && !loadOpenRouterApiKey()) {
+					console.error(
+						"OpenRouter embedding mode requires OPENROUTER_API_KEY in the environment or ~/.config/idx/.env.",
+					);
+					process.exitCode = 1;
+					return;
+				}
 				console.log("\nRegistered projects:");
 				const allRegistered = getRegisteredProjects();
 				if (allRegistered.length === 0) {
@@ -155,7 +174,7 @@ export function registerDoctorCommand(program: Command): void {
 				}
 				console.log("");
 
-				performSetup();
+				performSetup({ skipOllama: embedding === "openrouter" });
 
 				if (dir === undefined && !options.skillsOnly) {
 					const refreshResult = await refreshRegisteredProjectSkillsIfNeeded();
@@ -282,7 +301,7 @@ export function registerDoctorCommand(program: Command): void {
 							await installSpecTemplate(path.join(projectPath, ".indexer-cli"));
 							await forceRefreshProjectSkills(projectPath);
 						} else {
-							await reinitializePreservingTemplate(projectPath);
+							await reinitializePreservingTemplate(projectPath, embedding);
 							await installSpecTemplate(path.join(projectPath, ".indexer-cli"));
 							addProject({
 								projectPath,

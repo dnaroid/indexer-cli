@@ -620,7 +620,7 @@ function printSummary(): void {
 
 // ── Main ────────────────────────────────────────────────────────────────
 
-export function performSetup(): void {
+export function performSetup(options: { skipOllama?: boolean } = {}): void {
 	reportGlobalConfig();
 	console.log(bold("\n  indexer-cli dependency setup\n"));
 	console.log(`  Platform: ${os.type()} ${os.release()} (${os.arch()})\n`);
@@ -638,16 +638,25 @@ export function performSetup(): void {
 	console.log(bold("\n  Checking idx command..."));
 	results.push(installIdxBinary());
 
-	console.log(bold("\n  Checking Ollama & embedding model..."));
-
-	results.push(
-		...collectOllamaResults({
-			checkOllama,
-			ensureOllamaRunning,
-			checkJinaModel,
-			checkKnowledgeModel,
-		}),
-	);
+	if (options.skipOllama) {
+		console.log(bold("\n  Skipping Ollama for OpenRouter embedding mode..."));
+		results.push(
+			createSkippedResult("Ollama", "Skipped for OpenRouter embedding mode."),
+			createSkippedResult("Ollama daemon", "Skipped for OpenRouter embedding mode."),
+			createSkippedResult(`Model ${CUSTOM_MODEL}`, "Skipped for OpenRouter embedding mode."),
+			createSkippedResult(`Model ${KNOWLEDGE_MODEL}`, "Skipped for OpenRouter embedding mode."),
+		);
+	} else {
+		console.log(bold("\n  Checking Ollama & embedding model..."));
+		results.push(
+			...collectOllamaResults({
+				checkOllama,
+				ensureOllamaRunning,
+				checkJinaModel,
+				checkKnowledgeModel,
+			}),
+		);
+	}
 
 	printSummary();
 }

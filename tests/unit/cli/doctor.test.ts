@@ -12,6 +12,7 @@ import { registerDoctorCommand } from "../../../src/cli/commands/doctor.js";
 import { performInit } from "../../../src/cli/commands/init.js";
 import { performUninstall } from "../../../src/cli/commands/uninstall.js";
 import { forceRefreshProjectSkills, refreshRegisteredProjectSkillsIfNeeded } from "../../../src/core/version-check.js";
+import { loadOpenRouterApiKey } from "../../../src/embedding/factory.js";
 
 vi.mock("../../../src/cli/commands/init.js", () => ({ performInit: vi.fn() }));
 vi.mock("../../../src/cli/commands/uninstall.js", () => ({ performUninstall: vi.fn() }));
@@ -21,6 +22,7 @@ vi.mock("../../../src/core/version-check.js", () => ({
 	forceRefreshProjectSkills: vi.fn(),
 	refreshRegisteredProjectSkillsIfNeeded: vi.fn(),
 }));
+vi.mock("../../../src/embedding/factory.js", () => ({ loadOpenRouterApiKey: vi.fn(() => "test-key") }));
 
 describe("doctor source contract", () => {
 	it("doctor command is registered in entry.ts", () => {
@@ -82,6 +84,7 @@ describe("doctor command registration", () => {
 		expect(source).toContain('.argument("[dir]"');
 		expect(source).toContain("--check-skills-only");
 		expect(source).toContain("--skills-only");
+		expect(source).toContain("--embedding <mode>");
 		expect(source).toContain("-f, --force");
 	});
 });
@@ -206,6 +209,19 @@ describe("doctor spec template repair", () => {
 
 		await doctor(workspace, "--force");
 
+		expect(performInit).toHaveBeenCalledWith(selected, {
+			skipIndexing: false,
+			embedding: "openrouter",
+		});
+	});
+
+	it("overrides reinitialization to OpenRouter when explicitly requested", async () => {
+		const workspace = path.join(root, "workspace");
+		const selected = await project("workspace/local");
+
+		await doctor(workspace, "--force", "--embedding", "openrouter");
+
+		expect(loadOpenRouterApiKey).toHaveBeenCalled();
 		expect(performInit).toHaveBeenCalledWith(selected, {
 			skipIndexing: false,
 			embedding: "openrouter",

@@ -80,6 +80,12 @@ The vector store independently rejects an existing `vec_chunks` table whose
 declared dimension differs from `vectorSize`, preventing mixed embedding spaces
 from being queried accidentally.
 
+Full project repair supports the same explicit override through `idx doctor
+--embedding <local|openrouter>`. Without that option, doctor preserves the
+project's stored provider. The OpenRouter override validates credentials before
+uninstalling project-local index state and skips Ollama/model setup during the
+doctor prerequisite pass.
+
 Document chunking retains the normal 700-token upper bound. The additional
 `ollamaNumCtx` limit applies only to the Ollama provider; remote providers use
 their configured embedding context size instead.
