@@ -239,13 +239,14 @@ describe("index file counts", () => {
 		expect(addedAndDeleted.stdout).toContain("Changed total: 3");
 	});
 
-	it("indexes ignored included document membership despite already-indexed dirty code", async () => {
+	it("indexes ignored included document additions, edits, and deletions despite already-indexed dirty code", async () => {
 		const root = createProject({
 			".gitignore": ".indexer-cli/\nignored/\n",
 			"src/main.ts": "export const value = 1;\n",
 		});
 		writeFileSync(join(root, ".indexer-cli/config.json"), JSON.stringify({
-			...DEFAULT_CONFIG, version: PACKAGE_VERSION, vectorSize: 3,
+			// Matches the 768-dimensional mock embeddings used for non-empty documents.
+			...DEFAULT_CONFIG, version: PACKAGE_VERSION, vectorSize: 768,
 			documentIncludePaths: ["ignored/**"],
 			ollamaBaseUrl: mockOllamaUrl,
 		}));
@@ -304,6 +305,15 @@ describe("index file counts", () => {
 		const cleanAdd = run();
 		expect(cleanAdd.exitCode, `${cleanAdd.stdout}\n${cleanAdd.stderr}`).toBe(0);
 		expect(cleanAdd.stdout).toContain("Files indexed: 1");
+		expect(run().stdout).toContain("Index is already up to date.");
+		// Git cannot report content edits to an ignored included document either.
+		writeFileSync(join(root, "ignored/new.md"), "# Edited without Git status\n");
+		const cleanModifyPlan = run("--dry-run");
+		expect(cleanModifyPlan.stdout).toContain("Modified: 1");
+		const cleanModify = run();
+		expect(cleanModify.exitCode, `${cleanModify.stdout}\n${cleanModify.stderr}`).toBe(0);
+		expect(cleanModify.stdout).toContain("Files indexed: 1");
+		expect(run().stdout).toContain("Index is already up to date.");
 		rmSync(join(root, "ignored/new.md"));
 		const cleanDelete = run();
 		expect(cleanDelete.exitCode, `${cleanDelete.stdout}\n${cleanDelete.stderr}`).toBe(0);

@@ -8,23 +8,80 @@ import { scanProjectFiles } from "../../engine/scanner.js";
 import { scanProjectDocuments } from "../../knowledge/document-scanner.js";
 import type { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { computeHash } from "../../utils/hash.js";
+import { matchesPathPatterns } from "../../utils/path-patterns.js";
 
-/** Git does not report ignored documents explicitly included by the document scanner. */
-export async function documentMembershipChanges(
-	metadata: SqliteMetadataStore,
+/**
+ * Git cannot report files that `.gitignore` hides but the explicit include masks
+ * (`indexIncludePaths` for code, `documentIncludePaths` for documents) bring into
+ * the index. Reconcile those paths directly against the completed snapshot so
+ * additions, deletions, and content changes are detected the same way for both
+ * domains. Paths that Git also reports are harmless duplicates for mergeGitDiffs.
+ */
+export async function includedPathChanges(
+	metadata: Pick<SqliteMetadataStore, "listFiles">,
 	repoRoot: string,
 	snapshotId: string,
 ): Promise<GitDiff> {
-	const [previousFiles, currentPaths] = await Promise.all([
-		metadata.listFiles(DEFAULT_PROJECT_ID, snapshotId, { domain: "document" }),
-		scanProjectDocuments(repoRoot),
-	]);
-	const previous = new Set(previousFiles.map((file) => file.path));
-	const current = new Set(currentPaths);
+	const codeIncludes = config.get("indexIncludePaths");
+	const documentIncludes = config.get("documentIncludePaths");
+	const diff: GitDiff = { added: [], modified: [], deleted: [] };
+	if (codeIncludes.length === 0 && documentIncludes.length === 0) return diff;
+
+	const [snapshotCode, snapshotDocuments, currentCode, currentDocuments] =
+		await Promise.all([
+			codeIncludes.length
+				? metadata.listFiles(DEFAULT_PROJECT_ID, snapshotId)
+				: Promise.resolve([]),
+			documentIncludes.length
+				? metadata.listFiles(DEFAULT_PROJECT_ID, snapshotId, { domain: "document" })
+				: Promise.resolve([]),
+			codeIncludes.length
+				? scanProjectFiles(
+						repoRoot,
+						createDefaultLanguagePlugins().flatMap((plugin) => plugin.fileExtensions),
+						{ includePaths: codeIncludes },
+					)
+				: Promise.resolve([]),
+			documentIncludes.length ? scanProjectDocuments(repoRoot) : Promise.resolve([]),
+		]);
+
+	const domains = [
+		{ includes: codeIncludes, records: snapshotCode, current: currentCode },
+		{ includes: documentIncludes, records: snapshotDocuments, current: currentDocuments },
+	];
+	for (const { includes, records, current } of domains) {
+		if (includes.length === 0) continue;
+		const previous = new Map(
+			records
+				.filter((file) => matchesPathPatterns(file.path, includes))
+				.map((file) => [file.path, file.sha256]),
+		);
+		const present = new Set(
+			current.filter((filePath) => matchesPathPatterns(filePath, includes)),
+		);
+		for (const filePath of present) {
+			const sha256 = previous.get(filePath);
+			if (sha256 === undefined) {
+				diff.added.push(filePath);
+				continue;
+			}
+			try {
+				const content = await readFile(path.join(repoRoot, filePath), "utf8");
+				if (computeHash(content) !== sha256) diff.modified.push(filePath);
+			} catch {
+				// Unreadable now: let the indexer's normal per-file error handling decide.
+				diff.modified.push(filePath);
+			}
+		}
+		for (const filePath of previous.keys()) {
+			if (!present.has(filePath)) diff.deleted.push(filePath);
+		}
+	}
+
 	return {
-		added: currentPaths.filter((filePath) => !previous.has(filePath)),
-		modified: [],
-		deleted: [...previous].filter((filePath) => !current.has(filePath)),
+		added: diff.added.sort(),
+		modified: diff.modified.sort(),
+		deleted: diff.deleted.sort(),
 	};
 }
 

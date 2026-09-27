@@ -44,6 +44,9 @@ const mergeGitDiffs = ${mergeGitDiffs.toString()};
 async function knowledgeSnapshotNeedsRefresh(metadata) {
 	return metadata.knowledgeNeedsRefresh ?? false;
 }
+async function includedPathChanges(metadata) {
+	return metadata.includedChanges ?? { added: [], modified: [], deleted: [] };
+}
 function computeHash(text) {
 	const normalized = text.replace(/\\r\\n/g, "\\n").replace(/\\uFEFF/g, "").trimEnd();
 	return createHash("sha256").update(normalized, "utf-8").digest("hex");
@@ -149,6 +152,7 @@ const ensureIndexedInternals = await loadEnsureIndexedInternals<{
 		repoRoot: string,
 		metadata: {
 			knowledgeNeedsRefresh?: boolean;
+			includedChanges?: { added: string[]; modified: string[]; deleted: string[] };
 			codeSearchIndexNeedsRefresh: (
 				projectId: string,
 				snapshotId: string,
@@ -276,6 +280,35 @@ describe("ensureIndexed helpers", () => {
 				isFullReindex: false,
 				changedFiles: { added: [], modified: ["contract.md"], deleted: [] },
 			} : null);
+		} finally {
+			await rm(repoRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("plans ignored included changes that Git cannot report ahead of the workspace hash shortcut", async () => {
+		const repoRoot = await mkdtemp(path.join(tmpdir(), "idx-ensure-included-"));
+		try {
+			const content = "# Existing contract\n";
+			await writeFile(path.join(repoRoot, "contract.md"), content);
+			const records = new Map([["contract.md", { sha256: computeTestHash(content) }]]);
+			const plan = await ensureIndexedInternals.getIndexPlan(
+				{
+					getHeadCommit: async () => "base",
+					getChangedFiles: async () => { throw new Error("HEAD did not change"); },
+					getWorkingTreeChanges: async () => ({ added: [], modified: ["contract.md"], deleted: [] }),
+				},
+				repoRoot,
+				{
+					...metadataFromRecords(records),
+					includedChanges: { added: [], modified: ["private/notes.md"], deleted: [] },
+					codeSearchIndexNeedsRefresh: async () => false,
+				},
+				{ id: "snapshot-1", meta: { headCommit: "base" } },
+			);
+			expect(plan).toEqual({
+				isFullReindex: false,
+				changedFiles: { added: [], modified: ["contract.md", "private/notes.md"], deleted: [] },
+			});
 		} finally {
 			await rm(repoRoot, { recursive: true, force: true });
 		}

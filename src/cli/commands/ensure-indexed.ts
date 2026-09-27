@@ -15,6 +15,7 @@ import {
 import { scanProjectFiles } from "../../engine/scanner.js";
 import { scanProjectDocuments } from "../../knowledge/document-scanner.js";
 import { computeHash } from "../../utils/hash.js";
+import { includedPathChanges } from "./snapshot-diff.js";
 import { knowledgeSnapshotNeedsRefresh } from "../../knowledge/embedding.js";
 import { matchesPathPatterns } from "../../utils/path-patterns.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
@@ -306,7 +307,9 @@ async function getIndexPlan(
 		headCommit && headCommit !== snapshot.meta.headCommit
 			? await git.getChangedFiles(repoRoot, snapshot.meta.headCommit)
 			: { added: [], modified: [], deleted: [] };
-	const changedFiles = mergeGitDiffs(committedChanges, workspaceChanges);
+	// Git cannot see ignored paths brought in by include masks; reconcile them directly.
+	const includedChanges = await includedPathChanges(metadata, repoRoot, snapshot.id);
+	const changedFiles = mergeGitDiffs(committedChanges, workspaceChanges, includedChanges);
 	if (knowledgeNeedsRefresh) {
 		const documents = await scanProjectDocuments(repoRoot);
 		// Refresh document configuration without dropping concurrent code changes.
@@ -327,12 +330,15 @@ async function getIndexPlan(
 
 	// Optimisation: if the only "changes" are workspace changes that were
 	// already indexed in the latest snapshot (same sha256 on disk), skip.
-	const noCommittedChanges =
+	const onlyWorkspaceChanges =
 		committedChanges.added.length === 0 &&
 		committedChanges.modified.length === 0 &&
-		committedChanges.deleted.length === 0;
+		committedChanges.deleted.length === 0 &&
+		includedChanges.added.length === 0 &&
+		includedChanges.modified.length === 0 &&
+		includedChanges.deleted.length === 0;
 
-	if (noCommittedChanges) {
+	if (onlyWorkspaceChanges) {
 		const alreadyIndexed = await workspaceAlreadyIndexed(
 			metadata,
 			repoRoot,

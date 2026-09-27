@@ -18,6 +18,7 @@ status: active
 `tests/unit/engine/indexer-file-counts.test.ts`,
 `tests/unit/cli/index-file-counts.test.ts`,
 `tests/unit/cli/ensure-indexed.test.ts`,
+`tests/unit/cli/snapshot-diff.test.ts`,
 `tests/unit/cli/init.test.ts`, `tests/unit/embedding/openrouter.test.ts`,
 `tests/unit/storage/vectors-init.test.ts`,
 `tests/unit/knowledge/document-indexer.test.ts`,
@@ -38,10 +39,14 @@ candidates with the latest completed snapshot's code and document hashes. A
 persistently dirty file whose bytes were already indexed is copied rather than
 reprocessed; a later content change or a newly added path is still indexed even
 when other dirty paths are unchanged. Deletions already absent from the snapshot
-are omitted. Before either no-op shortcut, the current document scanner set is
-compared with the snapshot: explicitly included Git-ignored documents added or
-removed without Git status changes still trigger an incremental index (and
-appear in incremental dry-run counts). A root `.gitignore` change remains
+are omitted. Git cannot report Git-ignored paths brought in by
+`indexIncludePaths` (code) or `documentIncludePaths` (documents), so both
+explicit `idx index` and automatic refresh reconcile the paths matching those
+masks directly against the completed snapshot, using the same rules for both
+domains: new paths are added, missing paths are deleted, and existing paths
+whose sha256 differs are modified. This happens before either no-op shortcut,
+so such changes trigger an incremental index (and appear in incremental dry-run
+counts) even when Git status is clean. A root `.gitignore` change remains
 actionable when the current scanner file set differs from the snapshot. When all
 candidates are unchanged,
 normal indexing reports up to date without creating another snapshot; a dry run

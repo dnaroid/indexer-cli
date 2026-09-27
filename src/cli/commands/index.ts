@@ -19,7 +19,7 @@ import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { sanitizePathPatterns } from "../../utils/path-patterns.js";
 import { resolveInitializedProjectRoot } from "../project-root.js";
-import { documentMembershipChanges, filterIndexedChanges } from "./snapshot-diff.js";
+import { filterIndexedChanges, includedPathChanges } from "./snapshot-diff.js";
 
 function collectPathOption(value: string, previous: string[]): string[] {
 	return [...previous, value];
@@ -367,12 +367,12 @@ export function registerIndexCommand(program: Command): void {
 						});
 
 						let codeSearchNeedsRefresh = false;
-						let documentMembership: GitDiff = { added: [], modified: [], deleted: [] };
+						let includedChanges: GitDiff = { added: [], modified: [], deleted: [] };
 						if (!options?.full) {
 							const latestSnapshot =
 								await metadata.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 							if (latestSnapshot) {
-								documentMembership = await documentMembershipChanges(
+								includedChanges = await includedPathChanges(
 									metadata, resolvedProjectPath, latestSnapshot.id,
 								);
 							}
@@ -399,7 +399,7 @@ export function registerIndexCommand(program: Command): void {
 								!pathMaskConfigChanged &&
 								!knowledgeNeedsRefresh &&
 								!codeSearchNeedsRefresh &&
-								countChangedFiles(documentMembership) === 0 &&
+								countChangedFiles(includedChanges) === 0 &&
 								!options?.dryRun
 							) {
 								console.log("Index is already up to date.");
@@ -429,7 +429,7 @@ export function registerIndexCommand(program: Command): void {
 							);
 						}
 						if (changedFiles) {
-							changedFiles = mergeGitDiffs(changedFiles, documentMembership);
+							changedFiles = mergeGitDiffs(changedFiles, includedChanges);
 						}
 						const knowledgeNeedsRefresh = Boolean(
 							!options?.full && latestSnapshot &&
