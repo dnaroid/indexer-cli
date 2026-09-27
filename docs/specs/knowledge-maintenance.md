@@ -155,7 +155,10 @@ though uninstall removes project data; cancellation leaves it untouched.
 
 The `Implementation` section declares project-root-relative paths in backticks,
 optionally followed by `::Symbol` (class, method, or function). The `Tests` section
-declares test paths in the same notation. Symbols refine navigation; whole-file
+declares test paths in the same notation. A declared directory (an existing
+directory, or any path written with a trailing `/`) covers every file beneath it,
+including deleted files; it does not cover sibling paths that merely share its
+prefix. Symbols refine navigation; whole-file
 changes remain a conservative signal unless symbol-level comparison is available.
 Ordinary prose links are navigation candidates, not explicit implementation
 declarations, and Markdown links resolve relative to their containing document.

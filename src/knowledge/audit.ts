@@ -70,9 +70,12 @@ export async function auditTask(rootPath: string, changed: string[], options: Au
 	const unresolvedPaths: AuditReport["unresolvedPaths"] = [];
 	for (const { path: doc, metadata } of rows) {
 		for (const ref of metadata.references) {
-			const target = path.posix.normalize(ref.path.replace(/\\/g, "/").replace(/^\.\//, ""));
+			const target = path.posix.normalize(ref.path.replace(/\\/g, "/").replace(/^\.\//, "")).replace(/\/+$/, "");
 			if (target === ".." || target.startsWith("../") || /^(?:\/|[A-Za-z]:)/.test(target)) { unresolvedPaths.push({ document: doc, path: ref.path, symbol: ref.symbol, reason: "outside project" }); continue; }
 			const validPath = await existsInside(root, target);
+			// A declared directory owns every file beneath it, including deleted ones.
+			const coversDirectory = !ref.symbol && target !== "." && (/[\\/]$/.test(ref.path) || await isDirectoryInside(root, target));
+			const directChanges = changedPaths.filter(changedPath => changedPath === target || (coversDirectory && changedPath.startsWith(`${target}/`)));
 			if (ref.role !== "mention") {
 				if (!validPath) unresolvedPaths.push({ document: doc, path: ref.path, symbol: ref.symbol, reason: "missing or outside project" });
 				else if (ref.symbol && options.symbols && !options.symbols.some(symbol => symbol.filePath === target && symbol.name === ref.symbol)) unresolvedPaths.push({ document: doc, path: ref.path, symbol: ref.symbol, reason: "symbol not indexed" });
@@ -80,14 +83,14 @@ export async function auditTask(rootPath: string, changed: string[], options: Au
 			}
 			const relatedChanges = changedPaths.filter(changedPath => (options.dependencies ?? []).some(dependency =>
 				(dependency.fromPath === changedPath && dependency.toPath === target) || (dependency.toPath === changedPath && dependency.fromPath === target)));
-			if (!changedPaths.includes(target) && !relatedChanges.length) continue;
+			if (!directChanges.length && !relatedChanges.length) continue;
 			const basis = ref.role === "mention" ? "ordinary-mention" : "explicit-declaration";
 			const explicitlyClassified = metadata.kindSource === "explicit" && metadata.statusSource === "explicit";
-			const direct = changedPaths.includes(target);
+			const direct = directChanges.length > 0;
 			const group = direct && ref.role !== "mention" && explicitlyClassified && metadata.kind === "spec" && metadata.status === "active" ? "explicit-active-spec" : direct && ref.role !== "mention" && explicitlyClassified ? "explicit-other" : "possible";
 			const row = matches.get(doc) ?? { path: doc, group, classification: { kind: metadata.kind, status: metadata.status, kindSource: metadata.kindSource, statusSource: metadata.statusSource }, reasons: [] };
 			if (group === "explicit-active-spec" || (group === "explicit-other" && row.group === "possible")) row.group = group;
-			if (direct) row.reasons.push({ changedPath: target, role: ref.role, symbol: ref.symbol, basis });
+			for (const changedPath of directChanges) row.reasons.push({ changedPath, role: ref.role, symbol: ref.symbol, basis });
 			for (const changedPath of relatedChanges) row.reasons.push({ changedPath, role: ref.role, symbol: ref.symbol, basis: "dependency" });
 			matches.set(doc, row);
 		}
@@ -106,6 +109,12 @@ export async function auditTask(rootPath: string, changed: string[], options: Au
 	} else if (!options.noSemantic) warnings.push("semantic retrieval unavailable; audit used declarations and mentions only");
 	const covered = new Set([...matches.values()].flatMap((m) => m.reasons.map((r) => r.changedPath)));
 	return { changedPaths, matches: [...matches.values()].sort((a,b) => a.path.localeCompare(b.path)), unresolvedPaths, uncoveredPaths: changedPaths.filter((p) => !covered.has(p)), warnings };
+}
+async function isDirectoryInside(root: string, relativePath: string): Promise<boolean> {
+	try {
+		const target = await realpath(path.resolve(root, relativePath));
+		return inside(root, target) && (await stat(target)).isDirectory();
+	} catch { return false; }
 }
 async function existsInside(root: string, relativePath: string): Promise<boolean> {
 	try { return inside(root, await realpath(path.resolve(root, relativePath))); } catch { return false; }

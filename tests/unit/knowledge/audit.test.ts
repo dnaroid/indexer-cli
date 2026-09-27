@@ -35,6 +35,20 @@ describe("task audit", () => {
 		expect(report.uncoveredPaths).toContain("elsewhere.ts");
 		await expect(auditTask(dir, ["../escape.ts"], { noSemantic: true })).rejects.toThrow(/escapes/);
 	});
+	it("matches changed and deleted files beneath a declared directory without matching sibling prefixes", async () => {
+		const dir = await fixture();
+		await mkdir(path.join(dir, "src/knowledge"), { recursive: true });
+		await writeFile(path.join(dir, "src/knowledge/search.ts"), "export const search = 1;\n");
+		await writeFile(path.join(dir, "docs/spec.md"), `---\nkind: spec\nstatus: active\n---\n## Implementation\n- \`src/knowledge\`\n## Tests\n- \`tests/knowledge/\`\n`);
+		const report = await auditTask(dir, ["src/knowledge/search.ts", "tests/knowledge/gone.test.ts", "src/knowledge-extra.ts"], { noSemantic: true });
+		const spec = report.matches.find((m) => m.path === "docs/spec.md");
+		expect(spec?.group).toBe("explicit-active-spec");
+		expect(spec?.reasons.map((r) => [r.changedPath, r.role])).toEqual([
+			["src/knowledge/search.ts", "implementation"],
+			["tests/knowledge/gone.test.ts", "test"],
+		]);
+		expect(report.uncoveredPaths).toEqual(["src/knowledge-extra.ts"]);
+	});
 	it("does not traverse document symlinks outside the root", async () => {
 		const dir = await fixture(); const external = await mkdtemp(path.join(os.tmpdir(), "idx-out-"));
 		try { await writeFile(path.join(external, "out.md"), "## Implementation\n- `x.ts`\n"); await symlink(external, path.join(dir, "escape"));
