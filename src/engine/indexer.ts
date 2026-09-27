@@ -218,6 +218,8 @@ export interface IndexerEngineOptions {
 	git: GitOperations;
 	indexingOptions?: IndexingOptions;
 	languagePlugins?: LanguagePlugin[];
+	/** Retry failed or stale advisory document classification for unchanged documents. */
+	retryDocumentClassification?: boolean;
 }
 
 export type BuiltinLanguagePluginId =
@@ -315,6 +317,7 @@ export class IndexerEngine {
 				options.knowledgeStore,
 				this.vectors,
 				this.knowledgeEmbedder,
+				{ retryClassification: options.retryDocumentClassification },
 			);
 		}
 

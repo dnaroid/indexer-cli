@@ -15,6 +15,7 @@ import {
 import { scanProjectFiles } from "../../engine/scanner.js";
 import { scanProjectDocuments } from "../../knowledge/document-scanner.js";
 import { knowledgeSnapshotNeedsRefresh } from "../../knowledge/embedding.js";
+import { documentClassificationNeedsRefresh } from "../../knowledge/document-indexer.js";
 import { SqliteMetadataStore } from "../../storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../storage/vectors.js";
 import { sanitizePathPatterns } from "../../utils/path-patterns.js";
@@ -364,6 +365,7 @@ export function registerIndexCommand(program: Command): void {
 							knowledgeEmbedder,
 							git,
 							languagePlugins,
+							retryDocumentClassification: true,
 						});
 
 						let codeSearchNeedsRefresh = false;
@@ -398,6 +400,11 @@ export function registerIndexCommand(program: Command): void {
 								!workspaceDirty &&
 								!pathMaskConfigChanged &&
 								!knowledgeNeedsRefresh &&
+								!(await documentClassificationNeedsRefresh(
+									metadata,
+									DEFAULT_PROJECT_ID,
+									latestSnapshot.id,
+								)) &&
 								!codeSearchNeedsRefresh &&
 								countChangedFiles(includedChanges) === 0 &&
 								!options?.dryRun
@@ -453,9 +460,18 @@ export function registerIndexCommand(program: Command): void {
 							!changedFiles ||
 							codeSearchNeedsRefresh ||
 							countChangedFiles(changedFiles) > 20_000;
+						const classificationNeedsRefresh = Boolean(
+							!effectiveFullReindex && latestSnapshot &&
+								(await documentClassificationNeedsRefresh(
+									metadata,
+									DEFAULT_PROJECT_ID,
+									latestSnapshot.id,
+								)),
+						);
 						if (
 							!effectiveFullReindex &&
 							!knowledgeNeedsRefresh &&
+							!classificationNeedsRefresh &&
 							changedFiles &&
 							countChangedFiles(changedFiles) === 0 &&
 							!options?.dryRun
@@ -493,6 +509,9 @@ export function registerIndexCommand(program: Command): void {
 								console.log(`Modified: ${diff.modified.length}`);
 								console.log(`Deleted: ${diff.deleted.length}`);
 								console.log(`Changed total: ${countChangedFiles(diff)}`);
+								if (classificationNeedsRefresh) {
+									console.log("Document classification: retry pending or stale advisory metadata");
+								}
 							}
 
 							return;

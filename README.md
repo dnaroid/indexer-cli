@@ -386,8 +386,15 @@ Classifier outages do not fail indexing. Missing/failed classifications remain
 degradation summary. Credential/authentication/credit failures require human
 action; repeated complete transient degradation is escalated as well. The last
 run's advisory classifier health is stored under `.indexer-cli/` and surfaced by
-`idx doctor`. Restoring OpenRouter and rerunning `idx index` is sufficient; no
-knowledge-base repair is needed.
+`idx doctor`, including how many documents still await classification. Each
+snapshot remembers which documents failed classification and which classifier
+settings (`IDX_JEV_MODEL`, `IDX_JEV_URL`, confidence floors) produced the stored
+metadata. Once OpenRouter is available, plain `idx index` retries the failed
+documents, and after a classifier settings change it reclassifies every
+unchanged document; both update metadata in place without re-embedding and
+without needing `--full` or any knowledge-base repair. Automatic refresh before
+search/context never waits on the classifier; it only carries pending documents
+forward.
 
 If you run `idx index` from a subdirectory of an initialized project, the CLI automatically reuses the initialized
 project root. If no `.indexer-cli/` data exists yet, it stops and tells you to run `idx init` first.

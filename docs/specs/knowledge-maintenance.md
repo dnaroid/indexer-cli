@@ -76,6 +76,22 @@ escalate to human action when at least three classification attempts in one run
 all degrade. Recovery requires fixing the external condition and rerunning
 `idx index`; no knowledge database repair, deletion, or migration is required.
 
+Each completed snapshot records a `document_classification_state` artifact:
+the classifier settings key (model, URL, confidence floors, prompt version;
+never credentials) that produced its stored metadata, and the documents whose
+non-explicit fields are still `unknown` because classification failed. A
+confident `unknown` answer is a result, not a failure, and is not retried.
+When credentials are available, explicit `idx index` treats pending documents
+or a changed settings key as work even if no file changed: it retries pending
+unchanged documents, or reclassifies all unchanged documents after a settings
+change, and replaces only their stored chunk metadata without re-embedding.
+Metadata is attached only when the document still matches the indexed bytes.
+Automatic refresh before read commands does not contact the classifier for
+unchanged documents; it carries their pending state and previous settings key
+forward so a later explicit run still repairs them. Retry failures remain
+pending and never fail indexing. The persisted status diagnostic includes the
+pending count, and `idx doctor` reports it.
+
 The opt-in classifier eval uses `evals/knowledge/document-classification.json`
 and `tests/evals/document-classification.eval.test.ts`. It classifies curated
 project documents through the real configured Jev endpoint, removes explicit
@@ -205,6 +221,7 @@ code, document chunks, and snapshots.
 - `tests/unit/knowledge/document-scanner.test.ts`
 - `tests/unit/knowledge/document-classifier-config.test.ts`
 - `tests/unit/knowledge/document-metadata.test.ts`
+- `tests/unit/knowledge/document-classification-retry.test.ts`
 - `tests/evals/document-classification.eval.test.ts`
 - `evals/knowledge/document-classification.json`
 - `tests/evals/document-classification-holdout.eval.test.ts`

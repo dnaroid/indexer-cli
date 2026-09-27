@@ -238,6 +238,11 @@ export async function classifyDocumentWithJev(content: string, config: ReturnTyp
 	};
 }
 
+/** Identifies classifier settings that change inferred answers; credentials are deliberately excluded. */
+export function documentClassifierKey(config: ReturnType<typeof loadDocumentClassifierConfig>): string {
+	return digest(JSON.stringify({ model: config.model, url: config.url, kindMinConfidence: config.kindMinConfidence, statusMinConfidence: config.statusMinConfidence, version: 3 }));
+}
+
 export async function getDocumentMetadata(root: string, filePath: string, content: string, options: { classify?: boolean; onClassifierDiagnostic?: (diagnostic: DocumentClassifierDiagnostic) => void } = {}): Promise<DocumentMetadata> {
 	const parsed = parseDocumentMetadata(content, filePath);
 	if (parsed.kindSource === "explicit" && parsed.statusSource === "explicit") return parsed;
@@ -245,7 +250,7 @@ export async function getDocumentMetadata(root: string, filePath: string, conten
 	try {
 		config = loadDocumentClassifierConfig();
 	} catch { return parsed; }
-	const classifierKey = digest(JSON.stringify({ model: config.model, url: config.url, kindMinConfidence: config.kindMinConfidence, statusMinConfidence: config.statusMinConfidence, version: 3 }));
+	const classifierKey = documentClassifierKey(config);
 	const key = digest(`document-metadata-v6\0${filePath}\0${content}\0${classifierKey}`);
 	const dir = path.join(root, ".indexer-cli", "doc-metadata");
 	const cache = path.join(dir, `${key}.json`);

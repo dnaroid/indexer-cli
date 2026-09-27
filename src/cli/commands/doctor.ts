@@ -43,10 +43,14 @@ async function reportClassificationStatus(projectPath: string): Promise<void> {
 			degraded?: number;
 			reasons?: Record<string, number>;
 			humanActionRequired?: boolean;
+			pending?: number;
 		};
-		if (value.status !== "degraded" || !value.degraded) return;
-		const reasons = Object.entries(value.reasons ?? {}).map(([reason, count]) => `${reason}=${count}`).join(", ");
-		console.warn(`Classification degraded in ${projectPath}: ${value.degraded}/${value.attempted ?? 0} (${reasons}). Knowledge retrieval remains safe.`);
+		if (value.status !== "degraded" || (!value.degraded && !value.pending)) return;
+		if (value.degraded) {
+			const reasons = Object.entries(value.reasons ?? {}).map(([reason, count]) => `${reason}=${count}`).join(", ");
+			console.warn(`Classification degraded in ${projectPath}: ${value.degraded}/${value.attempted ?? 0} (${reasons}). Knowledge retrieval remains safe.`);
+		}
+		if (value.pending) console.warn(`  ${value.pending} document(s) still await classification; \`idx index\` retries them once the classifier is available.`);
 		if (value.humanActionRequired) console.warn("  Human action required: restore OpenRouter credentials/credits or service availability, then run `idx index`.");
 	} catch { /* Missing/invalid derived classifier status is not a project health failure. */ }
 }
