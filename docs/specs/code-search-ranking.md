@@ -179,6 +179,83 @@ MRR improvement at an acceptable latency cost. It must never replace lexical,
 symbol, path, or semantic candidate generation because a reranker cannot recover a
 candidate that was never retrieved.
 
+### Archived Jev experiment (not production reranking)
+
+The experimental harness, tests, dataset, and npm scripts were removed after
+evaluation at the user's request. The protocol below is historical, not an
+available feature; its commands and implementation paths no longer exist.
+Results are preserved in the [fixture report](../reports/jev-rerank-experiment.md)
+and [repository report](../reports/jev-rerank-repository-holdout.md).
+
+`npm run eval:rerank:jev` compares the existing order with a Jev relevance-score
+ordering of the **same** top-20 candidates in the code and document retrieval
+fixtures. No runtime search behavior changes. Code cases preserve their existing
+retrieval mode; documents use hybrid. Code candidates are chunks, document
+candidates are files represented by their best matching range. Metrics collapse
+duplicate file paths at their first rank because labels are file-level.
+The paired baseline is a fresh top-20 retrieval with content hydration and
+`minScore: 0`, not the separate legacy top-5 eval run or the default CLI latency.
+Increasing retrieval limits can also change candidate-pool size, so these results
+must not be presented as a direct comparison to the legacy top-5 assertions.
+
+The experiment uses `typesafe/jev-1.13` by default (`IDX_EVAL_JEV_MODEL` override),
+records the returned model build, and reuses classifier credentials, endpoint,
+and timeout. It makes one sequential Decisions API call per query, with one
+ordered `score` question per candidate; ties retain the baseline order. Content
+is bounded to 2,000 UTF-8 bytes per candidate and 18,000 bytes total, distributed
+equally; content budgets are halved further as needed so the serialized request
+fits a 30,000-byte safety bound (oversized query/path overhead fails safely). These are
+byte limits, not measured token counts. Labels and baseline scores are not sent
+to the model. Errors/invalid scores retain baseline order and are reported;
+the eval fails if any rerank failed, after writing its comparison report.
+
+Reports under `.indexer-cli/evals/jev-rerank/` (override with
+`IDX_EVAL_JEV_REPORT_DIR`) record inputs, truncation, per-case scores/order,
+Top-1/Top-3, MRR, binary nDCG@10, candidate Recall@20, p50/p95 latency, failures,
+and API-reported cost/tokens. Missing cost is unknown, never zero. Projected
+cost excludes shared embedding/indexing costs. Candidate recall cannot improve
+through reordering. Successful-only and fallback-inclusive metrics are separate.
+Latency percentiles cover all attempts, including failures/timeouts; they measure
+operational overhead, not only successful inference time.
+The existing retrieval assertions remain unchanged outside this experiment;
+the experiment records quality rather than asserting that Jev is better.
+
+Default embeddings are the existing local eval presets; use
+`IDX_EVAL_EMBEDDING=openrouter npm run eval:rerank:jev` for the hosted preset.
+These existing development fixtures are exploratory evidence, **not** an
+independent holdout or evidence of generalization to real repositories. Prompt
+tuning and a later held-out benchmark must be reported separately.
+
+`npm run eval:rerank:jev:repository` runs the separately authored 24-query
+repository-grounded sample in `evals/jev-rerank/repository-holdout.json` against
+an existing completed index of this repository (16 code, 8 document queries).
+Labels and evidence are fixed before inspecting either ranking; these are
+synthetic queries, not user logs or a cross-repository benchmark. All queries
+use hybrid, top-20, content hydration, and `minScore: 0`, including exact-path,
+symbol and explicit-test guards. No prompt tuning or selection of cases based
+on observed rankings is allowed within this run.
+
+The harness does not auto-index. It holds a snapshot read lease, verifies labeled
+and retrieved source file hashes (using the index's normalized `computeHash`)
+against the selected snapshot, and archives all
+candidate lists before making any Jev call. Provenance includes the label SHA-256,
+snapshot, indexed file hashes, git HEAD/worktree paths, and embedding settings.
+An index containing the resulting holdout report is rejected to avoid answer
+leakage on reruns; prepare a corpus without that report before rerunning.
+It uses the project's embedding configuration, not `IDX_EVAL_EMBEDDING`.
+Embedding failures abort rather than silently accepting lexical-only retrieval.
+
+Reports retain whole-sample results and descriptive subsets: baseline Top-1
+errors, recoverable errors (at least one labeled file in the candidate pool),
+already-correct guards, and candidate misses. Never present performance on a
+baseline-selected error subset as an unbiased overall quality improvement.
+
+Implementation: `tests/evals/jev-rerank.ts`.
+Tests: `tests/unit/evals/jev-rerank.test.ts`,
+`tests/evals/code-search-retrieval.eval.test.ts`,
+`tests/evals/knowledge-retrieval.eval.test.ts`,
+`tests/evals/jev-rerank-repository.eval.test.ts`.
+
 ## Regression traps and evaluation
 
 The TypeScript e2e fixture intentionally includes search traps:
