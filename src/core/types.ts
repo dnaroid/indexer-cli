@@ -218,6 +218,10 @@ export interface EmbeddingProvider {
 export interface MetadataStore {
 	initialize(): Promise<void>;
 	close(): Promise<void>;
+	/** Disposable classifier cache, independent of snapshot retention. */
+	getDocumentMetadataCache?(projectId: ProjectId, filePath: string, key: string): Promise<string | null>;
+	setDocumentMetadataCache?(projectId: ProjectId, filePath: string, key: string, value: string): Promise<void>;
+	pruneDocumentMetadataCache?(projectId: ProjectId, currentPaths: string[]): Promise<void>;
 	transaction<T>(callback: () => Promise<T>): Promise<T>;
 	createSnapshot(projectId: ProjectId, meta: SnapshotMeta): Promise<Snapshot>;
 	getSnapshot(id: SnapshotId): Promise<Snapshot | null>;

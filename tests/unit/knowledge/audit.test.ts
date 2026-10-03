@@ -13,6 +13,23 @@ async function fixture() {
 }
 
 describe("task audit", () => {
+	it("uses cached inference without writing the cache or calling the provider", async () => {
+		const dir = await fixture();
+		await writeFile(path.join(dir, "docs/inferred.md"), "## Implementation\n- `src/a.ts`\n");
+		const cache = {
+			getDocumentMetadataCache: vi.fn().mockResolvedValue('{"kind":"spec","status":"active"}'),
+			setDocumentMetadataCache: vi.fn(),
+		};
+		const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+		try {
+			const report = await auditTask(dir, ["src/a.ts"], { noSemantic: true, cache, projectId: "custom-project" });
+			expect(report.matches[0]).toMatchObject({ group: "possible", classification: { kind: "spec", status: "active", kindSource: "classifier", statusSource: "classifier" } });
+			expect(cache.getDocumentMetadataCache).toHaveBeenCalledWith("custom-project", "docs/inferred.md", expect.any(String));
+			expect(cache.setDocumentMetadataCache).not.toHaveBeenCalled();
+			expect(fetch).not.toHaveBeenCalled();
+		} finally { vi.unstubAllGlobals(); }
+	});
+
 	it("distinguishes explicit active specs from inferred/unknown possible candidates and ordinary mentions", async () => {
 		const dir = await fixture();
 		await writeFile(path.join(dir, "docs/spec.md"), `---\nkind: spec\nstatus: active\n---\n## Implementation\n- \`src/a.ts::Thing\`\n`);

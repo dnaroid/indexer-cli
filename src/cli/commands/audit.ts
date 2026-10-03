@@ -35,7 +35,7 @@ export function registerAuditCommand(program: Command): void {
 				const report = await withSnapshotReadLease(projectRoot, async () => {
 					const snapshot = await metadata!.getLatestCompletedSnapshot(DEFAULT_PROJECT_ID);
 					if (!snapshot) {
-						const result = await auditTask(projectRoot, changedPaths, { noSemantic: offline });
+						const result = await auditTask(projectRoot, changedPaths, { noSemantic: offline, cache: metadata });
 						result.warnings.push("No completed snapshot; dependency and symbol signals unavailable.");
 						return result;
 					}
@@ -62,6 +62,7 @@ export function registerAuditCommand(program: Command): void {
 					}
 					const result = await auditTask(projectRoot, changedPaths, {
 						noSemantic: offline,
+						cache: metadata,
 						search,
 						dependencies: dependencies.map((item) => ({ fromPath: item.fromPath, toPath: item.toPath })),
 						symbols: symbols.map((item) => ({ filePath: item.filePath, name: item.name })),

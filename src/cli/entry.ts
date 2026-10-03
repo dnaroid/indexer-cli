@@ -13,6 +13,7 @@ import { registerUpdateCommand } from "./commands/update.js";
 import { registerAstCommand } from "./commands/ast.js";
 import { registerContextCommand } from "./commands/context.js";
 import { registerAuditCommand } from "./commands/audit.js";
+import { registerKnowledgeCommand } from "./commands/knowledge.js";
 import { registerSkillsCommand } from "./commands/skill-management.js";
 import { PACKAGE_VERSION } from "../core/version.js";
 import { SKILLS_VERSION } from "../core/skills-version.js";
@@ -28,9 +29,10 @@ const SKIP_MIGRATION_COMMANDS = new Set([
 	"uninstall",
 	"doctor",
 	"update",
+	"knowledge",
 ]);
 
-const SKIP_POST_AUTO_UPDATE_COMMANDS = new Set(["update"]);
+const SKIP_POST_AUTO_UPDATE_COMMANDS = new Set(["update", "knowledge"]);
 
 const HANDLED_COMMANDER_EXIT_CODES = new Set([
 	"commander.helpDisplayed",
@@ -144,6 +146,7 @@ registerDepsCommand(program);
 registerAstCommand(program);
 registerContextCommand(program);
 registerAuditCommand(program);
+registerKnowledgeCommand(program);
 registerSkillsCommand(program);
 registerUpdateCommand(program);
 registerUninstallCommand(program);

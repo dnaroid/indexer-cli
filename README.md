@@ -436,6 +436,42 @@ idx context "payment cancellation" --path-prefix src/payments/
 | `--path-prefix <path>`    | —       | Limit document and code discovery to an area     |
 | `--mode <mode>`           | hybrid  | `hybrid`, `semantic`, or offline `lexical`        |
 
+### `idx knowledge dirty`
+
+Cheap dirtiness flag for the current project's knowledge base:
+
+```bash
+idx knowledge dirty
+# yes / no
+```
+
+No models or reindexing. `yes` means a spec has unreviewed changes (or has never
+been reviewed); `no` means all selected specs match their acknowledged content.
+Both answers normally exit 0. Errors fail closed: `yes`, an explanation on stderr,
+and exit 2. Both knowledge commands work only in the current initialized project.
+
+### `idx knowledge acknowledge <spec-paths...>`
+
+After comparing the named specs with current implementation/tests and fixing drift:
+
+```bash
+idx knowledge acknowledge docs/specs/feature.md
+idx knowledge dirty
+# no (if all other specs are also acknowledged and unchanged)
+```
+
+Acknowledgment exits **0** on success, **2** on failure. Spec paths are relative
+to the project root, even from nested directories. Only explicit
+`kind: spec`, `status: active` docs participate. Dependencies are backtick paths in
+`Implementation` / `Tests`; directories and whole-file `::Symbol` references work.
+First run is dirty until explicitly acknowledged. Changes to spec/dependency bytes
+or directory membership dirty it again; unrelated files do not. Exact content
+reversions are clean. The dirty check writes nothing and calls no providers or index/update
+workflows. Receipts live in `.indexer-cli/knowledge-reviews`; missing dependencies
+and invalid receipts fail closed. A clean result is content equality with an
+attestation, not proof of semantic correctness. See
+[the contract](docs/specs/knowledge-review-monitoring.md).
+
 ### `idx audit <changed-paths...>`
 
 Reports specs whose explicitly declared `Implementation` or `Tests` paths

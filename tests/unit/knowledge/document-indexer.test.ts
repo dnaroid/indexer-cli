@@ -1,10 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EmbeddingProvider } from "../../../src/core/types.js";
 import { DocumentIndexer } from "../../../src/knowledge/document-indexer.js";
+import * as documentScanner from "../../../src/knowledge/document-scanner.js";
 import { SqliteMetadataStore } from "../../../src/storage/sqlite.js";
 import { SqliteVecVectorStore } from "../../../src/storage/vectors.js";
 
@@ -28,6 +29,7 @@ describe("DocumentIndexer", () => {
 	const tempDirs: string[] = [];
 
 	afterEach(() => {
+		vi.restoreAllMocks();
 		for (const dir of tempDirs.splice(0)) {
 			rmSync(dir, { recursive: true, force: true });
 		}
@@ -38,6 +40,54 @@ describe("DocumentIndexer", () => {
 		tempDirs.push(dir);
 		return dir;
 	}
+
+	it("prunes from a complete scan, not a selected subset, and skips incomplete or failed runs", async () => {
+		const root = tempDir();
+		await writeFile(path.join(root, "keep.md"), "# Keep\n");
+		const dbPath = path.join(root, "db.sqlite");
+		const metadata = new SqliteMetadataStore(dbPath);
+		const vectors = new SqliteVecVectorStore({ dbPath, vectorSize: 3 });
+		await metadata.initialize();
+		await vectors.initialize();
+		try {
+			const snapshot = await metadata.createSnapshot("project", { indexedAt: 1 });
+			const indexer = new DocumentIndexer(root, metadata, metadata, vectors, new FakeEmbeddingProvider());
+			await metadata.setDocumentMetadataCache("project", "keep.md", "key", "{}");
+			await metadata.setDocumentMetadataCache("project", "gone.md", "key", "{}");
+			await metadata.setDocumentMetadataCache("other", "gone.md", "key", "{}");
+
+			// A selected subset is not an authoritative deletion list.
+			await indexer.indexFull("project", snapshot.id, { paths: [] });
+			expect(await metadata.getDocumentMetadataCache("project", "keep.md", "key")).toBe("{}");
+			expect(await metadata.getDocumentMetadataCache("project", "gone.md", "key")).toBeNull();
+			expect(await metadata.getDocumentMetadataCache("other", "gone.md", "key")).toBe("{}");
+			await metadata.setDocumentMetadataCache("project", "gone.md", "key", "{}");
+
+			const scan = vi.spyOn(documentScanner, "scanProjectDocuments").mockImplementation(async (_root, options) => {
+				options?.onWarning?.({ path: "docs", code: "EACCES", message: "Unavailable" });
+				return [];
+			});
+			await indexer.indexFull("project", snapshot.id, { paths: [] });
+			expect(await metadata.getDocumentMetadataCache("project", "gone.md", "key")).toBe("{}");
+			scan.mockRejectedValueOnce(new Error("scan failed"));
+			await indexer.indexFull("project", snapshot.id, { paths: [] });
+			expect(await metadata.getDocumentMetadataCache("project", "gone.md", "key")).toBe("{}");
+			scan.mockRestore();
+
+			const failed = await indexer.indexFull("project", snapshot.id, { paths: ["missing.md"] });
+			expect(failed.errors).toHaveLength(1);
+			expect(await metadata.getDocumentMetadataCache("project", "gone.md", "key")).toBe("{}");
+			await rm(path.join(root, "keep.md"));
+			await indexer.indexIncremental("project", snapshot.id, {
+				currentPaths: [], added: [], modified: [], deleted: ["keep.md"], unchanged: [],
+			});
+			expect(await metadata.getDocumentMetadataCache("project", "keep.md", "key")).toBeNull();
+			expect(await metadata.getDocumentMetadataCache("project", "gone.md", "key")).toBeNull();
+		} finally {
+			await vectors.close();
+			await metadata.close();
+		}
+	});
 
 	it("indexes documents into a separate file/vector domain", async () => {
 		const root = tempDir();

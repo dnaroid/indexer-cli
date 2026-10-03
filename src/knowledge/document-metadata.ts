@@ -1,6 +1,6 @@
-import fs from "node:fs/promises";
 import path from "node:path";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
+import { DEFAULT_PROJECT_ID, type MetadataStore, type ProjectId } from "../core/types.js";
 import type { DocumentMetadata, DocumentKind, DocumentStatus, DocumentReference } from "./document-metadata-types.js";
 import { loadDocumentClassifierConfig } from "./document-classifier-config.js";
 
@@ -243,7 +243,20 @@ export function documentClassifierKey(config: ReturnType<typeof loadDocumentClas
 	return digest(JSON.stringify({ model: config.model, url: config.url, kindMinConfidence: config.kindMinConfidence, statusMinConfidence: config.statusMinConfidence, version: 3 }));
 }
 
-export async function getDocumentMetadata(root: string, filePath: string, content: string, options: { classify?: boolean; onClassifierDiagnostic?: (diagnostic: DocumentClassifierDiagnostic) => void } = {}): Promise<DocumentMetadata> {
+export interface DocumentMetadataOptions {
+	classify?: boolean;
+	projectId?: ProjectId;
+	cache?: Pick<MetadataStore, "getDocumentMetadataCache" | "setDocumentMetadataCache">;
+	onClassifierDiagnostic?: (diagnostic: DocumentClassifierDiagnostic) => void;
+}
+
+function cachedInference(raw: string | null | undefined): Inference | undefined {
+	if (!raw || raw.length >= 4096) return undefined;
+	const value: unknown = JSON.parse(raw);
+	return validInference(value) ? value : undefined;
+}
+
+export async function getDocumentMetadata(filePath: string, content: string, options: DocumentMetadataOptions = {}): Promise<DocumentMetadata> {
 	const parsed = parseDocumentMetadata(content, filePath);
 	if (parsed.kindSource === "explicit" && parsed.statusSource === "explicit") return parsed;
 	let config: ReturnType<typeof loadDocumentClassifierConfig>;
@@ -252,15 +265,11 @@ export async function getDocumentMetadata(root: string, filePath: string, conten
 	} catch { return parsed; }
 	const classifierKey = documentClassifierKey(config);
 	const key = digest(`document-metadata-v6\0${filePath}\0${content}\0${classifierKey}`);
-	const dir = path.join(root, ".indexer-cli", "doc-metadata");
-	const cache = path.join(dir, `${key}.json`);
+	const projectId = options.projectId ?? DEFAULT_PROJECT_ID;
 	try {
-		const stat = await fs.stat(cache);
-		if (stat.size < 4096) {
-			const value: unknown = JSON.parse(await fs.readFile(cache, "utf8"));
-			if (validInference(value)) return merge(parsed, value);
-		}
-	} catch { /* Missing/invalid derived caches are safe to rebuild. */ }
+		const value = cachedInference(await options.cache?.getDocumentMetadataCache?.(projectId, filePath, key));
+		if (value) return merge(parsed, value);
+	} catch { /* An unavailable or invalid advisory cache must not block indexing. */ }
 	if (!options.classify) return parsed;
 	if (!config.apiKey) {
 		options.onClassifierDiagnostic?.({ reason: "credentials_missing", humanActionRequired: true });
@@ -277,13 +286,9 @@ export async function getDocumentMetadata(root: string, filePath: string, conten
 			status: result.decision.status.confidence >= config.statusMinConfidence ? result.decision.status.choice : "unknown",
 		};
 		const inferred = merge(parsed, value);
-		const tmp = `${cache}.${randomUUID()}.tmp`;
 		try {
-			await fs.mkdir(dir, { recursive: true, mode: 0o700 });
-			await fs.writeFile(tmp, JSON.stringify(value), { mode: 0o600, flag: "wx" });
-			await fs.rename(tmp, cache);
+			await options.cache?.setDocumentMetadataCache?.(projectId, filePath, key, JSON.stringify(value));
 		} catch { /* Cache persistence must not discard a successful advisory classification. */ }
-		finally { await fs.rm(tmp, { force: true }).catch(() => undefined); }
 		return inferred;
 	} catch { return parsed; }
 }

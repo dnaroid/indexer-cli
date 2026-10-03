@@ -253,6 +253,7 @@ export class DocumentIndexer {
 			pending,
 		});
 		await writeClassificationStatus(this.repoRoot, result.classification).catch(() => undefined);
+		await this.pruneCache(projectId, result);
 		return result;
 	}
 
@@ -301,7 +302,19 @@ export class DocumentIndexer {
 			pending,
 		});
 		await writeClassificationStatus(this.repoRoot, result.classification).catch(() => undefined);
+		await this.pruneCache(projectId, result);
 		return result;
+	}
+
+	private async pruneCache(projectId: ProjectId, result: DocumentIndexResult): Promise<void> {
+		if (result.errors.length || !this.metadata.pruneDocumentMetadataCache) return;
+		try {
+			let complete = true;
+			const paths = await scanProjectDocuments(this.repoRoot, { onWarning: () => { complete = false; } });
+			if (complete) await this.metadata.pruneDocumentMetadataCache(projectId, paths);
+		} catch {
+			// Cleanup is advisory; an incomplete scan must not be treated as deletion.
+		}
 	}
 
 	/** Refreshes advisory metadata of an already-embedded document without re-embedding it. */
@@ -321,7 +334,7 @@ export class DocumentIndexer {
 		}
 		const chunks = await this.knowledgeStore.listKnowledgeChunks(projectId, snapshotId, filePath);
 		if (chunks.length === 0) return;
-		const document = await this.classify(filePath, content, classification, pending);
+		const document = await this.classify(projectId, filePath, content, classification, pending);
 		if (chunks.every((chunk) => JSON.stringify(chunk.metadata?.document) === JSON.stringify(document))) return;
 		await this.knowledgeStore.replaceKnowledgeChunks(
 			projectId,
@@ -335,16 +348,19 @@ export class DocumentIndexer {
 	}
 
 	private async classify(
+		projectId: ProjectId,
 		filePath: string,
 		content: string,
 		classification: DocumentIndexResult["classification"],
 		pending: string[],
 	) {
-		const parsed = await getDocumentMetadata(this.repoRoot, filePath, content);
+		const parsed = await getDocumentMetadata(filePath, content, { cache: this.metadata, projectId });
 		if (parsed.kindSource !== "explicit" || parsed.statusSource !== "explicit") classification.attempted += 1;
 		let failed = false;
-		const documentMetadata = await getDocumentMetadata(this.repoRoot, filePath, content, {
+		const documentMetadata = await getDocumentMetadata(filePath, content, {
 			classify: true,
+			cache: this.metadata,
+			projectId,
 			onClassifierDiagnostic: (diagnostic) => {
 				failed = true;
 				classification.degraded += 1;
@@ -435,7 +451,7 @@ export class DocumentIndexer {
 			maxTokens,
 			fullFileMaxTokens: Math.min(400, maxTokens),
 		});
-		const documentMetadata = await this.classify(filePath, content, classification, pending);
+		const documentMetadata = await this.classify(projectId, filePath, content, classification, pending);
 
 		await this.knowledgeStore.replaceKnowledgeChunks(
 			projectId,

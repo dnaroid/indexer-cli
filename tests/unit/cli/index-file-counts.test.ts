@@ -22,6 +22,8 @@ describe("index file counts", () => {
 		return runCLI(["--no-auto-update", "index", ...args], {
 			cwd: root,
 			env: {
+				// Ambient classifier credentials must not turn file-count checks into metadata retries.
+				OPENROUTER_API_KEY: "",
 				NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require="${preload}"`].filter(Boolean).join(" "),
 			},
 		});

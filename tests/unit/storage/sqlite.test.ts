@@ -34,7 +34,7 @@ describe("SqliteMetadataStore", () => {
 			.prepare("PRAGMA table_info(symbols)")
 			.all() as Array<{ name: string }>;
 
-		expect(migrationRow.version).toBe(6);
+		expect(migrationRow.version).toBe(8);
 		expect(symbolColumns.map((column) => column.name)).toContain(
 			"metadata_json",
 		);
@@ -65,12 +65,78 @@ describe("SqliteMetadataStore", () => {
 		).toBeDefined();
 	});
 
+	it("persists classifier cache across reopen and metadata cleanup", async () => {
+		expect(await store.getDocumentMetadataCache(PROJECT_ID, "doc.md", "key")).toBeNull();
+		await store.setDocumentMetadataCache(PROJECT_ID, "doc.md", "key", '{"kind":"guide","status":"active"}');
+		await store.setDocumentMetadataCache(PROJECT_ID, "doc.md", "key", '{"kind":"spec","status":"active"}');
+		await store.clearProjectMetadata(PROJECT_ID);
+		await store.close();
+		store = new SqliteMetadataStore(dbPath);
+		await store.initialize();
+		expect(await store.getDocumentMetadataCache(PROJECT_ID, "doc.md", "key")).toBe('{"kind":"spec","status":"active"}');
+	});
+
+	it("replaces old fingerprints per document and prunes only the selected project", async () => {
+		await store.setDocumentMetadataCache(PROJECT_ID, "doc.md", "old", "old result");
+		await store.setDocumentMetadataCache(PROJECT_ID, "doc.md", "new", "new result");
+		await store.setDocumentMetadataCache(PROJECT_ID, "gone.md", "new", "removed");
+		await store.setDocumentMetadataCache("other", "doc.md", "new", "other result");
+		expect(await store.getDocumentMetadataCache(PROJECT_ID, "doc.md", "old")).toBeNull();
+		expect(await store.getDocumentMetadataCache(PROJECT_ID, "doc.md", "new")).toBe("new result");
+		const db = (store as any).db as Database.Database;
+		expect(db.prepare("SELECT COUNT(*) AS count FROM document_metadata_cache").get()).toEqual({ count: 3 });
+		await store.pruneDocumentMetadataCache(PROJECT_ID, ["doc.md"]);
+		expect(await store.getDocumentMetadataCache(PROJECT_ID, "gone.md", "new")).toBeNull();
+		expect(await store.getDocumentMetadataCache("other", "doc.md", "new")).toBe("other result");
+		await store.pruneDocumentMetadataCache(PROJECT_ID, []);
+		expect(db.prepare("SELECT COUNT(*) AS count FROM document_metadata_cache").get()).toEqual({ count: 1 });
+	});
+
+	it("discards unbound v7 cache entries without losing indexed data", async () => {
+		const snapshot = await store.createSnapshot(PROJECT_ID, { indexedAt: 1 });
+		const storedSnapshot = await store.getSnapshot(snapshot.id);
+		const db = (store as any).db as Database.Database;
+		db.exec(`DROP TABLE document_metadata_cache;
+			CREATE TABLE document_metadata_cache (cache_key TEXT PRIMARY KEY, metadata_json TEXT NOT NULL);
+			INSERT INTO document_metadata_cache VALUES ('old', '{}');
+			DELETE FROM schema_migrations WHERE version = 8;`);
+		await store.close();
+		store = new SqliteMetadataStore(dbPath);
+		await store.initialize();
+		expect(await store.getSnapshot(snapshot.id)).toEqual(storedSnapshot);
+		expect(((store as any).db as Database.Database).prepare("SELECT COUNT(*) AS count FROM document_metadata_cache").get()).toEqual({ count: 0 });
+		await store.setDocumentMetadataCache(PROJECT_ID, "doc.md", "key", "{}");
+		expect(await store.getDocumentMetadataCache(PROJECT_ID, "doc.md", "key")).toBe("{}");
+	});
+
+	it("upgrades v6 databases with a cache table without changing indexed data", async () => {
+		const snapshot = await store.createSnapshot(PROJECT_ID, { indexedAt: 1 });
+		const storedSnapshot = await store.getSnapshot(snapshot.id);
+		const db = (store as any).db as Database.Database;
+		db.exec("DROP TABLE document_metadata_cache; DELETE FROM schema_migrations WHERE version >= 7;");
+		await store.close();
+		store = new SqliteMetadataStore(dbPath);
+		await store.initialize();
+		expect(await store.getSnapshot(snapshot.id)).toEqual(storedSnapshot);
+		await store.setDocumentMetadataCache("default", "doc.md", "key", "{}");
+		expect(await store.getDocumentMetadataCache("default", "doc.md", "key")).toBe("{}");
+	});
+
+	it("recreates a missing disposable cache table on an otherwise current database", async () => {
+		((store as any).db as Database.Database).exec("DROP TABLE document_metadata_cache");
+		await store.close();
+		store = new SqliteMetadataStore(dbPath);
+		await store.initialize();
+		await store.setDocumentMetadataCache("default", "doc.md", "key", "{}");
+		expect(await store.getDocumentMetadataCache("default", "doc.md", "key")).toBe("{}");
+	});
+
 	it("upgrades v5 databases by removing obsolete registry tables without losing indexed data", async () => {
 		const upgradePath = path.join(tempDir, "v5.sqlite");
 		const initial = new SqliteMetadataStore(upgradePath);
 		await initial.initialize();
 		const initialDb = (initial as any).db as Database.Database;
-		initialDb.prepare("DELETE FROM schema_migrations WHERE version = 6").run();
+		initialDb.prepare("DELETE FROM schema_migrations WHERE version >= 6").run();
 		initialDb.exec(`
 			CREATE TABLE knowledge_entries (project_id TEXT, path TEXT, PRIMARY KEY (project_id, path));
 			CREATE TABLE knowledge_relations (project_id TEXT, source_path TEXT,
@@ -91,7 +157,7 @@ describe("SqliteMetadataStore", () => {
 		const upgraded = new SqliteMetadataStore(upgradePath);
 		await upgraded.initialize();
 		const db = (upgraded as any).db as Database.Database;
-		expect((db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(6);
+		expect((db.prepare("SELECT MAX(version) AS version FROM schema_migrations").get() as { version: number }).version).toBe(8);
 		for (const table of ["knowledge_entries", "knowledge_relations", "knowledge_verified_inputs"]) {
 			expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table)).toBeUndefined();
 		}
@@ -134,7 +200,7 @@ describe("SqliteMetadataStore", () => {
 			(migratedDb
 				.prepare("SELECT MAX(version) AS version FROM schema_migrations")
 				.get() as { version: number }).version,
-		).toBe(6);
+		).toBe(8);
 		const columns = migratedDb
 			.prepare("PRAGMA table_info(files)")
 			.all() as Array<{ name: string }>;

@@ -45,6 +45,30 @@ sections, and the ending, so a late supersession or lifecycle note is not lost t
 simple prefix truncation. The project-relative path is supplied as supporting
 classification evidence, not as an authoritative label. Classification is cached
 by source content and classifier configuration/version and remains advisory.
+The cache lives in the `document_metadata_cache` table of `.indexer-cli/db.sqlite`,
+keyed by project and document path, with a content/settings/version fingerprint
+guarding reuse. It stores only
+inferred `kind` and `status`, not source text or credentials. Entries survive
+snapshot retention and normal metadata cleanup, but deleting or recreating the
+database loses the cache and may require repeat provider calls. Cache reads and
+writes are best-effort; malformed data or storage failures must not fail indexing
+or discard a successful classification. Explicit frontmatter remains authoritative.
+SQLite is the only supported classification cache. The former
+`.indexer-cli/doc-metadata/*.json` cache is ignored: entries are not read,
+imported, or deleted. Read-only audits read SQLite but never call the classifier
+or write cache entries. New classifications write only to SQLite.
+See [the cache storage decision](../decisions/document-metadata-cache-sqlite.md).
+The cache stores at most one result per `(project, document path)`. The fingerprint
+still checks exact content and classifier settings; successful reclassification
+replaces the previous result instead of accumulating historical versions. Failed
+classification does not replace a result, but a mismatching fingerprint cannot
+reuse it. After error-free full or incremental document indexing, a separate full
+document scan prunes entries absent from the current eligible document set (including
+deleted, renamed, or newly excluded documents). Any scan warning or failure skips
+pruning; partial indexing or incomplete scans never serve as the deletion list.
+Migration 8 discards unbound hashed entries from the old SQLite cache schema, not
+indexed documents or snapshots. Snapshot and metadata cleanup still preserve cache
+entries for later reuse.
 Document text is untrusted data, not classifier instructions; the classifier has
 no tools and cannot execute actions. Explicit metadata needs no classifier call.
 Missing credentials, provider failures, timeouts, or invalid responses do not
@@ -186,13 +210,18 @@ The audit means **code beneath a document changed**, not **the document is wrong
 The calling agent compares the source text to implementation/tests and fixes real
 semantic drift before finishing. Leaving an already-correct document unchanged is
 valid. Audit does not edit source prose, run model-suggested commands, certify
-correctness, or require acknowledgments.
+correctness, or require acknowledgments. Optional project-wide monitoring is
+separate: [`knowledge dirty` and explicit acknowledgment](knowledge-review-monitoring.md)
+track declared spec dependencies without changing audit's meaning.
 
 ## Interface
 
 The wiki command family, registry administration, receipts, trust states,
-manifests, review baselines, and durable review obligations are removed. There is
-no legacy compatibility workflow. Normal usage is
+manifests, and mandatory durable review obligations are removed. There is
+no legacy compatibility workflow. Optional offline review baselines are now
+supported by the separate knowledge monitor; see the
+[decision](../decisions/offline-knowledge-review-monitoring.md), which supersedes
+the former blanket exclusion of review baselines. Normal usage is
 `index → context/search → change code/docs → audit task paths → fix drift`.
 Database migration removes obsolete registry/receipt tables while retaining
 code, document chunks, and snapshots.

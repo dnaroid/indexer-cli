@@ -1,7 +1,7 @@
 import { readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { scanProjectDocuments } from "./document-scanner.js";
-import { getDocumentMetadata } from "./document-metadata.js";
+import { getDocumentMetadata, type DocumentMetadataOptions } from "./document-metadata.js";
 import type { DocumentMetadata, DocumentReference } from "./document-metadata-types.js";
 import { config } from "../core/config.js";
 
@@ -20,6 +20,8 @@ export interface AuditReport {
 }
 export interface AuditOptions {
 	noSemantic?: boolean;
+	cache?: DocumentMetadataOptions["cache"];
+	projectId?: DocumentMetadataOptions["projectId"];
 	search?: (query: string) => Promise<string[]>;
 	dependencies?: Array<{ fromPath: string; toPath?: string }>;
 	symbols?: Array<{ filePath: string; name: string }>;
@@ -61,7 +63,7 @@ export async function auditTask(rootPath: string, changed: string[], options: Au
 		try {
 			if ((await stat(abs)).size > config.get("documentMaxBytes")) { warnings.push(`${doc}: exceeds document size limit; not inspected`); continue; }
 			const content = await readFile(abs, "utf8");
-			const metadata = await getDocumentMetadata(root, doc, content);
+			const metadata = await getDocumentMetadata(doc, content, { cache: options.cache, projectId: options.projectId });
 			rows.push({ path: doc, metadata });
 			warnings.push(...metadata.warnings.map(warning => `${doc}: ${warning}`));
 		} catch { warnings.push(`${doc}: unable to read document`); }

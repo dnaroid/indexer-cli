@@ -47,6 +47,14 @@ function escapeLike(value: string): string {
 type TxCtx = { depth: number; spSeq: number };
 const txCtx = new AsyncLocalStorage<TxCtx>();
 
+const documentMetadataCacheSchema = `CREATE TABLE IF NOT EXISTS document_metadata_cache (
+	project_id TEXT NOT NULL,
+	file_path TEXT NOT NULL,
+	cache_key TEXT NOT NULL,
+	metadata_json TEXT NOT NULL,
+	PRIMARY KEY (project_id, file_path)
+);`;
+
 type Migration = {
 	version: number;
 	name: string;
@@ -173,6 +181,25 @@ const migrations: Migration[] = [
 				DROP TABLE IF EXISTS knowledge_entries;`);
 		},
 	},
+	{
+		version: 7,
+		name: "add_document_metadata_cache",
+		up: (db) => {
+			db.exec(documentMetadataCacheSchema);
+		},
+	},
+	{
+		version: 8,
+		name: "bind_document_metadata_cache_to_paths",
+		up: (db) => {
+			const columns = db.prepare("PRAGMA table_info(document_metadata_cache)").all() as Array<{ name: string }>;
+			// Old hashed keys cannot recover document identity; discard disposable entries.
+			if (!columns.some((column) => column.name === "file_path")) {
+				db.exec("DROP TABLE IF EXISTS document_metadata_cache");
+			}
+			db.exec(documentMetadataCacheSchema);
+		},
+	},
 ];
 
 export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
@@ -202,6 +229,26 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 
 	async close(): Promise<void> {
 		this.db.close();
+	}
+
+	async getDocumentMetadataCache(projectId: ProjectId, filePath: string, key: string): Promise<string | null> {
+		const row = this.db.prepare(
+			"SELECT metadata_json FROM document_metadata_cache WHERE project_id = ? AND file_path = ? AND cache_key = ?",
+		).get(projectId, filePath, key) as { metadata_json: string } | undefined;
+		return row?.metadata_json ?? null;
+	}
+
+	async setDocumentMetadataCache(projectId: ProjectId, filePath: string, key: string, value: string): Promise<void> {
+		this.db.prepare(`INSERT INTO document_metadata_cache (project_id, file_path, cache_key, metadata_json)
+			VALUES (?, ?, ?, ?) ON CONFLICT(project_id, file_path) DO UPDATE
+			SET cache_key = excluded.cache_key, metadata_json = excluded.metadata_json`
+		).run(projectId, filePath, key, value);
+	}
+
+	async pruneDocumentMetadataCache(projectId: ProjectId, currentPaths: string[]): Promise<void> {
+		this.db.prepare(`DELETE FROM document_metadata_cache WHERE project_id = ?
+			AND file_path NOT IN (SELECT value FROM json_each(?))`
+		).run(projectId, JSON.stringify(currentPaths));
 	}
 
 	async transaction<T>(callback: () => Promise<T>): Promise<T> {
@@ -1550,6 +1597,7 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
       CREATE INDEX IF NOT EXISTS idx_dependencies_snapshot
         ON dependencies(snapshot_id);
     `);
+		this.db.exec(documentMetadataCacheSchema);
 	}
 
 	private async runMigrations(): Promise<void> {
@@ -1598,6 +1646,7 @@ export class SqliteMetadataStore implements MetadataStore, KnowledgeStore {
 				"snapshots", "files", "chunks", "symbols", "dependencies",
 				"artifacts", "file_metrics", "knowledge_chunks",
 				"code_search_fts",
+				"document_metadata_cache",
 			];
 			for (const tableName of requiredTables) {
 				const exists = this.db
