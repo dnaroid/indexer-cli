@@ -335,6 +335,29 @@ describe("IndexerEngine file counts across code and documents", () => {
 		},
 	);
 
+	it.each(["full", "incremental"])(
+		"includes document paths and causes in %s document-only failures",
+		async (mode) => {
+			const { engine, metadata, write } = await createProject({
+				"docs/first.md": "# First",
+				"docs/second.md": "# Second",
+			});
+			if (mode === "incremental") {
+				await engine.indexProject({ isFullReindex: true });
+			}
+			write("docs/first.md", "# BROKEN_DOCUMENT first");
+			write("docs/second.md", "# BROKEN_DOCUMENT second");
+			const message = `${mode === "full" ? "Full" : "Incremental"} indexing completed with 2 preparation errors\n  - document: docs/first.md: document embedding failed\n  - document: docs/second.md: document embedding failed`;
+			await expect(engine.indexProject({
+				isFullReindex: mode === "full",
+				changedFiles: { ...emptyDiff(), modified: ["docs/first.md", "docs/second.md"] },
+			})).rejects.toThrow(message);
+			const snapshots = await metadata.listSnapshots(projectId);
+			expect(snapshots.find((snapshot) => snapshot.status === "failed"))
+				.toMatchObject({ error: message });
+		},
+	);
+
 	it("does not include a document whose embedding failed in filesIndexed", async () => {
 		const { engine } = await createProject({
 			"src/main.ts": "export const value = 1;",

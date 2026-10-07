@@ -11,6 +11,7 @@ import { installSpecTemplate, SPEC_TEMPLATE } from "../../../src/cli/spec-templa
 import { registerDoctorCommand } from "../../../src/cli/commands/doctor.js";
 import { performInit } from "../../../src/cli/commands/init.js";
 import { performUninstall } from "../../../src/cli/commands/uninstall.js";
+import { performSetup } from "../../../src/cli/commands/setup.js";
 import { forceRefreshProjectSkills, refreshRegisteredProjectSkillsIfNeeded } from "../../../src/core/version-check.js";
 import { loadOpenRouterApiKey } from "../../../src/embedding/factory.js";
 
@@ -92,7 +93,7 @@ describe("doctor command registration", () => {
 describe("doctor spec template repair", () => {
 	let root: string;
 	let originalHome: string | undefined;
-	let originalExitCode: number | undefined;
+	let originalExitCode: typeof process.exitCode;
 
 	beforeEach(async () => {
 		root = await mkdtemp(path.join(os.tmpdir(), "idx-doctor-template-"));
@@ -101,6 +102,7 @@ describe("doctor spec template repair", () => {
 		process.env.INDEXER_CLI_HOME = path.join(root, "home");
 		process.exitCode = undefined;
 		vi.resetAllMocks();
+		vi.mocked(loadOpenRouterApiKey).mockReturnValue("test-key");
 		vi.spyOn(console, "log").mockImplementation(() => {});
 		vi.spyOn(console, "error").mockImplementation(() => {});
 		vi.mocked(refreshRegisteredProjectSkillsIfNeeded).mockResolvedValue({ checked: 0, refreshed: 0, failed: 0, stale: 0 });
@@ -209,10 +211,77 @@ describe("doctor spec template repair", () => {
 
 		await doctor(workspace, "--force");
 
+		expect(performSetup).toHaveBeenCalledWith({ embeddingModes: ["openrouter"] });
 		expect(performInit).toHaveBeenCalledWith(selected, {
 			skipIndexing: false,
 			embedding: "openrouter",
 		});
+	});
+
+	it("uses local prerequisites and preserves legacy local configs without requiring a key", async () => {
+		const selected = await project("selected", true);
+		vi.mocked(loadOpenRouterApiKey).mockReturnValue(undefined);
+		await doctor("--force");
+		expect(loadOpenRouterApiKey).not.toHaveBeenCalled();
+		expect(performSetup).toHaveBeenCalledWith({ embeddingModes: ["local"] });
+		expect(performInit).toHaveBeenCalledWith(selected, { skipIndexing: false, embedding: "local" });
+	});
+
+	it("checks both dependencies for mixed projects", async () => {
+		await project("local", true);
+		const remote = await project("remote", true);
+		await writeFile(path.join(remote, ".indexer-cli", "config.json"), JSON.stringify({ embeddingProvider: "openrouter" }));
+		await doctor("--force");
+		expect(performSetup).toHaveBeenCalledWith({ embeddingModes: ["local", "openrouter"] });
+		expect(performUninstall).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not uninstall any mixed project when the remote key is missing", async () => {
+		await project("local", true);
+		const remote = await project("remote", true);
+		const configPath = path.join(remote, ".indexer-cli", "config.json");
+		await writeFile(configPath, JSON.stringify({ embeddingProvider: "openrouter" }));
+		vi.mocked(loadOpenRouterApiKey).mockReturnValue(undefined);
+		await doctor("--force");
+		expect(process.exitCode).toBe(1);
+		expect(performSetup).not.toHaveBeenCalled();
+		expect(performUninstall).not.toHaveBeenCalled();
+		expect(await readFile(configPath, "utf8")).toContain("openrouter");
+	});
+
+	it("uses OpenRouter prerequisites without projects and supports an explicit local override", async () => {
+		await doctor("--force");
+		expect(performSetup).toHaveBeenLastCalledWith({ embeddingModes: ["openrouter"] });
+		vi.mocked(loadOpenRouterApiKey).mockReturnValue(undefined);
+		await doctor("--force", "--embedding", "local");
+		expect(performSetup).toHaveBeenLastCalledWith({ embeddingModes: ["local"] });
+	});
+
+	it("stops before project repair when prerequisites fail", async () => {
+		await project("local", true);
+		vi.mocked(performSetup).mockReturnValue(false);
+		await doctor("--force");
+		expect(performUninstall).not.toHaveBeenCalled();
+		expect(performInit).not.toHaveBeenCalled();
+	});
+
+	it("allows a local override of a remote project without a key", async () => {
+		const selected = await project("remote", true);
+		await writeFile(path.join(selected, ".indexer-cli", "config.json"), JSON.stringify({ embeddingProvider: "openrouter" }));
+		vi.mocked(loadOpenRouterApiKey).mockReturnValue(undefined);
+		await doctor("--force", "--embedding", "local");
+		expect(loadOpenRouterApiKey).not.toHaveBeenCalled();
+		expect(performSetup).toHaveBeenCalledWith({ embeddingModes: ["local"] });
+		expect(performInit).toHaveBeenCalledWith(selected, { skipIndexing: false, embedding: "local" });
+	});
+
+	it("ignores stale registry entries when checking local projects", async () => {
+		await project("local", true);
+		addProject({ projectPath: path.join(root, "gone"), cliVersion: "2.0.7", skillsVersion: SKILLS_VERSION });
+		vi.mocked(loadOpenRouterApiKey).mockReturnValue(undefined);
+		await doctor("--force");
+		expect(performSetup).toHaveBeenCalledWith({ embeddingModes: ["local"] });
+		expect(performUninstall).toHaveBeenCalledTimes(1);
 	});
 
 	it("overrides reinitialization to OpenRouter when explicitly requested", async () => {

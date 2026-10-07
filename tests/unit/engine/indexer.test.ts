@@ -2043,6 +2043,7 @@ describe("IndexerEngine internals", () => {
 				async (options: unknown) => {
 					const { errors } = options as { errors: string[] };
 					errors.push("Failed to prepare src/changed.ts: boom");
+					errors.push('Embedding failed for src/other.ts: model "missing" not found');
 				},
 			);
 			vi.spyOn(
@@ -2060,13 +2061,13 @@ describe("IndexerEngine internals", () => {
 					},
 				}),
 			).rejects.toThrow(
-				"Incremental indexing completed with 1 preparation error",
+				'Incremental indexing completed with 2 preparation errors\n  - Failed to prepare src/changed.ts: boom\n  - Embedding failed for src/other.ts: model "missing" not found',
 			);
 
 			expect(options.metadata.updateSnapshotStatus).toHaveBeenCalledWith(
 				"snapshot-1",
 				"failed",
-				"Incremental indexing completed with 1 preparation error",
+				'Incremental indexing completed with 2 preparation errors\n  - Failed to prepare src/changed.ts: boom\n  - Embedding failed for src/other.ts: model "missing" not found',
 			);
 			expect(options.metadata.clearProjectMetadata).not.toHaveBeenCalled();
 			expect(options.vectors.deleteBySnapshot).not.toHaveBeenCalled();

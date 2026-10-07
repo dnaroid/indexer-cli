@@ -4,6 +4,8 @@ import path from "node:path";
 import type { Command } from "commander";
 import { ensureIdxBinary, installGlobal } from "../../core/idx-binary.js";
 import { reportGlobalConfig } from "../../core/global-config.js";
+import { loadOpenRouterApiKey } from "../../embedding/factory.js";
+import { parseEmbeddingMode, type EmbeddingMode } from "../../embedding/presets.js";
 
 const PLATFORM = os.platform();
 const IS_MAC = PLATFORM === "darwin";
@@ -370,7 +372,7 @@ function checkOllama(): CheckResult {
 			name: "Ollama",
 			status: "failed",
 			detail:
-				"Install Ollama manually from https://ollama.com/download and re-run `idx setup`.",
+				"Install Ollama manually from https://ollama.com/download and re-run `idx setup --embedding local`.",
 		};
 	}
 
@@ -605,7 +607,7 @@ function printSummary(): void {
 	if (!allOk) {
 		console.log(
 			red(
-				"  Some dependencies failed. Resolve the issues above and re-run `idx setup`.",
+				"  Some dependencies failed. Resolve the issues above and re-run `idx setup` with the selected --embedding mode.",
 			),
 		);
 		process.exitCode = 1;
@@ -620,7 +622,18 @@ function printSummary(): void {
 
 // ── Main ────────────────────────────────────────────────────────────────
 
-export function performSetup(options: { skipOllama?: boolean } = {}): void {
+export function performSetup(
+	options: { embeddingModes?: readonly EmbeddingMode[] } = {},
+): boolean {
+	results.length = 0;
+	const modes = options.embeddingModes ?? ["openrouter"];
+	if (modes.includes("openrouter") && !loadOpenRouterApiKey()) {
+		console.error(
+			"OpenRouter embedding mode requires OPENROUTER_API_KEY in the environment or ~/.config/idx/.env. For local embeddings, use `idx setup --embedding local` with Ollama installed.",
+		);
+		process.exitCode = 1;
+		return false;
+	}
 	reportGlobalConfig();
 	console.log(bold("\n  indexer-cli dependency setup\n"));
 	console.log(`  Platform: ${os.type()} ${os.release()} (${os.arch()})\n`);
@@ -638,7 +651,10 @@ export function performSetup(options: { skipOllama?: boolean } = {}): void {
 	console.log(bold("\n  Checking idx command..."));
 	results.push(installIdxBinary());
 
-	if (options.skipOllama) {
+	if (modes.includes("openrouter")) {
+		results.push({ name: "OpenRouter API key", status: "ok", detail: "Configured (no API request made)." });
+	}
+	if (!modes.includes("local")) {
 		console.log(bold("\n  Skipping Ollama for OpenRouter embedding mode..."));
 		results.push(
 			createSkippedResult("Ollama", "Skipped for OpenRouter embedding mode."),
@@ -659,15 +675,17 @@ export function performSetup(options: { skipOllama?: boolean } = {}): void {
 	}
 
 	printSummary();
+	return results.every((result) => result.status !== "failed");
 }
 
 export function registerSetupCommand(program: Command): void {
 	program
 		.command("setup")
 		.description(
-			"Check system prerequisites and prepare Ollama for indexer-cli",
+			"Check system prerequisites and the selected embedding provider",
 		)
-		.action(() => {
-			performSetup();
+		.option("--embedding <mode>", "embedding mode: openrouter (default) or local (Ollama)")
+		.action((options: { embedding?: string }) => {
+			performSetup({ embeddingModes: [parseEmbeddingMode(options.embedding) ?? "openrouter"] });
 		});
 }

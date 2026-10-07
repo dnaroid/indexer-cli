@@ -71,7 +71,7 @@ describe.sequential("CLI e2e", () => {
 
 	describe.sequential("init", () => {
 		it("creates indexer data without Git hooks or agent skills by default", () => {
-			const result = runCLI(["init"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--embedding", "local"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");
@@ -120,7 +120,7 @@ describe.sequential("CLI e2e", () => {
 		});
 
 		it("installs Claude and Codex skills only when explicitly requested", () => {
-			const result = runCLI(["init", "--claude", "--codex"], {
+			const result = runCLI(["init", "--embedding", "local", "--claude", "--codex"], {
 				cwd: TEMP_DIR,
 			});
 
@@ -167,7 +167,7 @@ describe.sequential("CLI e2e", () => {
 			gitInit(tempRoot);
 
 			try {
-				const result = runCLI(["init", "--codex"], { cwd: tempRoot });
+				const result = runCLI(["init", "--embedding", "local", "--codex"], { cwd: tempRoot });
 				expect(result.exitCode).toBe(0);
 				expect(
 					fileExists(
@@ -207,7 +207,7 @@ describe.sequential("CLI e2e", () => {
 			gitInit(tempRoot);
 
 			try {
-				const init = runCLI(["init"], { cwd: tempRoot });
+				const init = runCLI(["init", "--embedding", "local"], { cwd: tempRoot });
 				expect(init.exitCode).toBe(0);
 
 				const before = runCLI(["skills", "status"], { cwd: tempRoot });
@@ -247,7 +247,7 @@ describe.sequential("CLI e2e", () => {
 		});
 
 		it("is idempotent", () => {
-			const result = runCLI(["init"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--embedding", "local"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");
@@ -264,7 +264,7 @@ describe.sequential("CLI e2e", () => {
 			mkdirSync(path.dirname(legacySkillPath), { recursive: true });
 			writeFileSync(legacySkillPath, "legacy skill\n", "utf8");
 
-			const result = runCLI(["init", "--refresh-skills"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--embedding", "local", "--refresh-skills"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(fileExists(legacySkillPath)).toBe(false);
@@ -286,7 +286,7 @@ describe.sequential("CLI e2e", () => {
 			gitInit(tempRoot);
 
 			try {
-				const result = runCLI(["init"], { cwd: path.join(tempRoot, "src") });
+				const result = runCLI(["init", "--embedding", "local"], { cwd: path.join(tempRoot, "src") });
 
 				expect(result.exitCode).toBe(0);
 				expect(result.stdout).toContain("Detected Git project root");
@@ -430,7 +430,7 @@ describe.sequential("CLI e2e", () => {
 			gitInit(tempRoot);
 
 			try {
-				const init = runCLI(["init"], { cwd: tempRoot });
+				const init = runCLI(["init", "--embedding", "local"], { cwd: tempRoot });
 				expect(init.exitCode).toBe(0);
 				const target = path.join(tempRoot, "src", "auth", "session.ts");
 				writeFileSync(
@@ -1105,7 +1105,7 @@ describe.sequential("CLI e2e", () => {
 			);
 
 			try {
-				runCLI(["init"], { cwd: TEMP_DIR });
+				runCLI(["init", "--embedding", "local"], { cwd: TEMP_DIR });
 				runCLI(["index", "--full"], { cwd: TEMP_DIR });
 
 				const defaultResult = runCLI(["structure"], { cwd: TEMP_DIR });
@@ -1659,7 +1659,7 @@ describe.sequential("CLI e2e", () => {
 				writeFileSync(path.join(root, "src", "feature.ts"), "export function frobnicate() { return true; }\n");
 				writeFileSync(path.join(root, "notes", "feature.md"), "---\nkind: spec\nstatus: active\n---\n# Frobnication\nThe frobnicate feature returns true.\n## Implementation\n- `src/feature.ts::frobnicate`\n");
 				writeFileSync(path.join(root, "notes", "draft.md"), "# Frobnication plan\nPotential frobnicate extensions.\n");
-				expect(runCLI(["init"], { cwd: root }).exitCode).toBe(0);
+				expect(runCLI(["init", "--embedding", "local"], { cwd: root }).exitCode).toBe(0);
 				const configPath = path.join(root, ".indexer-cli", "config.json");
 				const offlineConfig = JSON.parse(readTextFile(configPath));
 				offlineConfig.ollamaBaseUrl = "http://127.0.0.1:1";
@@ -1741,7 +1741,7 @@ describe.sequential("CLI e2e", () => {
 			);
 
 			try {
-				const init = runCLI(["init"], { cwd: tempRoot });
+				const init = runCLI(["init", "--embedding", "local"], { cwd: tempRoot });
 				expect(init.exitCode).toBe(0);
 				const uninstall = runCLI(["uninstall", "--force"], { cwd: tempRoot });
 				expect(uninstall.exitCode).toBe(0);

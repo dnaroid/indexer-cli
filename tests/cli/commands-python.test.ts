@@ -80,7 +80,7 @@ describe.sequential("CLI e2e Python", () => {
 
 	describe("init", () => {
 		it("creates indexer data, config, and skills without touching Git hooks", () => {
-			const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--embedding", "local", "--claude"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");
@@ -123,7 +123,7 @@ describe.sequential("CLI e2e Python", () => {
 		});
 
 		it("is idempotent", () => {
-			const result = runCLI(["init", "--claude"], { cwd: TEMP_DIR });
+			const result = runCLI(["init", "--embedding", "local", "--claude"], { cwd: TEMP_DIR });
 
 			expect(result.exitCode).toBe(0);
 			expect(result.stdout).toContain("Initialized indexer-cli");

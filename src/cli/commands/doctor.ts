@@ -97,9 +97,9 @@ async function readExistingEmbeddingMode(
 		const value = JSON.parse(
 			await readFile(path.join(dataDir, "config.json"), "utf8"),
 		) as { embeddingProvider?: unknown };
-		return typeof value.embeddingProvider === "string"
-			? embeddingModeForProvider(value.embeddingProvider) ?? undefined
-			: undefined;
+		if (value.embeddingProvider === undefined) return "local";
+		if (typeof value.embeddingProvider !== "string") return undefined;
+		return embeddingModeForProvider(value.embeddingProvider) ?? undefined;
 	} catch {
 		return undefined;
 	}
@@ -115,6 +115,9 @@ async function reinitializePreservingTemplate(
 		readExistingEmbeddingMode(dataDir),
 	]);
 	const embedding = embeddingOverride ?? existingEmbedding;
+	if ((embedding ?? "openrouter") === "openrouter" && !loadOpenRouterApiKey()) {
+		throw new Error("OpenRouter embedding mode requires OPENROUTER_API_KEY in the environment or ~/.config/idx/.env.");
+	}
 	try {
 		await performUninstall(projectPath);
 		await performInit(projectPath, { skipIndexing: false, embedding });
@@ -156,7 +159,28 @@ export function registerDoctorCommand(program: Command): void {
 				},
 			) => {
 				const embedding = parseEmbeddingMode(options.embedding);
-				if (embedding === "openrouter" && !loadOpenRouterApiKey()) {
+				let selectedProjects = getRegisteredProjects().map((entry) => path.resolve(entry.projectPath));
+				if (dir !== undefined) {
+					const workspaceDir = path.resolve(dir);
+					try {
+						selectedProjects = await scanDirectoryForProjects(workspaceDir);
+					} catch (error) {
+						console.error(`Failed to read directory ${workspaceDir}: ${error instanceof Error ? error.message : String(error)}`);
+						process.exitCode = 1;
+						return;
+					}
+				} else {
+					// Stale registry entries must not introduce phantom provider requirements.
+					const present = await Promise.all(selectedProjects.map(async (project) =>
+						await pathExists(path.join(project, ".indexer-cli")) ? project : undefined,
+					));
+					selectedProjects = present.filter((project): project is string => project !== undefined);
+				}
+				const modes = embedding ? [embedding] : await Promise.all(selectedProjects.map(async (project) =>
+					await readExistingEmbeddingMode(path.join(project, ".indexer-cli")) ?? "openrouter",
+				));
+				const embeddingModes = [...new Set<EmbeddingMode>(modes.length ? modes : ["openrouter"])];
+				if (embeddingModes.includes("openrouter") && !loadOpenRouterApiKey()) {
 					console.error(
 						"OpenRouter embedding mode requires OPENROUTER_API_KEY in the environment or ~/.config/idx/.env.",
 					);
@@ -174,7 +198,7 @@ export function registerDoctorCommand(program: Command): void {
 				}
 				console.log("");
 
-				performSetup({ skipOllama: embedding === "openrouter" });
+				if (performSetup({ embeddingModes }) === false) return;
 
 				if (dir === undefined && !options.skillsOnly) {
 					const refreshResult = await refreshRegisteredProjectSkillsIfNeeded();
@@ -226,29 +250,7 @@ export function registerDoctorCommand(program: Command): void {
 				} else {
 					const workspaceDir = path.resolve(dir);
 
-					if (!(await pathExists(workspaceDir))) {
-						console.error(`Directory not found: ${workspaceDir}`);
-						process.exitCode = 1;
-						return;
-					}
-
-					try {
-						projectPaths = await scanDirectoryForProjects(workspaceDir);
-					} catch (error) {
-						const code =
-							typeof error === "object" && error !== null && "code" in error
-								? Reflect.get(error, "code")
-								: undefined;
-						const message =
-							error instanceof Error ? error.message : String(error);
-						console.error(
-							code === "ENOTDIR"
-								? `Not a directory: ${workspaceDir}`
-								: `Failed to read directory ${workspaceDir}: ${message}`,
-						);
-						process.exitCode = 1;
-						return;
-					}
+					projectPaths = selectedProjects;
 
 					if (projectPaths.length === 0) {
 						console.log(`No indexed projects found in ${workspaceDir}`);

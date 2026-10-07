@@ -287,14 +287,17 @@ export async function performInit(
 	initLogger(dataDir);
 	config.load(dataDir);
 	const previousEmbeddingIdentity = embeddingIdentity(config.getAll());
-	if (options?.embedding) {
-		config.apply(getEmbeddingPreset(options.embedding));
+	// Keep stored presets (including legacy local configs) on repeated init.
+	const embedding = options?.embedding ??
+		((await pathExists(configPath)) ? undefined : "openrouter");
+	if (embedding) {
+		config.apply(getEmbeddingPreset(embedding));
 	}
 	const nextEmbeddingIdentity = embeddingIdentity(config.getAll());
 	const embeddingChanged = previousEmbeddingIdentity !== nextEmbeddingIdentity;
 	if (
-		options?.embedding === "openrouter" &&
-		!options.skipIndexing &&
+		config.get("embeddingProvider") === "openrouter" &&
+		!options?.skipIndexing &&
 		!loadOpenRouterApiKey()
 	) {
 		throw new Error(
@@ -417,7 +420,7 @@ export function registerInitCommand(program: Command): void {
 		.option("--codex", "install/enable the repo-discovery skill for OpenAI Codex")
 		.option(
 			"--embedding <mode>",
-			"embedding mode: local (Ollama) or openrouter (Perplexity pplx-embed-v1-0.6b)",
+			"embedding mode: local (Ollama) or openrouter (default for new projects; Perplexity pplx-embed-v1-0.6b)",
 		)
 		.option(
 			"--refresh-skills",

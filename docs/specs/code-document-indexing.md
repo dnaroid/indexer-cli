@@ -10,16 +10,20 @@ status: active
 `src/engine/indexer.ts`, `src/embedding/factory.ts`,
 `src/embedding/openrouter.ts`, `src/embedding/presets.ts`,
 `src/knowledge/document-indexer.ts`, `src/knowledge/embedding.ts`,
-`src/cli/commands/init.ts`, `src/cli/commands/index.ts`,
+`src/cli/commands/init.ts`, `src/cli/commands/setup.ts`, `src/cli/commands/doctor.ts`,
+`src/cli/commands/index.ts`,
 `src/cli/commands/snapshot-diff.ts`, `src/cli/commands/ensure-indexed.ts`.
 
 ## Tests
 
 `tests/unit/engine/indexer-file-counts.test.ts`,
+`tests/unit/engine/indexer.test.ts`,
 `tests/unit/cli/index-file-counts.test.ts`,
 `tests/unit/cli/ensure-indexed.test.ts`,
 `tests/unit/cli/snapshot-diff.test.ts`,
 `tests/unit/cli/init.test.ts`, `tests/unit/embedding/openrouter.test.ts`,
+`tests/unit/cli/setup-provider.test.ts`, `tests/unit/cli/setup.test.ts`,
+`tests/unit/cli/doctor.test.ts`,
 `tests/unit/storage/vectors-init.test.ts`,
 `tests/unit/knowledge/document-indexer.test.ts`,
 `tests/evals/code-search-retrieval.eval.test.ts`,
@@ -57,14 +61,23 @@ their bytes match the snapshot.
 
 ## Embedding provider modes
 
-Project initialization owns the embedding preset. Plain `idx init` uses the
-local preset: Ollama `jina-8k` for code, `nomic-embed-text-v2-moe` for documents,
-Nomic query/document prefixes, and 768-dimensional vectors. Explicit
-`idx init --embedding openrouter` uses
+Project initialization owns the embedding preset. Plain `idx init` for a new
+project defaults to OpenRouter, as does explicit `idx init --embedding openrouter`:
 `perplexity/pplx-embed-v1-0.6b` for both domains, empty query/document prefixes,
 and 1024-dimensional vectors. OpenRouter credentials come from
 `OPENROUTER_API_KEY` in the process environment or the shared
 `~/.config/idx/.env` file; the process environment takes precedence.
+
+Explicit `idx init --embedding local` uses Ollama `jina-8k` for code,
+`nomic-embed-text-v2-moe` for documents, Nomic query/document prefixes, and
+768-dimensional vectors. Repeated initialization without `--embedding` preserves
+the stored project configuration, including legacy local configurations. The
+configuration loader retains local fallback values for legacy configs; the new
+default is selected only at initialization when no config file exists. Missing
+OpenRouter credentials fail before storage creation or rebuilding unless initial
+indexing is explicitly skipped by an internal caller. Local CLI/e2e tests select
+`--embedding local` explicitly; unit tests cover the OpenRouter default without
+paid requests.
 
 All semantic CLI paths construct providers through the shared embedding factory,
 so indexing, automatic refresh, search, context, and audit use the same persisted
@@ -80,11 +93,23 @@ The vector store independently rejects an existing `vec_chunks` table whose
 declared dimension differs from `vectorSize`, preventing mixed embedding spaces
 from being queried accidentally.
 
-Full project repair supports the same explicit override through `idx doctor
---embedding <local|openrouter>`. Without that option, doctor preserves the
-project's stored provider. The OpenRouter override validates credentials before
-uninstalling project-local index state and skips Ollama/model setup during the
-doctor prerequisite pass.
+Dependency setup uses the same branch: `idx setup` defaults to OpenRouter,
+requires the shared API key, and skips Ollama and local models entirely.
+`idx setup --embedding local` requires manually installed Ollama, starts its
+daemon if needed, and prepares both local embedding models without requiring
+an API key. Missing remote credentials fail before system setup changes;
+credential validation makes no API request. Installing the npm package itself
+does not require either embedding provider.
+
+Full project repair supports the explicit override through `idx doctor
+--embedding <local|openrouter>`. Without that option, doctor derives prerequisites
+from each selected project's stored provider (legacy configs without a provider
+remain local), then preserves that mode on reinitialization. Remote-only sets
+skip Ollama; local-only sets need no API key; mixed sets require both. With no
+selected projects, doctor defaults to OpenRouter prerequisites. Stale registry
+entries do not add requirements. Explicit overrides select one provider for the
+prerequisite pass and full reinitialization. Failed setup or missing credentials
+stop before uninstalling any project-local index state.
 
 Document chunking retains the normal 700-token upper bound. The additional
 `ollamaNumCtx` limit applies only to the Ollama provider; remote providers use
@@ -105,6 +130,13 @@ incremental run that only copies existing records reports zero indexed files.
 Automatic `IDX files=...` output uses the engine's count rather than the raw
 number of Git changes, which can include unsupported or ignored paths.
 Existing per-file errors continue to be reported separately.
+
+When full or incremental indexing throws an aggregate preparation error, its
+message includes the summary count followed by every collected per-file error,
+including the repository-relative path and underlying cause. Explicit CLI
+indexing and automatic refresh expose these details without requiring debug
+logging; failed snapshot metadata retains the same detailed message. This does
+not change which runs fail or complete with separately reported errors.
 
 Snapshot `totalFiles` and progress callbacks include both code and documents.
 Incremental progress includes copied records in its initial processed offset,

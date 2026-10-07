@@ -2,11 +2,12 @@ import { mkdtempSync, mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import ts from "typescript";
 import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { performInit } from "../../../src/cli/commands/init.js";
+import * as embeddingFactory from "../../../src/embedding/factory.js";
 
 const tempDirs: string[] = [];
 
@@ -53,6 +54,7 @@ const initInternals = await loadInitInternals<{
 }>();
 
 afterEach(async () => {
+	vi.restoreAllMocks();
 	await Promise.all(
 		tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })),
 	);
@@ -220,6 +222,92 @@ describe("init command helpers", () => {
 });
 
 describe("init command source", () => {
+	it("defaults new projects to OpenRouter and preserves the preset and storage on repeated init", async () => {
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-default-"));
+		tempDirs.push(projectRoot);
+		await performInit(projectRoot, { skipIndexing: true });
+		const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
+		const stored = JSON.parse(readFileSync(configPath, "utf8"));
+		expect(stored).toMatchObject({
+			embeddingProvider: "openrouter",
+			embeddingModel: "perplexity/pplx-embed-v1-0.6b",
+			knowledgeEmbeddingModel: "perplexity/pplx-embed-v1-0.6b",
+			knowledgeEmbeddingQueryPrefix: "",
+			knowledgeEmbeddingDocumentPrefix: "",
+			embeddingContextSize: 32768,
+			vectorSize: 1024,
+		});
+		const dbPath = path.join(projectRoot, ".indexer-cli", "db.sqlite");
+		const db = new Database(dbPath);
+		db.exec("CREATE TABLE init_sentinel (value TEXT)");
+		db.close();
+		await performInit(projectRoot, { skipIndexing: true });
+		const reopened = new Database(dbPath, { readonly: true });
+		try {
+			expect(reopened.prepare("SELECT name FROM sqlite_master WHERE name = 'init_sentinel'").get()).toBeDefined();
+		} finally {
+			reopened.close();
+		}
+		expect(JSON.parse(readFileSync(configPath, "utf8"))).toMatchObject({
+			embeddingProvider: stored.embeddingProvider,
+			embeddingModel: stored.embeddingModel,
+			knowledgeEmbeddingModel: stored.knowledgeEmbeddingModel,
+			knowledgeEmbeddingQueryPrefix: stored.knowledgeEmbeddingQueryPrefix,
+			knowledgeEmbeddingDocumentPrefix: stored.knowledgeEmbeddingDocumentPrefix,
+			embeddingContextSize: stored.embeddingContextSize,
+			vectorSize: stored.vectorSize,
+		});
+	});
+
+	it("preserves an existing local project without an explicit embedding option", async () => {
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-local-"));
+		tempDirs.push(projectRoot);
+		await performInit(projectRoot, { skipIndexing: true, embedding: "local" });
+		await performInit(projectRoot, { skipIndexing: true });
+		expect(JSON.parse(readFileSync(path.join(projectRoot, ".indexer-cli", "config.json"), "utf8"))).toMatchObject({
+			embeddingProvider: "ollama", vectorSize: 768,
+		});
+	});
+
+	it("rejects default OpenRouter initialization without credentials before creating storage", async () => {
+		vi.spyOn(embeddingFactory, "loadOpenRouterApiKey").mockReturnValue(undefined);
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-no-key-"));
+		tempDirs.push(projectRoot);
+		await expect(performInit(projectRoot)).rejects.toThrow("requires OPENROUTER_API_KEY");
+		expect(() => readFileSync(path.join(projectRoot, ".indexer-cli", "config.json"))).toThrow();
+		expect(() => readFileSync(path.join(projectRoot, ".indexer-cli", "db.sqlite"))).toThrow();
+	});
+
+	it.each(["local", "openrouter"] as const)("leaves existing %s storage untouched when OpenRouter credentials are missing", async (embedding) => {
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-preserve-"));
+		tempDirs.push(projectRoot);
+		await performInit(projectRoot, { skipIndexing: true, embedding });
+		const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
+		const dbPath = path.join(projectRoot, ".indexer-cli", "db.sqlite");
+		const previousConfig = readFileSync(configPath);
+		const previousDb = readFileSync(dbPath);
+		vi.spyOn(embeddingFactory, "loadOpenRouterApiKey").mockReturnValue(undefined);
+		// Exercise both an explicit switch and repeated init of stored OpenRouter.
+		await expect(performInit(projectRoot, embedding === "local" ? { embedding: "openrouter" } : undefined))
+			.rejects.toThrow("requires OPENROUTER_API_KEY");
+		expect(readFileSync(configPath)).toEqual(previousConfig);
+		expect(readFileSync(dbPath)).toEqual(previousDb);
+	});
+
+	it("keeps local fallback for legacy config without an embedding provider", async () => {
+		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-legacy-"));
+		tempDirs.push(projectRoot);
+		await performInit(projectRoot, { skipIndexing: true, embedding: "local" });
+		const configPath = path.join(projectRoot, ".indexer-cli", "config.json");
+		const stored = JSON.parse(readFileSync(configPath, "utf8"));
+		delete stored.embeddingProvider;
+		writeFileSync(configPath, JSON.stringify(stored));
+		await performInit(projectRoot, { skipIndexing: true });
+		expect(JSON.parse(readFileSync(configPath, "utf8"))).toMatchObject({
+			embeddingProvider: "ollama", vectorSize: 768,
+		});
+	});
+
 	it("does not install or modify Git hooks", () => {
 		const source = readFileSync(
 			path.resolve(import.meta.dirname, "../../../src/cli/commands/init.ts"),
@@ -244,7 +332,7 @@ describe("init command source", () => {
 		const projectRoot = mkdtempSync(path.join(tmpdir(), "indexer-cli-init-openrouter-"));
 		tempDirs.push(projectRoot);
 
-		await performInit(projectRoot, { skipIndexing: true });
+		await performInit(projectRoot, { skipIndexing: true, embedding: "local" });
 		const dbPath = path.join(projectRoot, ".indexer-cli", "db.sqlite");
 		const firstDb = new Database(dbPath);
 		firstDb.exec("CREATE TABLE embedding_switch_sentinel (value TEXT)");

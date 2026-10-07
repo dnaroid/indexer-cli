@@ -51,6 +51,11 @@ import {
 
 const logger = new SystemLogger("indexer-engine");
 
+function preparationErrorMessage(mode: "Incremental" | "Full", errors: string[]): string {
+	const summary = `${mode} indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`;
+	return `${summary}\n${errors.map((error) => `  - ${error}`).join("\n")}`;
+}
+
 type MetadataStoreWithProgress = MetadataStore & {
 	updateSnapshotProgress(
 		id: SnapshotId,
@@ -1209,7 +1214,7 @@ export class IndexerEngine {
 				);
 				await this.architectureGenerator.generate(projectId, snapshotId);
 				if (errors.length > 0) {
-					const message = `Incremental indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`;
+					const message = preparationErrorMessage("Incremental", errors);
 					await this.metadata.updateSnapshotStatus(snapshotId, "failed", message);
 					throw new Error(message);
 				}
@@ -1236,7 +1241,7 @@ export class IndexerEngine {
 
 			await this.architectureGenerator.generate(projectId, snapshotId);
 			if (errors.length > 0) {
-				const message = `Incremental indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`;
+				const message = preparationErrorMessage("Incremental", errors);
 				await this.metadata.updateSnapshotStatus(snapshotId, "failed", message);
 				throw new Error(message);
 			}
@@ -2020,7 +2025,7 @@ export class IndexerEngine {
 			}
 			if (filesToIndex.length === 0 && errors.length > 0) {
 				throw new Error(
-					`Full indexing completed with ${errors.length} preparation error${errors.length === 1 ? "" : "s"}`,
+					preparationErrorMessage("Full", errors),
 				);
 			}
 			if (totalFiles === 0) onProgress?.(0, 0);

@@ -36,7 +36,7 @@ describe.sequential("idx search ranking contract", () => {
 		removeTempProject(root);
 		createTempProject(root);
 		gitInit(root);
-		const init = runCLI(["init"], { cwd: root });
+		const init = runCLI(["init", "--embedding", "local"], { cwd: root });
 		expect(
 			init.exitCode,
 			`init stdout:\n${init.stdout}\ninit stderr:\n${init.stderr}`,

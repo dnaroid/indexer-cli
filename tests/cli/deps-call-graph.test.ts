@@ -70,7 +70,7 @@ function objectReceiver() {
 `,
 		);
 		gitInit(tempDir);
-		const init = runCLI(["init"], { cwd: tempDir });
+		const init = runCLI(["init", "--embedding", "local"], { cwd: tempDir });
 		if (init.exitCode !== 0) throw new Error(init.stderr);
 	}, 30_000);
 

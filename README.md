@@ -18,6 +18,7 @@ Index once. Give Claude, OpenCode, and other coding agents the right context wit
 
 ```bash
 npm install -g indexer-cli@latest
+# Set OPENROUTER_API_KEY in the environment or ~/.config/idx/.env first.
 idx setup
 ```
 
@@ -29,8 +30,9 @@ idx index
 idx context "how authentication refresh works"
 ```
 
-> **Local by default:** source code and embeddings stay in your project. Embeddings are generated through your local
-> [Ollama](https://ollama.com/) instance and stored under `.indexer-cli/`.
+> **Local storage, remote embeddings by default:** the index stays under `.indexer-cli/`, but new projects send
+> code/document chunks and search queries to OpenRouter for embeddings. For local embedding processing, use
+> `idx init --embedding local` with [Ollama](https://ollama.com/).
 > Optional Jev document classification sends only bounded document-classification input to OpenRouter when configured;
 > retrieval commands themselves do not call a generative model.
 
@@ -41,8 +43,9 @@ can navigate efficiently. `idx init` initializes the local index without changin
 When you want a project-local discovery skill, opt in explicitly with `--claude`, `--codex`, or both so the selected
 agent can pick the right indexed workflow instead of wasting tokens on blind `rg`/`grep`, `find`, and repeated file reads.
 
-Under the hood, `indexer-cli` indexes source code plus document-domain knowledge, generates vector embeddings through a
-local Ollama instance, and stores everything in a per-project `.indexer-cli/` directory. Code and documents remain
+Under the hood, `indexer-cli` indexes source code plus document-domain knowledge, generates vector embeddings through
+OpenRouter by default (or a local Ollama instance when explicitly selected), and stores the index in a per-project
+`.indexer-cli/` directory. Code and documents remain
 separate search domains by default. That gives both humans and agents fast natural-language code search, project
 contract/spec retrieval, repo structure snapshots, and low-friction incremental reindexing without any daemon or
 background service. Discovery commands refresh changed files automatically before reading, without installing Git
@@ -62,21 +65,21 @@ hooks; semantic document-purpose inference is optional and advisory.
 - **Task-scoped documentation audit**: `idx audit <changed-paths...>` separates explicit spec declarations from possible document candidates
 - **Incremental indexing**: Uses `git diff` to re-index only changed files, bulk-copies unchanged vectors
 - **Local-first**: All data stored in `.indexer-cli/` inside the project (SQLite + sqlite-vec)
-- **Selectable embeddings**: The default local mode uses Ollama with `jina-8k` for code and multilingual
-  `nomic-embed-text-v2-moe` for project knowledge (768 dimensions). `idx init --embedding openrouter`
-  instead uses `perplexity/pplx-embed-v1-0.6b` for both domains (1024 dimensions) while keeping vectors
-  in the same local sqlite-vec store.
+- **Selectable embeddings**: New projects default to OpenRouter with `perplexity/pplx-embed-v1-0.6b`
+  for code and project knowledge (1024 dimensions), while keeping vectors in the local sqlite-vec store.
+  `idx init --embedding local` selects Ollama with `jina-8k` for code and multilingual
+  `nomic-embed-text-v2-moe` for knowledge (768 dimensions).
 - **Architecture snapshot**: Generates dependency graphs, entry points, and file stats
 - **Symbol extraction**: Functions, classes, interfaces, and imports are all indexed
 - **Adaptive chunking**: Smart code splitting at function, module, or single-file granularity
 
 ## Prerequisites
 
-- Default/local embedding mode: [Ollama](https://ollama.ai) installed manually. `idx setup` verifies it,
+- Optional local embedding mode: [Ollama](https://ollama.ai) installed manually. `idx setup --embedding local` verifies it,
   starts the daemon if needed, and prepares the code (`jina-8k`) and multilingual knowledge
   (`nomic-embed-text-v2-moe`) embedding models.
-- Optional OpenRouter embedding mode: set `OPENROUTER_API_KEY` in the environment or in
-  `~/.config/idx/.env`, then initialize with `idx init --embedding openrouter`. Ollama is not used for
+- Default OpenRouter embedding mode: set `OPENROUTER_API_KEY` in the environment or in
+  `~/.config/idx/.env`, then run `idx setup` and initialize with `idx init`. Ollama is not used for
   semantic embeddings in that project.
 - Node.js >=22.19.0 and <27, plus build tools (python3, make, C++ compiler) for native dependencies.
 
@@ -97,11 +100,13 @@ The `setup` command handles global installation automatically: it installs index
 npm install -g indexer-cli@latest
 idx --version
 
-# First-time dependency/bootstrap setup
+# Dependency/bootstrap setup (OpenRouter API key required)
 idx setup
+# Alternative: local Ollama prerequisites, no API key required
+idx setup --embedding local
 
-# Alternative: run via npx (no install needed)
-npx indexer-cli@latest setup
+# Alternative: initialize via npx (API key required; no install needed)
+npx indexer-cli@latest init
 ```
 
 When installing the current source checkout globally on macOS, use `npm run install:global`.
@@ -134,17 +139,16 @@ global npm install should no longer depend on that wrapper.
 npm install -g indexer-cli@latest
 idx --version
 
-# 2a. Default/local mode: prepare Ollama and the local embedding models
+# 2/3. Default: use OpenRouter (no agent skill is installed by default)
+# Put OPENROUTER_API_KEY in the environment or ~/.config/idx/.env first.
 idx setup
-
-# 3a. Initialize the default local mode (no agent skill is installed by default)
 cd /path/to/your/project
 idx init
 
-# 2b/3b. Alternative: skip Ollama setup and use OpenRouter embeddings
-# Put OPENROUTER_API_KEY in the environment or ~/.config/idx/.env first.
+# Alternative: prepare Ollama and select local embeddings explicitly
+idx setup --embedding local
 cd /path/to/your/project
-idx init --embedding openrouter
+idx init --embedding local
 
 # Optional: enable one or both project-local agent integrations
 idx init --claude
@@ -176,8 +180,8 @@ Creation is optional and never overwrites an existing file. The file is
 user-global rather than project-local. If `XDG_CONFIG_HOME` is an absolute path, the file is
 `$XDG_CONFIG_HOME/idx/.env` instead. Exported environment variables override the
 file, including explicitly empty values. Project-local `.env` files are **not**
-loaded. The API key is used when a project explicitly selects
-`--embedding openrouter` and can also enable optional Jev document classification;
+loaded. The API key is used by projects with OpenRouter embeddings (the default for new projects,
+or explicitly selected with `--embedding openrouter`) and can also enable optional Jev document classification;
 the presence of a key by itself never changes a project's embedding mode.
 
 The source installer prints the resolved path. npm may hide postinstall output;
@@ -288,9 +292,15 @@ usage during repo discovery.
 
 ### `idx setup`
 
-Install indexer-cli globally via npm, check system prerequisites, prepare the Ollama embedding model, and install
+Install indexer-cli globally via npm, check system prerequisites and the selected embedding provider, and install
 or repair the `idx` command alias in `~/.local/bin/`. `setup` can install some system tools where appropriate, but
-Ollama itself must be installed manually first. Works on macOS and Linux.
+Ollama itself must be installed manually first for local mode. Works on macOS and Linux.
+
+`idx setup` (or `--embedding openrouter`) requires `OPENROUTER_API_KEY` in the environment or
+`~/.config/idx/.env` and skips Ollama entirely. `idx setup --embedding local` checks/starts Ollama
+and prepares both embedding models without requiring an API key. Missing OpenRouter credentials
+fail before setup makes system changes; credential checks make no API request. `npm install` itself
+does not require either provider to be configured.
 
 After running `setup`, restart your shell to ensure `idx` is on `PATH`.
 
@@ -301,14 +311,15 @@ to `.gitignore`. It never installs or modifies Git hooks: discovery commands ref
 before reading, and `idx index` refreshes explicitly. Agent skills are
 opt-in: `--claude` writes under `.claude/skills/`, `--codex` writes under `.agents/skills/`, and only idx-generated
 `repo-discovery` skill directories are added to `.gitignore`. Plain `idx init` never adds agent/context paths such as
-`.claude/`, `.agents/`, `CLAUDE.md`, or `AGENTS.md`. Plain `idx init` also keeps the default local embedding mode,
-which may start Ollama and download/create the `jina-8k` model on first use.
+`.claude/`, `.agents/`, `CLAUDE.md`, or `AGENTS.md`. Plain `idx init` defaults new projects to OpenRouter;
+repeated initialization preserves the stored embedding preset.
 
-Use `idx init --embedding openrouter` to opt the project into OpenRouter embeddings. That preset uses
+OpenRouter (also selectable explicitly with `idx init --embedding openrouter`) uses
 `perplexity/pplx-embed-v1-0.6b` for both code and project documents, stores 1024-dimensional vectors, and does not add
 Nomic-style query/document prefixes. It reads `OPENROUTER_API_KEY` from the process environment first and then from
 `~/.config/idx/.env`. Switching an already initialized project between `local` and `openrouter` rebuilds the derived
 SQLite index because the vector dimensions and embedding spaces are incompatible; source files are untouched.
+Use `idx init --embedding local` for Ollama, which may start the daemon and download/create local models on first use.
 
 When run from a subdirectory of a Git project, `idx init` automatically initializes the Git project root.
 
@@ -316,7 +327,7 @@ When run from a subdirectory of a Git project, `idx init` automatically initiali
 |---------------------|---------------------------------------------------------------------------------------------|
 | `--claude`          | Install/enable `repo-discovery` under `.claude/skills/`                                     |
 | `--codex`           | Install/enable `repo-discovery` under `.agents/skills/`                                     |
-| `--embedding <mode>` | Select `local` (default) or `openrouter` embeddings for this project                      |
+| `--embedding <mode>` | Select `local` or `openrouter` (default for new projects); omission preserves existing configs |
 | `--refresh-skills`  | Refresh only enabled skill targets (plus targets explicitly supplied in this invocation)   |
 
 ### `idx skills`
@@ -671,10 +682,13 @@ subdirectories for `.indexer-cli/`, auto-registers found projects, and operates 
 | `--embedding <mode>` | Force `local` or `openrouter` embeddings during full reinitialization |
 | `-f, --force`       | Skip confirmation prompt                         |
 
-When `--embedding openrouter` is selected, doctor skips Ollama model setup,
-requires `OPENROUTER_API_KEY`, and reinitializes each selected project with the
-same OpenRouter preset used by `idx init --embedding openrouter`. Without an
-explicit override, doctor preserves each project's existing embedding mode.
+Doctor checks dependencies for the selected projects' stored embedding modes before repair:
+OpenRouter requires `OPENROUTER_API_KEY` and skips Ollama for remote-only projects;
+local projects require Ollama and its models but no API key. Mixed sets require both.
+Without projects, the prerequisite check defaults to OpenRouter. An explicit `--embedding`
+override selects the required provider and the preset for full reinitialization.
+Without an override, doctor preserves each project's mode, including legacy local configs.
+Failed prerequisites stop repair before any project index is uninstalled.
 
 The global registry is maintained automatically: `idx init` registers a project, `idx uninstall` unregisters it.
 `idx doctor <dir>` also registers discovered projects.
