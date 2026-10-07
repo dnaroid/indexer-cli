@@ -271,7 +271,8 @@ spec matches separately from possible document candidates, and correct genuine
 semantic drift. No documentation edits or review ceremony are required when
 source documents remain accurate or the change is non-behavioral.
 
-All discovery commands return human-readable text output, optimized for coding agents.
+Discovery commands return human-readable output optimized for coding agents, with
+`idx knowledge status --json` as the structured-report exception.
 
 For a coding task, start with `idx context '<query>'` when you need project
 behavior, contracts, implementation, and tests together. Use `idx search` for
@@ -471,6 +472,16 @@ workflows. Receipts live in `.indexer-cli/knowledge-reviews`; missing dependenci
 and invalid receipts fail closed. A clean result is content equality with an
 attestation, not proof of semantic correctness. See
 [the contract](docs/specs/knowledge-review-monitoring.md).
+
+### `idx knowledge status --json`
+
+Prints the complete read-only review report as JSON, including aggregate
+`status`/`counts`, per-spec reasons and changed paths, optional review times, and
+warnings. Complete `clean` and `dirty` reports exit 0; an incomplete report is
+still printed with status `error`, useful stderr, and exit 2. A failure before a
+report exits 2 without claiming a clean result. `--json` is required; the
+command reads only the current initialized project and does not update review
+state, index data, or providers.
 
 ### `idx audit <changed-paths...>`
 

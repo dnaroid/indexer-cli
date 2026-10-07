@@ -11,7 +11,7 @@ status: active
 exactly one lowercase line: `yes` if any selected spec is dirty/unreviewed, `no`
 if all selected specs are clean (including an empty selected set). It resolves
 the project from the working directory, including nested directories, and accepts
-no project/JSON options. Successful checks exit 0 for either answer; callers read
+no project options. Successful checks exit 0 for either answer; callers read
 the value rather than interpreting dirtiness as a command failure. Incomplete
 checks conservatively print `yes`, explain the failure on stderr and exit 2;
 they must never print `no`. It uses local content comparison,
@@ -47,10 +47,20 @@ when invoked from a nested directory. Successful acknowledgment prints
 exit 2 without success output. Exact content reversions are clean again; this
 tracks current content equality, not every historical edit or Git commit.
 
-The knowledge CLI exposes only `dirty` and `acknowledge`: no detailed status,
-external-project or JSON options. An empty selected set returns `no`; this does
-not imply that unregistered/undeclared docs were checked. Internal report reasons
-remain implementation details, not additional CLI commands.
+`idx knowledge status --json` prints the complete read-only report returned by
+`knowledgeReviewStatus`: `{status, counts, specs, warnings}`. Each spec row has
+`path`, `status`, `reasons`, and `changedPaths`, plus `reviewedAt` when a receipt
+exists. Status is `clean`, `dirty`, or `error`; counts contain `clean`, `dirty`,
+and `error` totals. Complete clean and dirty reports both exit 0. Incomplete
+reports still print their structured status and exit 2 with useful stderr;
+failures before a report print no JSON and exit 2. `--json` is required. This
+does not add project overrides or change acknowledgment/dirty behavior. An empty
+selected set returns `no` from `dirty`; this does not imply that
+unregistered/undeclared docs were checked.
+
+The detailed JSON interface is a user-approved addition to this contract; the
+historical decision below records the earlier exclusion and is not silently
+rewritten.
 Review and index freshness are distinct: indexing and task audit never
 acknowledge a spec or clear monitoring state.
 
@@ -93,7 +103,8 @@ See [the decision](../decisions/offline-knowledge-review-monitoring.md) and
 
 Verify never-reviewed → acknowledge → clean → dependency change → dirty, plus
 spec edits, directory membership changes, content reversion, unrelated files,
-invalid receipts and acknowledgment failures. Verify current-project
-`dirty` outputs only yes/no, works in nested directories, preserves read-only
-behavior and fails closed for missing dependencies/project configuration.
+invalid receipts and acknowledgment failures. Verify current-project `dirty`
+outputs only yes/no and `status --json` returns the complete report, works in
+nested directories, preserves read-only behavior and fails closed for missing
+dependencies/project configuration.
 No provider is required.

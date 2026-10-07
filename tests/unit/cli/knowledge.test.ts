@@ -18,12 +18,52 @@ beforeEach(async () => {
 	process.exitCode = 0;
 });
 afterEach(async () => { process.exitCode = 0; config.load(root); vi.restoreAllMocks(); await rm(root, { recursive: true, force: true }); });
-it("exposes only dirty and acknowledge, without external-project or JSON options", () => {
+it("exposes dirty, JSON status, and acknowledge, without external-project options", () => {
 	const program = new Command();
 	registerKnowledgeCommand(program);
 	const knowledge = program.commands[0];
-	expect(knowledge.commands.map(command => command.name())).toEqual(["dirty", "acknowledge"]);
-	for (const command of knowledge.commands) expect(command.options).toEqual([]);
+	expect(knowledge.commands.map(command => command.name())).toEqual(["dirty", "status", "acknowledge"]);
+	expect(knowledge.commands[0].options).toEqual([]);
+	expect(knowledge.commands[1].options.map(option => option.flags)).toEqual(["--json"]);
+	expect(knowledge.commands[2].options).toEqual([]);
+});
+
+it("prints the complete status report as JSON and fails incomplete reports", async () => {
+	const status = (cwd = root) => runCLI(["knowledge", "status", "--json"], { cwd });
+	const initial = status();
+	expect(initial.exitCode, initial.stderr).toBe(0);
+	const initialReport = JSON.parse(initial.stdout);
+	expect(initialReport).toEqual({
+		status: "dirty",
+		counts: { clean: 0, dirty: 1, error: 0 },
+		specs: [{ path: "spec.md", status: "dirty", reasons: ["never-reviewed"], changedPaths: ["code.ts", "spec.md"] }],
+		warnings: [],
+	});
+	const ack = runCLI(["knowledge", "acknowledge", "spec.md"], { cwd: root });
+	expect(ack.exitCode).toBe(0);
+	const clean = status();
+	expect(clean.exitCode, clean.stderr).toBe(0);
+	expect(JSON.parse(clean.stdout)).toMatchObject({
+		status: "clean",
+		counts: { clean: 1, dirty: 0, error: 0 },
+		specs: [{ path: "spec.md", status: "clean", reasons: [], changedPaths: [], reviewedAt: expect.any(String) }],
+		warnings: [],
+	});
+	await rm(path.join(root, "code.ts"));
+	const incomplete = status();
+	expect(incomplete.exitCode).toBe(2);
+	expect(JSON.parse(incomplete.stdout)).toMatchObject({
+		status: "error",
+		counts: { clean: 0, dirty: 0, error: 1 },
+		specs: [{ path: "spec.md", status: "error", reasons: [expect.stringContaining("code.ts")], changedPaths: [] }],
+		warnings: [],
+	});
+	expect(incomplete.stderr).toContain("incomplete");
+	await rm(path.join(root, ".indexer-cli"), { recursive: true });
+	const missingProject = status();
+	expect(missingProject.exitCode).toBe(2);
+	expect(missingProject.stdout).toBe("");
+	expect(missingProject.stderr).toContain("Knowledge review failed");
 });
 
 it("prints only yes/no for current-project dirtiness, including fail-closed errors", async () => {

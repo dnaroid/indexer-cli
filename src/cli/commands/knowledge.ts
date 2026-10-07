@@ -33,6 +33,22 @@ export function registerKnowledgeCommand(program: Command): void {
 				failure(error);
 			}
 		});
+	knowledge.command("status")
+		.description("Print the complete knowledge review report as JSON")
+		.requiredOption("--json", "print the report as JSON")
+		.action(async () => {
+			try {
+				const report = await knowledgeReviewStatus(loadProject());
+				console.log(JSON.stringify(report));
+				if (report.status === "error") {
+					const details = report.specs.filter(row => row.status === "error")
+						.map(row => `${row.path}: ${row.reasons.join(", ")}`);
+					failure(new Error(`Knowledge check incomplete: ${[...details, ...report.warnings].join("; ") || "report is incomplete"}`));
+				} else {
+					process.exitCode = 0;
+				}
+			} catch (error) { failure(error); }
+		});
 	knowledge.command("acknowledge <spec-paths...>")
 		.description("Explicitly attest that these specs were compared with current implementation/tests")
 		.action(async (paths: string[]) => {
